@@ -1,64 +1,62 @@
 # AssayLint
 
-**Trust your experiment before trusting your result.** AssayLint reviews a qPCR run before you rely on it. It reads an instrument export and plate map, runs transparent checks on structure, controls, replicates, curves and method metadata, and links every flag to the evidence and the versioned rule that produced it.
+**Check your qPCR run before you trust the numbers.**
 
-It is a static web app: it runs entirely in the browser, stores data only on your device, and can be hosted on GitHub Pages. Requirements are in [docs/prd.md](docs/prd.md); what is covered and what is not is in [docs/prd-coverage.md](docs/prd-coverage.md).
+Live: https://siddhantrajnaik.github.io/assaylint/
 
-> AssayLint supports human review. It does not certify an experiment, judge a biological conclusion, or guarantee reproducibility. Default thresholds are placeholders that have **not** been reviewed by a qPCR domain expert.
+I made AssayLint to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control, a standard curve that's off. You upload the export from your instrument and it shows you what looks off, with the exact values behind each flag.
 
-## What it does
+It runs in your browser. Your files never get uploaded anywhere, and there's no account to make.
 
-1. **Setup**: experiment with a stable ID, title, date, operator and project.
-2. **Data**: import a results file (Thermo QuantStudio text or CSV, Applied Biosystems SDS 7500/7900HT, Bio-Rad CFX “Quantification Cq Results”, LightCycler 480 text, or a generic Ct/Cq table), plus optional amplification and melt curves. You see a parse preview before anything is analysed; unparseable input stops with an explanation and an import template.
-3. **Plate map**: edit sample, target, group, role (sample, NTC, positive, no-RT, standard, empty), biological unit and quantity per well, in bulk or per row, or import a plate-map template. Edits change labels only; file values stay visible.
-4. **Context & rules**: method context (protocol, assay details, efficiency evidence, analysis method, instrument, run settings, lots, deviations); configurable, versioned rule profiles; expected controls per target, with “not applicable” plus a reason.
-5. **Findings**: summary status (not a score), a 3D plate (three.js, 2D fallback), amplification, melt and standard-curve plots, replicate and biological-unit tables, and findings sortable by severity, well, sample, target, category or rule. Each finding says what was checked, what AssayLint saw, why it might matter and what to check next, and can be marked accepted, not applicable, resolved or unresolved with a note.
-6. **Report & export**: HTML report (or print to PDF), well-level CSV, findings CSV, structured JSON, and a re-importable experiment packet with checksum verification.
-7. **Compare runs**: differences in recorded context and settings, mean Ct per biological unit and target, controls and finding counts.
+It won't tell you your experiment is right. It points out things worth a second look, and you decide what to do about each one.
 
-Every change is autosaved and recorded in an audit history (who, when, what changed). The rule catalog is in [docs/rules.md](docs/rules.md); file formats are in [docs/formats.md](docs/formats.md); data handling is in [PRIVACY.md](PRIVACY.md).
+## What you can do with it
 
-## Try it
+- **Upload** a results file from QuantStudio, Bio-Rad CFX, ABI 7500/7900HT, LightCycler 480, or a plain CSV with well and Ct/Cq columns. Amplification and melt curve files are optional. You see what was read before anything gets checked.
+- **Fix the plate map**: samples, targets, controls (NTC, positive, no-RT, standards) and which wells are the same biological sample.
+- **Add method details** and set your own thresholds, or save them as a lab profile.
+- **Go through the flags.** Each one tells you what was checked, what it found, why it might matter and what to look at next. Mark each as accepted, not applicable, resolved or unresolved, and add a note.
+- **Download** a report (HTML or PDF), the well data and flags as CSV, or the whole experiment as one file you can open again later.
+- **Compare** two runs to see what changed.
+
+## Run it yourself
 
 ```bash
 python -m http.server 8123 --directory web
 ```
 
-Open http://localhost:8123 and click **Try demo** (synthetic data with deliberate issues).
+Then open http://localhost:8123 and click **Open demo run**.
 
-Command line, using the same engine (Node 20+):
+There's also a command-line version (needs Node 20+):
 
 ```bash
-node cli.mjs examples/demo_results.csv --amp examples/demo_amplification.csv --melt examples/demo_melt_derivative.csv --expect ntc,positive,nrt --report report.html
+node cli.mjs examples/demo_results.csv --amp examples/demo_amplification.csv --melt examples/demo_melt_derivative.csv --report report.html
 ```
 
-Tests (public instrument files are downloaded first; their tests are skipped if absent):
+Tests:
 
 ```bash
 node testdata/fetch-public.mjs
 node --test tests/*.test.mjs
 ```
 
-## Deploy to GitHub Pages
+## Things to know
 
-Push to a repository's `main` branch, then in **Settings → Pages** set **Source** to **GitHub Actions**. The workflow in `.github/workflows/pages.yml` runs the tests and publishes `web/`. three.js r187 is vendored in `web/vendor/` (MIT), so no CDN is used.
+- I've tested it on 12 real exports from public datasets plus realistic files I generated ([testdata/README.md](testdata/README.md)). Machines I haven't seen yet may lay files out differently. If yours doesn't open, email it to me and I'll add support.
+- Excel files and raw run files (`.eds`, `.pcrd`) don't open. Export CSV or text from your instrument software.
+- The default thresholds are common rules of thumb, not reviewed standards. Change them to match your lab.
+- Data is saved in your browser only. Download the experiment packet if you want a backup. More in [PRIVACY.md](PRIVACY.md).
 
-## Layout
+More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
 
-| Path | Contents |
-|---|---|
-| `web/core.js` | Parsers, rule catalog, analysis, comparison, packet verification (no DOM) |
-| `web/report.js` | HTML report and CSV/JSON exports |
-| `web/app.js`, `index.html`, `style.css` | The UI |
-| `web/store.js` | Browser storage |
-| `web/plate3d.js`, `web/charts.js` | 3D plate and curve plots |
-| `web/demo.js` | Deterministic synthetic demo run |
-| `cli.mjs` | Command line |
-| `tests/` | Node tests |
+## Who made this
 
-## Known limits
+**Siddhant Raj Naik**, PhD, KSBS, IIT Delhi.
 
-- Parsers are tested on 12 public real exports (QuantStudio, Bio-Rad CFX, ABI 7500/7900HT) and 7 realistic fixtures ([testdata/README.md](testdata/README.md)). Other vendors and real curve exports are not yet covered.
-- Excel and binary run files (`.xlsx`, `.eds`, `.pcrd`) are not read; export CSV or text.
-- Storage is per browser and not encrypted by AssayLint; there are no accounts or shared lab workspaces. Share by exporting a packet.
-- Rules and thresholds still need expert review (PRD §12).
+Questions, bugs, or a file it can't read: **siddhantrajnaik2001@gmail.com**
+
+LinkedIn: [siddhant-raj-naik](https://www.linkedin.com/in/siddhant-raj-naik-22065b205)
+
+GitHub: [@siddhantrajnaik](https://github.com/siddhantrajnaik)
+
+Built with three.js (MIT) and IBM Plex fonts (SIL OFL).

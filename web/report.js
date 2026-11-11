@@ -3,6 +3,7 @@ import {
   TOOL, APP_VERSION, PARSER_VERSION, PACKET_VERSION, RULES, RULES_REVIEW, CATEGORY_LABEL, DISPOSITION_LABEL, ROLE_LABEL,
   FORMATS, CONTEXT_FIELDS, RULESET_FIELDS, rulesetId, rulesetChanges, toCsv,
 } from "./core.js";
+import { CREDIT } from "./credit.js";
 
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const when = iso => (iso ? iso.slice(0, 16).replace("T", " ") + " UTC" : "");
@@ -114,6 +115,7 @@ ${table(["When", "Who", "Action", "Detail"], exp.audit.map(a => [when(a.at), a.a
 
 <h2>13. Limitations</h2>
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
+<p class="sub">AssayLint is made by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? `, <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.</p>
 ${exp.feedback ? `<p class="sub">Usefulness feedback recorded in this experiment: ${esc(exp.feedback.value)} (${esc(exp.feedback.by)}).</p>` : ""}
 </body></html>`;
 }

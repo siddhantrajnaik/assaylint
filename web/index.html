@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AssayLint — review your qPCR run before you rely on it</title>
+<title>AssayLint: check your qPCR run</title>
 <meta name="theme-color" content="#EFF2F0">
-<meta name="description" content="Transparent, evidence-linked checks for qPCR runs. Runs entirely in your browser.">
+<meta name="description" content="Check a qPCR run for mislabelled wells, failed controls and messy replicates before you analyse it. Runs in your browser. Made by Siddhant Raj Naik.">
+<meta name="author" content="Siddhant Raj Naik">
 <link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
@@ -18,14 +19,15 @@
 </div>
 
 <dialog id="dlg-privacy" aria-labelledby="privacy-title">
-  <h2 id="privacy-title">How AssayLint handles your data</h2>
+  <h2 id="privacy-title">Where your data goes</h2>
+  <p>Nowhere. Everything runs in your browser. There's no server behind this site, so I never see your files or results.</p>
   <ul>
-    <li><b>Processing:</b> all parsing and checks run in this browser tab. Files are never uploaded; this site has no server-side code, accounts, analytics or telemetry.</li>
-    <li><b>Storage:</b> experiments (including the original files you import) are saved in this browser's local storage on this device, for this site only. They are not encrypted by AssayLint; protection relies on your device account and disk encryption.</li>
-    <li><b>Access:</b> only people who can use this browser profile can see the data. To share with a collaborator, export the experiment packet or report and send it through a channel you trust.</li>
-    <li><b>Retention and backup:</b> data stays until you delete it or clear site data. There is no automatic backup; export the packet to keep a copy.</li>
-    <li><b>Deletion:</b> “Delete experiment” on the Setup tab removes the experiment, its files, plate map, notes and audit history from this browser. Clearing site data removes everything.</li>
-    <li><b>No secondary use:</b> your research data is never used for model training, benchmarking or sharing. There is nothing to opt into.</li>
+    <li><b>Saved where:</b> in this browser, on this computer. Another browser or computer won't see it.</li>
+    <li><b>Who can see it:</b> anyone who uses this browser profile. It isn't encrypted beyond whatever your computer already does.</li>
+    <li><b>Sharing:</b> download the report or experiment packet and send it however you normally would.</li>
+    <li><b>Backups:</b> there aren't any. Download the experiment packet if you want a copy.</li>
+    <li><b>Deleting:</b> use “Delete experiment” on the Setup tab, or clear this site's data in your browser to remove everything.</li>
+    <li><b>Tracking:</b> none. No analytics, no accounts, and your data is never used for anything else.</li>
   </ul>
   <p id="storage-usage" class="muted"></p>
   <form method="dialog"><button class="btn primary">Close</button></form>

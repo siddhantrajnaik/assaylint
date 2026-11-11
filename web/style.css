@@ -233,3 +233,8 @@ dialog ul { padding-left: 1.1rem; display: grid; gap: 8px; margin-bottom: 14px; 
 dialog form { margin-top: 16px; }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* credit */
+.credit p { margin: 0 0 4px; }
+.side-credit { font-size: .8rem; color: var(--muted); padding-top: 12px; border-top: 1px solid var(--rule); }
+.welcome-credit { grid-column: 1 / -1; font-size: .88rem; color: var(--muted); padding-top: 20px; border-top: 1px solid var(--rule-soft); }
