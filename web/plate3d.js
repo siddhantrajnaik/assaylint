@@ -2,11 +2,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 
-const COLORS = { high: 0xe5484d, medium: 0xf0a02a, low: 0xe9d84a, ok: 0x7fcf9b, empty: 0x9aa0aa };
+const COLORS = { high: 0xd14b3f, medium: 0xe09a3a, low: 0xe3cb62, ok: 0x8fc3a4, empty: 0xc9d1cd };
 
 function label(text) {
   const c = document.createElement("canvas"); c.width = c.height = 64;
-  const g = c.getContext("2d"); g.fillStyle = "#4a505a"; g.font = "bold 34px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+  const g = c.getContext("2d"); g.fillStyle = "#5b6762"; g.font = '500 32px "IBM Plex Sans", system-ui, sans-serif'; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(text, 32, 34);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
   s.scale.set(0.6, 0.6, 1); return s;
@@ -38,13 +38,13 @@ export function createPlate(container, onPick) {
     scene.remove(group); group.traverse(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose?.(); });
     group = new THREE.Group(); scene.add(group); wells = new Map(); selected.clear();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(cols + 1, 0.5, rows + 1),
-      new THREE.MeshPhysicalMaterial({ color: 0xf4f5f8, roughness: 0.35, clearcoat: 0.8, transparent: true, opacity: 0.95 }));
+      new THREE.MeshPhysicalMaterial({ color: 0xf7f8f7, roughness: 0.5, clearcoat: 0.4 }));
     slab.position.y = -0.25; group.add(slab);
     const geo = new THREE.CylinderGeometry(0.4, 0.34, 0.5, 32);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const key = String.fromCharCode(65 + r) + (c + 1), has = present.has(key);
       const state = has ? flags.get(key) || "ok" : "empty";
-      const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: COLORS[state], roughness: 0.25, clearcoat: 1, metalness: 0 }));
+      const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: COLORS[state], roughness: 0.35, clearcoat: 0.6, metalness: 0 }));
       m.position.set(c - (cols - 1) / 2, has ? 0.05 : -0.1, r - (rows - 1) / 2);
       m.userData = { key, has, baseY: m.position.y };
       group.add(m); wells.set(key, m);

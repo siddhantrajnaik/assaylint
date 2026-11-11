@@ -22,7 +22,7 @@ function h(tag, attrs, ...kids) {
   return e;
 }
 
-const st = { exp: null, res: null, err: null, tab: "setup", sel: new Set(), selFinding: null, pending: {}, sort: "severity",
+const st = { category: "", exp: null, res: null, err: null, tab: "setup", sel: new Set(), selFinding: null, pending: {}, sort: "severity",
   filter: "", hideClosed: false, compareId: "", mapFilter: "all", bulkField: "role", saveError: null, flash: null };
 const after = [];
 const actor = () => S.getSetting("actor") || "local user";
@@ -64,22 +64,37 @@ addEventListener("beforeunload", e => { if (st.saveError) e.preventDefault(); })
 // ---------------------------------------------------------------- shell
 function render() { renderSidebar(); renderMain(); }
 const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter(k => k != null && k !== false));
+const NS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, ...kids) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; }
+// A microplate drawn as wells; `lit` maps well keys to a colour variable.
+function plateArt(rows, cols, lit = {}, r = 4.2) {
+  const g = 11, s = svg("svg", { viewBox: `0 0 ${cols * g + 2} ${rows * g + 2}`, "aria-hidden": "true", class: "plate-art" });
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+    const k = String.fromCharCode(65 + i) + (j + 1);
+    s.append(svg("circle", { cx: j * g + g / 2 + 1, cy: i * g + g / 2 + 1, r, style: `fill:var(${lit[k] || "--well"})` }));
+  }
+  return s;
+}
 function renderSidebar() {
   const list = S.index();
   put($("#side"),
-    h("div", { class: "brand" }, h("h1", null, "AssayLint"), h("p", { class: "tag" }, "Trust your experiment before trusting your result.")),
+    h("div", { class: "brand" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "AssayLint")),
     h("div", { class: "side-actions" },
-      h("button", { class: "pill", type: "button", onclick: newExp }, "+ New experiment"),
-      h("button", { class: "pill ghost", type: "button", onclick: loadDemo }, "Try demo"),
-      h("label", { class: "pill ghost" }, "Import packet", h("input", { type: "file", accept: ".json,application/json", onchange: e => importPacket(e.target.files[0]) }))),
-    h("div", { class: "explist" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), onclick: () => openExp(x.id) },
-      h("b", null, x.title), h("small", null, `${x.date} · ${x.id}`), h("span", { class: "status " + x.status }, x.label))) : h("p", { class: "muted" }, "No experiments yet.")),
-    h("label", { class: "actor" }, "Your name, recorded in the audit history",
-      h("input", { type: "text", value: S.getSetting("actor") || "", placeholder: "local user", onchange: e => { try { S.setSetting("actor", e.target.value.trim()); } catch { /* storage unavailable */ } } })),
-    h("div", { class: "side-links" },
-      h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Data handling"),
-      " · ", h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"),
-      " · ", h("a", { href: "#", class: "link", id: "src-link", hidden: true }, "Source")),
+      h("button", { class: "btn primary", type: "button", onclick: newExp }, "New experiment"),
+      h("div", { class: "btn-row" },
+        h("button", { class: "btn", type: "button", onclick: loadDemo }, "Open demo run"),
+        h("label", { class: "btn" }, "Import packet", h("input", { type: "file", accept: ".json,application/json", onchange: e => importPacket(e.target.files[0]) })))),
+    h("h2", { class: "side-h" }, "Experiments"),
+    h("nav", { class: "explist", "aria-label": "Experiments" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
+      h("span", { class: "exp-title" }, x.title), h("span", { class: "exp-meta" }, h("span", { class: "status " + x.status }, x.label), h("span", null, x.date))))
+      : h("p", { class: "muted" }, "None yet. Create one or open the demo run.")),
+    h("div", { class: "side-foot" },
+      h("label", { class: "field" }, h("span", null, "Your name for the audit history"),
+        h("input", { type: "text", value: S.getSetting("actor") || "", placeholder: "local user", onchange: e => { try { S.setSetting("actor", e.target.value.trim()); } catch { /* storage unavailable */ } } })),
+      h("div", { class: "side-links" },
+        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Data handling"),
+        h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"),
+        h("a", { href: "#", class: "link", id: "src-link", hidden: true }, "Source code"))),
     st.saveError && h("p", { class: "error" }, st.saveError));
   setSourceLink();
 }
@@ -89,46 +104,52 @@ function setSourceLink() {
   if (a && repo) { a.href = `https://github.com/${user}/${repo}`; a.hidden = false; }
 }
 
-const TABS = [["setup", "1 · Setup"], ["data", "2 · Data"], ["map", "3 · Plate map"], ["context", "4 · Context & rules"],
-  ["findings", "5 · Findings"], ["report", "6 · Report & export"], ["compare", "Compare runs"]];
+const TABS = [["setup", "Setup", 1], ["data", "Data", 2], ["map", "Plate map", 3], ["context", "Context & rules", 4],
+  ["findings", "Findings", 5], ["report", "Report & export", 6], ["compare", "Compare runs", null]];
+const tabLabel = k => TABS.find(t => t[0] === k)[1];
 function renderMain() {
   after.length = 0; mapRefresh = null;
   const y = scrollY, m = $("#main");
-  if (!st.exp) { m.replaceChildren(welcome()); return; }
+  if (!st.exp) { put(m, welcome()); return; }
   const e = st.exp, sum = st.res?.summary;
   const flashEl = st.flash && h("p", { class: "flash" + (st.flash.bad ? " bad" : ""), role: "status" }, st.flash.msg);
   st.flash = null;
   put(m,
-    h("section", { class: "glass" },
-      h("div", { class: "head" },
-        h("div", null, h("h2", null, e.title), h("small", { class: "muted" }, `${e.id} · qPCR · ${e.date}${e.operator ? " · " + e.operator : ""}`)),
-        sum && h("span", { class: "status big " + sum.status }, sum.label)),
-      h("nav", { class: "tabs", role: "tablist", "aria-label": "Experiment steps" }, TABS.map(([k, label]) =>
-        h("button", { type: "button", role: "tab", class: k === st.tab ? "on" : "", "aria-selected": String(k === st.tab), onclick: () => { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); } }, label)))),
+    h("header", { class: "exp-head" },
+      h("div", null, h("h1", null, e.title),
+        h("dl", { class: "meta" }, h("div", null, h("dt", null, "ID"), h("dd", { class: "mono" }, e.id)), h("div", null, h("dt", null, "Run date"), h("dd", null, e.date)),
+          e.operator && h("div", null, h("dt", null, "Operator"), h("dd", null, e.operator)), e.source && h("div", null, h("dt", null, "Results"), h("dd", null, e.source.name)))),
+      sum && h("span", { class: "status big " + sum.status }, sum.label)),
+    h("nav", { class: "steps", role: "tablist", "aria-label": "Experiment steps" }, TABS.map(([k, label, n]) =>
+      h("button", { type: "button", role: "tab", class: k === st.tab ? "on" : "", "aria-selected": String(k === st.tab),
+        onclick: () => { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); } }, n && h("span", { class: "step-n" }, n), label))),
     flashEl,
     st.err && h("p", { class: "error" }, `The analysis could not run: ${st.err}`),
     ...VIEWS[st.tab]());
   scrollTo(0, y);
   for (const fn of after) fn();
 }
-const card = (...kids) => h("section", { class: "glass" }, ...kids);
-const emptyCard = (msg, tab) => card(h("p", null, msg), tab && h("button", { class: "pill", type: "button", onclick: () => { st.tab = tab; renderMain(); } }, "Go to " + TABS.find(t => t[0] === tab)[1]));
+const card = (...kids) => h("section", { class: "sec" }, ...kids);
+const emptyCard = (msg, tab) => card(h("p", null, msg), tab && h("button", { class: "btn primary", type: "button", onclick: () => { st.tab = tab; renderMain(); } }, "Go to " + tabLabel(tab)));
 
 function welcome() {
-  return card(
-    h("h2", null, "Review a qPCR run before you rely on its result"),
-    h("p", null, "AssayLint reads your instrument export and plate map, runs transparent checks on structure, controls, replicates, curves and method metadata, and links every flag to the evidence and the versioned rule that produced it."),
-    h("ol", { class: "hero" },
-      h("li", null, h("b", null, "Create an experiment"), " with a title, date and operator."),
-      h("li", null, h("b", null, "Import results"), ": a Ct/Cq export (generic CSV, Bio-Rad CFX or QuantStudio), plus optional amplification and melt curves. You see what was parsed before anything is analysed."),
-      h("li", null, h("b", null, "Confirm the plate map"), ": samples, targets, control roles, groups and biological units."),
-      h("li", null, h("b", null, "Record method context"), " and choose the rule set and thresholds."),
-      h("li", null, h("b", null, "Review findings"), ", marking each accepted, not applicable, resolved or unresolved."),
-      h("li", null, h("b", null, "Export"), " a readable report, CSV/JSON data and a re-importable experiment packet.")),
-    h("div", { class: "row" },
-      h("button", { class: "pill", type: "button", onclick: newExp }, "+ New experiment"),
-      h("button", { class: "pill ghost", type: "button", onclick: loadDemo }, "Try the demo run")),
-    h("p", { class: "fine" }, "Everything runs and is stored in this browser; nothing is uploaded. AssayLint supports review: it does not certify an experiment or its conclusions."));
+  const lit = { C3: "--w-high", C4: "--w-ok", C5: "--w-ok", E8: "--w-medium", E9: "--w-ok", B10: "--w-low", G2: "--w-ok", G3: "--w-ok", G4: "--w-ok", F11: "--w-high" };
+  return h("section", { class: "welcome" },
+    h("div", { class: "welcome-text" },
+      h("h1", null, "Check a qPCR run before you rely on it"),
+      h("p", { class: "lede" }, "AssayLint reads the export from your instrument and checks plate layout, controls, replicates, curves and method details. Every flag shows the values that triggered it and the rule that was applied."),
+      h("ol", { class: "how" },
+        h("li", null, "Import the results file from your instrument and check what was read."),
+        h("li", null, "Confirm samples, targets, controls and biological units on the plate map."),
+        h("li", null, "Record the method details and choose thresholds."),
+        h("li", null, "Review each finding and record your decision."),
+        h("li", null, "Export a report and the complete experiment record.")),
+      h("div", { class: "btn-row" },
+        h("button", { class: "btn primary", type: "button", onclick: newExp }, "New experiment"),
+        h("button", { class: "btn", type: "button", onclick: loadDemo }, "Open demo run")),
+      h("p", { class: "fine" }, "Files are processed and stored in this browser only. AssayLint supports your review; it does not certify an experiment or its conclusions.")),
+    h("figure", { class: "welcome-plate" }, plateArt(8, 12, lit),
+      h("figcaption", null, "A 96-well plate as AssayLint shows it: each well coloured by its most severe open finding.")));
 }
 
 // ---------------------------------------------------------------- experiment lifecycle (FR-1, FR-23)
@@ -183,17 +204,17 @@ const VIEWS = {};
 VIEWS.setup = () => {
   const e = st.exp;
   return [
-    card(h("h3", null, "Experiment"), h("div", { class: "form2" },
+    card(h("h2", null, "Experiment"), h("div", { class: "form2" },
       field("Title", textInput(e.title, setExp("title", "Title"), { id: "f-title" })),
       field("Assay type", h("input", { type: "text", value: "qPCR", disabled: true }), "This version supports qPCR only."),
       field("Run date", textInput(e.date, setExp("date", "Run date"), { type: "date" })),
       field("Operator", textInput(e.operator, setExp("operator", "Operator"))),
       field("Project (optional)", textInput(e.project, setExp("project", "Project"))),
       field("Experiment ID", h("input", { type: "text", value: e.id, disabled: true }), "Stable and unique; included in every export.")),
-      h("div", { class: "row", style: "margin-top:1rem" }, h("button", { class: "pill", type: "button", onclick: () => { st.tab = "data"; renderMain(); } }, "Next: import data →"))),
-    h("section", { class: "glass danger" }, h("h3", null, "Delete experiment"),
+      h("div", { class: "row", style: "margin-top:1rem" }, h("button", { class: "btn primary", type: "button", onclick: () => { st.tab = "data"; renderMain(); } }, "Continue to Data"))),
+    h("section", { class: "sec danger" }, h("h3", null, "Delete experiment"),
       h("p", { class: "muted" }, "Removes this experiment, its stored files, plate map, notes and audit history from this browser. Export the packet first if you want a copy."),
-      h("button", { class: "pill red", type: "button", onclick: deleteExp }, "Delete experiment…"))];
+      h("button", { class: "btn danger", type: "button", onclick: deleteExp }, "Delete experiment…"))];
 };
 
 // ---------------------------------------------------------------- 2 · Data (FR-2, FR-3, FR-26)
@@ -234,22 +255,22 @@ function dropzone(kind, label) {
   const z = h("div", { class: "drop", ondragover: ev => { ev.preventDefault(); z.classList.add("over"); }, ondragleave: () => z.classList.remove("over"),
     ondrop: ev => { ev.preventDefault(); z.classList.remove("over"); stage(kind, ev.dataTransfer.files[0]); } },
     h("strong", null, "Drop a file here, or"),
-    h("label", { class: "pill" }, label, h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values", onchange: ev => stage(kind, ev.target.files[0]) })));
+    h("label", { class: "btn primary" }, label, h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values", onchange: ev => stage(kind, ev.target.files[0]) })));
   return z;
 }
 const kv = pairs => h("dl", { class: "kv" }, pairs.filter(Boolean).flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v === "" || v == null ? "—" : v)]));
 function preview(kind, p) {
-  const cancel = h("button", { class: "pill ghost", type: "button", onclick: () => { delete st.pending[kind]; renderMain(); } }, p.error ? "Dismiss" : "Cancel");
+  const cancel = h("button", { class: "btn", type: "button", onclick: () => { delete st.pending[kind]; renderMain(); } }, p.error ? "Dismiss" : "Cancel");
   if (p.error) return h("div", { class: "preview bad" },
     h("b", null, `Could not import ${p.name}. No checks were run.`), h("p", null, p.error),
     p.details.headers?.length > 0 && h("p", { class: "muted" }, "Columns found: " + p.details.headers.join(", ")),
     p.details.recognized && Object.keys(p.details.recognized).length > 0 && h("p", { class: "muted" }, "Recognised: " + Object.entries(p.details.recognized).map(([k, v]) => `${C.FIELD_LABEL[k]} ← “${v}”`).join(", ")),
     p.details.needsPlateSize && h("div", { class: "row" }, h("b", null, "Plate layout:"),
-      [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "pill", type: "button", onclick: () => stageText(kind, p.name, p.text, n) }, `${n}-well (row by row)`)),
+      [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "btn primary", type: "button", onclick: () => stageText(kind, p.name, p.text, n) }, `${n}-well (row by row)`)),
       h("small", { class: "muted" }, "Pick the plate your instrument used. The preview will show the resulting positions so you can check them.")),
     kind === "results" && !p.details.needsPlateSize && h("p", null, "AssayLint needs a well column (for example “Well” or “Well Position”) and a Ct/Cq column. If your export differs, copy the data into the import template."),
-    h("div", { class: "row" }, kind === "results" && h("button", { class: "pill", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
-  const r = p.parsed, confirmBtn = h("button", { class: "pill", type: "button", onclick: () => confirmImport(kind) }, "Confirm import");
+    h("div", { class: "row" }, kind === "results" && h("button", { class: "btn primary", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
+  const r = p.parsed, confirmBtn = h("button", { class: "btn primary", type: "button", onclick: () => confirmImport(kind) }, "Confirm import");
   if (kind !== "results") {
     const used = new Set((st.res?.rows || []).map(x => x.key).filter(Boolean));
     const covered = [...used].filter(k => r.wells.includes(k)).length;
@@ -290,18 +311,19 @@ function preview(kind, p) {
 VIEWS.data = () => {
   const cards = Object.entries(KIND).map(([kind, k]) => {
     const cur = st.exp[k.slot], p = st.pending[kind];
-    return card(h("h3", null, k.title), h("p", { class: "muted", style: "margin-top:-.4rem" }, k.sub),
+    return card(h("h2", null, k.title), h("p", { class: "muted", style: "margin-top:-.4rem" }, k.sub),
       cur && h("div", { class: "filemeta" }, h("b", null, cur.name), h("small", { class: "mono" }, `sha256 ${cur.sha256}`),
-        h("small", null, `Imported ${when(cur.importedAt)} by ${cur.importedBy} · parser v${cur.parserVersion}` + (cur.format ? ` · ${C.FORMATS[cur.format]}` : "") + (cur.valueType ? ` · values: ${cur.valueType}` : "")),
-        h("div", { class: "row" }, h("button", { class: "pill ghost", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
-          kind !== "results" && h("button", { class: "pill ghost", type: "button", onclick: () => removeFile(kind) }, "Remove"))),
+        kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], ["Parser", `version ${cur.parserVersion}`], cur.format && ["Format", C.FORMATS[cur.format]],
+          cur.plateSize && ["Plate layout", `${cur.plateSize}-well`], cur.valueType && ["Melt values", cur.valueType]]),
+        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
+          kind !== "results" && h("button", { class: "btn", type: "button", onclick: () => removeFile(kind) }, "Remove"))),
       p ? preview(kind, p) : (kind === "results" || st.exp.source) ? dropzone(kind, cur ? "Choose a replacement" : "Choose file") : h("p", { class: "fine" }, "Import the results file first."));
   });
-  return [...cards, card(h("h3", null, "Supported layouts"),
+  return [...cards, card(h("h2", null, "Supported layouts"),
     h("ul", null, Object.values(C.FORMATS).map(f => h("li", null, f)),
       h("li", null, "Curves: long layout (well, optional target, cycle or temperature, value) or wide layout (a cycle or temperature column plus one column per well).")),
     h("p", { class: "fine" }, "Tested on 12 public exports from QuantStudio, Bio-Rad CFX and ABI 7500/7900HT instruments, plus realistic fixtures (including a LightCycler 480 layout and European decimal commas). Other instruments and software versions may differ, so check the preview. Excel (.xlsx) and binary run files (.eds, .pcrd) are not supported; export CSV or text instead."),
-    h("button", { class: "pill ghost", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
+    h("button", { class: "btn", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
 };
 
 // ---------------------------------------------------------------- 3 · Plate map (FR-4, FR-5)
@@ -385,22 +407,22 @@ VIEWS.map = () => {
     ? h("select", { onchange: ev => setCell(r.id, f, ev.target.value), "aria-label": `Role for ${r.key || r.well}` }, C.ROLES.map(x => h("option", { value: x, selected: x === r.role }, C.ROLE_LABEL[x])))
     : h("input", { type: "text", value: r[f] ?? "", "aria-label": `${f} for ${r.key || r.well}`, onchange: ev => setCell(r.id, f, ev.target.value.trim()) }), src(r, f) && h("small", null, src(r, f)));
   const shown = st.mapFilter === "selected" ? res.rows.filter(r => st.sel.has(r.key)) : res.rows;
-  return [card(h("div", { class: "head" }, h("div", null, h("h3", null, "Plate map"),
+  return [card(h("div", { class: "head" }, h("div", null, h("h2", null, "Plate map"),
       h("p", { class: "muted", style: "margin:0;max-width:640px" }, "Click wells, row letters or column numbers to select. Edits change labels only; the original values stay in the file and are shown under each edited cell.")),
       h("div", { class: "row" },
-        h("label", { class: "pill ghost" }, "Import plate-map template", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
-        h("button", { class: "pill ghost", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"))),
+        h("label", { class: "btn" }, "Import plate-map template", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
+        h("button", { class: "btn", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"))),
     gridHost,
     h("div", { class: "legend" }, Object.entries(C.ROLE_LABEL).map(([k, l]) => h("span", null, h("span", { class: "sw pc r-" + k }), `${C.ROLE_SHORT[k]} ${l}`))),
     st.exp.template && h("p", { class: "fine" }, `Template applied: ${st.exp.template.name} (${st.exp.template.wells.length} wells, ${when(st.exp.template.importedAt)}).`),
     h("div", { class: "bulk" }, count,
       h("select", { onchange: ev => { st.bulkField = ev.target.value; renderMain(); }, "aria-label": "Field to set" }, MAP_FIELDS.map(([k, l]) => h("option", { value: k, selected: k === st.bulkField }, l))),
-      valueInput, h("button", { class: "pill", type: "button", disabled: !st.sel.size, onclick: applyBulk }, "Apply to selected"),
-      h("button", { class: "pill ghost", type: "button", disabled: !st.sel.size, onclick: resetSel }, "Revert selected to file values"),
-      h("button", { class: "pill ghost", type: "button", onclick: () => { st.sel = new Set(present); renderMain(); } }, "Select all"),
-      h("button", { class: "pill ghost", type: "button", onclick: () => { st.sel.clear(); renderMain(); } }, "Clear selection")),
+      valueInput, h("button", { class: "btn primary", type: "button", disabled: !st.sel.size, onclick: applyBulk }, "Apply to selected"),
+      h("button", { class: "btn", type: "button", disabled: !st.sel.size, onclick: resetSel }, "Revert selected to file values"),
+      h("button", { class: "btn", type: "button", onclick: () => { st.sel = new Set(present); renderMain(); } }, "Select all"),
+      h("button", { class: "btn", type: "button", onclick: () => { st.sel.clear(); renderMain(); } }, "Clear selection")),
     h("p", { class: "fine" }, "Technical replicates are wells that share a biological unit and target. A biological unit is an independent sample; if you leave it empty, AssayLint uses the sample name and says so in the findings.")),
-  card(h("div", { class: "head" }, h("h3", null, `Wells (${shown.length} rows)`),
+  card(h("div", { class: "head" }, h("h2", null, `Wells (${shown.length} rows)`),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.mapFilter === "selected", onchange: ev => { st.mapFilter = ev.target.checked ? "selected" : "all"; renderMain(); } }), "Show selected wells only")),
     h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
       h("thead", null, h("tr", null, ["Line", "Well", "Sample", "Target", "Group", "Role", "Biological unit", "Quantity", "Ct/Cq (raw)"].map(x => h("th", null, x)))),
@@ -452,25 +474,25 @@ VIEWS.context = () => {
   const profiles = S.profiles(), changes = C.rulesetChanges(rs);
   const controls = (st.res?.controls || []).filter(c => c.expected || c.wells.length);
   return [
-    card(h("h3", null, "Run and method context"),
+    card(h("h2", null, "Run and method context"),
       h("p", { class: "muted", style: "margin-top:-.3rem" }, "Missing items are reported as “not provided”, never as a failed assay."),
-      h("div", { class: "form2" }, C.CONTEXT_FIELDS.map(f => field(f.label + (f.severity === "medium" ? " · recommended" : f.severity === "info" || !f.severity ? " · optional" : ""),
+      h("div", { class: "form2" }, C.CONTEXT_FIELDS.map(f => field(h("span", null, f.label, f.severity === "medium" ? h("span", { class: "req" }, "Recommended") : (f.severity === "info" || !f.severity) ? h("span", { class: "opt" }, "Optional") : null),
         textInput(e.context[f.key], v => setContext(f, v), { multiline: f.multiline, placeholder: f.key === "instrument" && fileInst ? `From file: ${fileInst[1]}` : "" }),
         f.key === "efficiency_evidence" ? "Satisfied automatically when this run has a standard curve." : f.key === "instrument" && fileInst ? "The file header names the instrument, so this is optional." : null)))),
-    card(h("div", { class: "head" }, h("div", null, h("h3", null, "Rule set"),
-        h("p", { class: "muted", style: "margin:0" }, `${rs.profile.name} · ${C.rulesetId(rs)}`),
+    card(h("div", { class: "head" }, h("div", null, h("h2", null, "Rule set"),
+        h("p", { class: "muted", style: "margin:0" }, rs.profile.name, h("br"), h("span", { class: "mono" }, C.rulesetId(rs))),
         changes.length > 0 && h("p", { class: "warn", style: "margin:.4rem 0 0" }, "Changed in this experiment: " + changes.map(c => `${c.label} ${c.from} → ${c.to}`).join("; "))),
       h("div", { class: "row" },
         h("select", { id: "profile-pick", "aria-label": "Rule profile" }, h("option", { value: C.DEFAULT_PROFILE.id }, C.DEFAULT_PROFILE.name + " v1"),
           profiles.map(p => h("option", { value: p.id, selected: p.id === rs.profile.id }, `${p.name} v${p.versions.at(-1).version}`))),
-        h("button", { class: "pill ghost", type: "button", onclick: () => applyProfile($("#profile-pick").value) }, "Apply profile"),
-        h("button", { class: "pill ghost", type: "button", onclick: () => saveProfile(true) }, "Save as new profile…"),
-        profiles.some(p => p.id === rs.profile.id) && h("button", { class: "pill ghost", type: "button", onclick: () => saveProfile(false) }, "Save as next version"))),
+        h("button", { class: "btn", type: "button", onclick: () => applyProfile($("#profile-pick").value) }, "Apply profile"),
+        h("button", { class: "btn", type: "button", onclick: () => saveProfile(true) }, "Save as new profile…"),
+        profiles.some(p => p.id === rs.profile.id) && h("button", { class: "btn", type: "button", onclick: () => saveProfile(false) }, "Save as next version"))),
       h("div", { class: "form2" }, C.RULESET_FIELDS.map(f => f.type === "bool"
         ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!rs.values[f.key], onchange: ev => setRule(f, ev.target.checked) }), f.label)
         : field(f.label, h("input", { type: "number", step: f.step, min: 0, value: rs.values[f.key], onchange: ev => setRule(f, ev.target.value) })))),
       h("p", { class: "fine" }, "Defaults are common conventions used as placeholders; they have not been reviewed by a qPCR domain expert. Saving a profile creates a new version; existing experiments keep the values they were analysed with.")),
-    card(h("h3", null, "Expected controls by target"),
+    card(h("h2", null, "Expected controls by target"),
       controls.length ? h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
         h("thead", null, h("tr", null, ["Target", "Control", "Expected", "Wells", "Status", "Not applicable"].map(x => h("th", null, x)))),
         h("tbody", null, controls.map(c => {
@@ -478,8 +500,8 @@ VIEWS.context = () => {
           return h("tr", null, h("td", null, c.target), h("td", null, c.label), h("td", null, c.expected ? "yes" : "no"), h("td", null, c.wells.join(", ") || "—"),
             h("td", null, c.wells.length ? (c.amplified.length ? "amplified: " + c.amplified.join(", ") : "no amplification") : c.na ? "not applicable" : c.expected ? "missing" : "—"),
             h("td", null, !c.wells.length && c.expected ? h("div", { class: "row" }, reason,
-              h("button", { class: "pill ghost", type: "button", onclick: () => setNA(c.role, c.target, reason.value) }, c.na ? "Update" : "Mark N/A"),
-              c.na && h("button", { class: "pill ghost", type: "button", onclick: () => setNA(c.role, c.target, null) }, "Clear")) : ""));
+              h("button", { class: "btn", type: "button", onclick: () => setNA(c.role, c.target, reason.value) }, c.na ? "Update" : "Mark N/A"),
+              c.na && h("button", { class: "btn", type: "button", onclick: () => setNA(c.role, c.target, null) }, "Clear")) : ""));
         })))) : h("p", { class: "muted" }, "Import results to see controls per target."),
       h("p", { class: "fine" }, "Which controls are expected comes from the rule set above. Assign control roles to wells on the Plate map tab."))];
 };
@@ -524,40 +546,50 @@ async function mountPlate() {
   plateHost.replaceChildren(plateGrid({ ...data, cls: k => (!data.present.has(k) ? "none" : data.flags.get(k) || "ok") + (st.sel.has(k) ? " sel" : ""),
     title: k => k, onCell: k => data.present.has(k) && pick(k) }));
 }
-function findingCard(f) {
+const cap = s => s[0].toUpperCase() + s.slice(1);
+const sevTag = sev => h("span", { class: "sev " + sev }, cap(sev));
+function findingRow(f) {
   const rv = st.exp.reviews[f.id] || {}, closed = C.CLOSED.has(rv.disposition), sel = st.selFinding === f.id;
-  return h("article", { class: `finding ${f.severity}${sel ? " sel" : ""}${closed ? " closed" : ""}`, onclick: ev => { if (!ev.target.closest(".review")) selectFinding(f); } },
-    h("div", { class: "t" }, h("span", { class: "badge " + f.severity }, f.severity), f.title),
-    h("div", { class: "m" }, `${f.rule} v${f.rule_version} · ${C.CATEGORY_LABEL[f.category]}` + (f.wells.length ? ` · ${f.wells.slice(0, 12).join(", ")}${f.wells.length > 12 ? " …" : ""}` : f.target ? ` · ${f.target}` : "")),
+  const where = f.wells.length ? f.wells.slice(0, 6).join(", ") + (f.wells.length > 6 ? ` and ${f.wells.length - 6} more` : "") : f.target ? `Target ${f.target}` : "Whole run";
+  return h("button", { type: "button", class: `frow${sel ? " sel" : ""}${closed ? " closed" : ""}`, "aria-pressed": String(sel), onclick: () => selectFinding(f) },
+    sevTag(f.severity),
+    h("span", { class: "frow-body" }, h("span", { class: "frow-title" }, f.title), h("span", { class: "frow-sub" }, where)),
+    rv.disposition && rv.disposition !== "unreviewed" && h("span", { class: "frow-disp" }, C.DISPOSITION_LABEL[rv.disposition]));
+}
+function findingDetail(f) {
+  const rv = st.exp.reviews[f.id] || {};
+  return h("article", { class: "fdetail", "aria-label": "Selected finding" },
+    h("div", { class: "fd-head" }, sevTag(f.severity), h("h2", null, f.title)),
+    h("p", { class: "fd-desc" }, f.description),
     h("dl", { class: "qa" },
       h("dt", null, "What was checked"), h("dd", null, C.RULES[f.rule].checks),
-      h("dt", null, "What AssayLint saw"), h("dd", null, f.description, h("br"), h("small", null, f.evidence)),
+      h("dt", null, "What AssayLint saw"), h("dd", null, f.evidence),
       h("dt", null, "Why it might matter"), h("dd", null, f.why + (f.uncertain ? " The cause is uncertain." : "")),
       h("dt", null, "What to check next"), h("dd", null, f.next_check)),
+    h("p", { class: "fd-rule" }, `Rule ${f.rule}, version ${f.rule_version}. Category: ${C.CATEGORY_LABEL[f.category].toLowerCase()}.`),
     h("div", { class: "review" },
-      h("select", { "aria-label": "Disposition", onchange: ev => setReview(f, { disposition: ev.target.value }) },
-        C.DISPOSITIONS.map(d => h("option", { value: d, selected: d === (rv.disposition || "unreviewed") }, C.DISPOSITION_LABEL[d]))),
-      h("input", { type: "text", placeholder: "Note or action taken (optional)", value: rv.note || "", "aria-label": "Review note", onchange: ev => setReview(f, { note: ev.target.value }) }),
-      rv.at && h("small", null, `${C.DISPOSITION_LABEL[rv.disposition || "unreviewed"]} · last changed by ${rv.by}, ${when(rv.at)}. The original finding is kept.`)));
+      field("Review decision", h("select", { onchange: ev => setReview(f, { disposition: ev.target.value }) },
+        C.DISPOSITIONS.map(d => h("option", { value: d, selected: d === (rv.disposition || "unreviewed") }, C.DISPOSITION_LABEL[d])))),
+      field("Note or action taken", h("input", { type: "text", value: rv.note || "", placeholder: "Optional", onchange: ev => setReview(f, { note: ev.target.value }) })),
+      rv.at && h("p", { class: "fine" }, `Last changed by ${rv.by} on ${when(rv.at)}. Changing the decision never alters the data or removes the finding.`)));
 }
-function curvesCard() {
+function curvesBlock() {
   const res = st.res, keys = [...st.sel];
   if (!res.amp && !res.melt && !st.exp.melt) return null;
-  const parts = [h("h3", null, "Curves"), h("p", { class: "fine", style: "margin-top:-.4rem" }, keys.length ? `Highlighted: ${keys.join(", ")}` : "Select a finding or a well to highlight its curves.")];
   const chart = (data, label) => { const cv = h("canvas", { class: "chart", role: "img", "aria-label": label }); after.push(() => plot(cv, data)); return cv; };
   const seriesFor = (entries, toPts) => {
     const bg = [], hi = [];
     for (const [k, v] of entries) (keys.includes(k.split("|")[0]) ? hi : bg).push({ pts: toPts(v, k) });
-    return [...bg.map(s => ({ ...s, color: "#9aa0aa", alpha: 0.35, width: 1 })), ...hi.map(s => ({ ...s, color: "#0a84ff", width: 2.5 }))];
+    return [...bg.map(s => ({ ...s, color: "#B4BDB8", alpha: 0.6, width: 1 })), ...hi.map(s => ({ ...s, color: "#0B6B5C", width: 2.25 }))];
   };
-  if (res.amp) parts.push(h("h4", null, "Amplification (baseline-subtracted)"),
-    chart({ series: seriesFor(Object.entries(res.amp.series), (pts, k) => pts.map(([x, y]) => [x, y - res.amp.stats[k].mean])), hline: res.amp.threshold || null,
-      xLabel: "Cycle", yLabel: "ΔF", empty: "No curves" }, "Amplification curves"),
-    h("p", { class: "fine" }, `Dashed line: AssayLint's common threshold (${fmt(res.amp.threshold, 3)}), used only to compare wells. Instrument thresholds may differ.`));
-  if (res.melt) parts.push(h("h4", null, "Melt (−dF/dT)"),
-    chart({ series: seriesFor(Object.entries(res.melt.stats), s => s.curve), xLabel: "Temperature (°C)", yLabel: "−dF/dT", empty: "No curves" }, "Melt curves"));
-  else if (st.exp.melt) parts.push(h("p", { class: "fine" }, "Melt data is imported, but melt checks are off for this assay (Context & rules)."));
-  return card(...parts);
+  const parts = [h("h3", null, "Curves"), h("p", { class: "fine" }, keys.length ? `Highlighted: ${keys.join(", ")}.` : "Select a finding or a well to highlight its curves.")];
+  if (res.amp) parts.push(h("figure", null, chart({ series: seriesFor(Object.entries(res.amp.series), (pts, k) => pts.map(([x, y]) => [x, y - res.amp.stats[k].mean])),
+    hline: res.amp.threshold || null, xLabel: "Cycle", yLabel: "ΔF", empty: "No curves" }, "Amplification curves"),
+    h("figcaption", null, `Amplification, baseline-subtracted. Dashed line: AssayLint's common threshold (${fmt(res.amp.threshold, 3)}), used only to compare wells.`)));
+  if (res.melt) parts.push(h("figure", null, chart({ series: seriesFor(Object.entries(res.melt.stats), s => s.curve), xLabel: "Temperature (°C)", yLabel: "−dF/dT", empty: "No curves" }, "Melt curves"),
+    h("figcaption", null, "Melt curves, first derivative.")));
+  else if (st.exp.melt) parts.push(h("p", { class: "fine" }, "Melt data is imported, but melt checks are off for this assay. Turn them on under Context & rules."));
+  return h("div", { class: "block" }, ...parts);
 }
 VIEWS.findings = () => {
   const res = st.res;
@@ -567,52 +599,61 @@ VIEWS.findings = () => {
   after.push(mountPlate);
   const q = st.filter.toLowerCase();
   const list = sorted(res.findings).filter(f => (!st.hideClosed || !C.CLOSED.has(st.exp.reviews[f.id]?.disposition)) &&
+    (!st.category || f.category === st.category) &&
     (!q || [f.rule, f.title, f.description, f.evidence, f.wells.join(" "), f.target, f.sample].join(" ").toLowerCase().includes(q)));
+  const sel = st.selFinding && res.findings.find(f => f.id === st.selFinding);
   const selRows = res.rows.filter(r => st.sel.has(r.key));
   const fb = st.exp.feedback?.value;
   return [
-    card(h("div", { class: "head" }, h("div", null, h("h3", null, "Summary"), h("span", { class: "status big " + sum.status }, sum.label)),
-        h("p", { class: "fine", style: "max-width:420px;margin:0" }, "A status, not a score: it says whether configured checks flagged anything that still needs review.")),
-      h("div", { class: "stats" }, [["High", sev.high], ["Medium", sev.medium], ["Low", sev.low], ["Info", sev.info], ["Reviewed", `${sum.reviewed}/${sum.total}`], ["Open", sum.open]]
-        .map(([l, n]) => h("div", { class: "stat" }, h("b", null, n ?? 0), l))),
-      h("div", { class: "blue", style: "margin-top:.9rem" }, Object.entries(C.CATEGORY_LABEL).map(([k, l]) => h("div", { class: "r" }, h("span", null, l), h("b", null, sum.byCategory[k] || 0)))),
-      h("div", { class: "lists", style: "margin-top:.8rem" },
-        h("div", null, h("h4", null, "Checks performed"), h("ul", null, res.checksRun.map(c => h("li", null, c)))),
-        h("div", null, h("h4", null, "Not assessed"), h("ul", null, res.notAssessed.length ? res.notAssessed.map(c => h("li", null, c)) : h("li", null, "Nothing; every configured check had the data it needs."))))),
-    h("div", { class: "cols" },
-      h("div", { style: "display:grid;gap:1.25rem;min-width:0" },
-        card(h("h3", null, "Plate"), plateHost,
-          h("div", { class: "legend" }, [["high", "High"], ["medium", "Medium"], ["low", "Low"], ["ok", "No open flag"]].map(([k, l]) => h("span", null, h("span", { class: "sw", style: `background:var(--${k})` }), l))),
-          h("p", { class: "fine" }, "Drag to rotate, scroll to zoom. Colour shows the most severe open finding in each well."),
-          h("div", { class: "detail" }, selRows.length ? selRows.map(r => h("div", null, h("b", null, r.key), ` · ${r.sample ?? "—"} / ${r.target ?? "—"} · ${C.ROLE_LABEL[r.role]} · Ct/Cq (raw) ${r.ct ?? "(empty)"} · line ${r.line}`))
-            : h("span", { class: "muted" }, "Click a well or a finding to see its values."))),
-        curvesCard()),
-      card(h("h3", null, `Findings (${list.length})`),
+    h("section", { class: "sec summary" },
+      h("div", { class: "tally" },
+        [["high", "High"], ["medium", "Medium"], ["low", "Low"], ["info", "Info"]].map(([k, l]) => h("div", { class: "tally-i " + k }, h("span", { class: "tally-n" }, sev[k] || 0), h("span", { class: "tally-l" }, l))),
+        h("div", { class: "tally-i reviewed" }, h("span", { class: "tally-n" }, `${sum.reviewed}/${sum.total}`), h("span", { class: "tally-l" }, "Reviewed"))),
+      h("details", { class: "scope" }, h("summary", null, `What was checked: ${res.checksRun.length} groups of checks, ${res.notAssessed.length} item${res.notAssessed.length === 1 ? "" : "s"} not assessed`),
+        h("div", { class: "scope-cols" },
+          h("div", null, h("h3", null, "Checked"), h("ul", null, res.checksRun.map(c => h("li", null, c)))),
+          h("div", null, h("h3", null, "Not assessed"), h("ul", null, res.notAssessed.length ? res.notAssessed.map(c => h("li", null, c)) : h("li", null, "Nothing. Every configured check had the data it needs."))))),
+      h("p", { class: "fine" }, "The status is not a score. It says whether configured checks flagged anything that still needs review.")),
+    h("section", { class: "sec split" },
+      h("div", { class: "flist-col" },
         h("div", { class: "ftools" },
-          h("select", { "aria-label": "Sort findings", onchange: ev => { st.sort = ev.target.value; renderMain(); } }, Object.entries(SORTS).map(([k, l]) => h("option", { value: k, selected: k === st.sort }, "Sort: " + l))),
-          h("input", { type: "search", placeholder: "Filter by rule, well, sample, target…", value: st.filter, "aria-label": "Filter findings", onchange: ev => { st.filter = ev.target.value; renderMain(); } }),
+          h("input", { type: "search", placeholder: "Search findings", value: st.filter, "aria-label": "Search findings", onchange: ev => { st.filter = ev.target.value; renderMain(); } }),
+          h("select", { "aria-label": "Category", onchange: ev => { st.category = ev.target.value; renderMain(); } }, h("option", { value: "" }, "All categories"),
+            Object.entries(C.CATEGORY_LABEL).map(([k, l]) => h("option", { value: k, selected: st.category === k }, `${l} (${sum.byCategory[k] || 0})`))),
+          h("select", { "aria-label": "Sort", onchange: ev => { st.sort = ev.target.value; renderMain(); } }, Object.entries(SORTS).map(([k, l]) => h("option", { value: k, selected: k === st.sort }, "Sort by " + l.toLowerCase()))),
           h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.hideClosed, onchange: ev => { st.hideClosed = ev.target.checked; renderMain(); } }), "Hide closed")),
-        h("div", { class: "flist" }, list.length ? list.map(findingCard) : h("p", { class: "muted" }, res.findings.length ? "No findings match." : "No configured check flagged anything. This does not mean the run is valid.")))),
-    card(h("h3", null, "Technical replicates"),
+        h("p", { class: "fine count" }, `${list.length} of ${res.findings.length} findings`),
+        h("div", { class: "flist", role: "list" }, list.length ? list.map(findingRow) : h("p", { class: "muted" }, res.findings.length ? "No findings match these filters." : "No configured check flagged anything. That does not mean the run is valid."))),
+      h("div", { class: "detail-col" },
+        sel ? findingDetail(sel) : h("p", { class: "muted pick" }, "Select a finding to see what was checked and the evidence behind it, or click a well on the plate."),
+        h("div", { class: "block" }, h("h3", null, "Plate"), plateHost,
+          h("div", { class: "legend" }, [["high", "High"], ["medium", "Medium"], ["low", "Low"], ["ok", "No open finding"]].map(([k, l]) => h("span", null, h("span", { class: "sw", style: `background:var(--w-${k})` }), l))),
+          h("p", { class: "fine" }, "Colour shows the most severe open finding in each well. Drag to rotate, scroll to zoom."),
+          selRows.length > 0 && h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
+            h("thead", null, h("tr", null, ["Well", "Sample", "Target", "Role", "Ct/Cq as exported", "Line"].map(x => h("th", null, x)))),
+            h("tbody", null, selRows.map(r => h("tr", null, h("td", null, r.key), h("td", null, r.sample ?? "—"), h("td", null, r.target ?? "—"), h("td", null, C.ROLE_LABEL[r.role]),
+              h("td", { class: "mono" }, r.ct ?? "(empty)"), h("td", { class: "num" }, r.line))))))),
+        curvesBlock())),
+    card(h("h2", null, "Technical replicates"),
+      h("p", { class: "lede" }, "Wells that share a biological unit and target. SD is the sample standard deviation of numeric Ct/Cq values; nothing is excluded. Technical wells are not independent biological observations."),
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
-        h("thead", null, h("tr", null, ["Biological unit", "Group", "Target", "Wells", "Raw Ct/Cq", "n", "Mean", "SD", ""].map(x => h("th", null, x)))),
-        h("tbody", null, res.replicateGroups.map(g => h("tr", { class: "click" + (g.over ? " flag" : ""), onclick: () => { st.selFinding = null; st.sel = new Set(g.wells.map(C.wellKey).filter(Boolean)); renderMain(); } },
+        h("thead", null, h("tr", null, ["Biological unit", "Group", "Target", "Wells", "Ct/Cq as exported", "n", "Mean", "SD", "Status"].map(x => h("th", null, x)))),
+        h("tbody", null, res.replicateGroups.map(g => h("tr", { class: "click" + (g.over ? " flag" : ""), tabindex: 0, onclick: () => { st.selFinding = null; st.sel = new Set(g.wells.map(C.wellKey).filter(Boolean)); renderMain(); } },
           h("td", null, g.unit), h("td", null, g.group ?? ""), h("td", null, g.target), h("td", null, g.wells.join(", ")), h("td", { class: "mono" }, g.raw_ct.map(x => x ?? "(empty)").join(", ")),
           h("td", { class: "num" }, g.n_numeric === g.n ? g.n : `${g.n_numeric} of ${g.n}`), h("td", { class: "num" }, fmt(g.mean)), h("td", { class: "num" }, fmt(g.sd, 3)),
-          h("td", null, g.sd === null ? "not assessed" : g.over ? `above ${st.exp.ruleset.values.sdThreshold}` : "")))))),
-      h("h4", null, "Biological units per group"),
+          h("td", null, g.sd === null ? "Not assessed" : g.over ? `Above ${st.exp.ruleset.values.sdThreshold}` : "Within threshold")))))),
+      h("h3", null, "Biological units per group"),
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
-        h("thead", null, h("tr", null, ["Group", "Target", "Biological units", "n units", "Wells"].map(x => h("th", null, x)))),
-        h("tbody", null, res.bioSummary.map(b => h("tr", null, h("td", null, b.group || "(no group)"), h("td", null, b.target), h("td", null, b.units.join(", ")), h("td", { class: "num" }, b.units.length), h("td", { class: "num" }, b.wells)))))),
-      h("p", { class: "fine" }, "SD is the sample standard deviation of numeric Ct/Cq values. Nothing is excluded. Technical wells are summarised within a biological unit and are not independent biological observations.")),
-    res.stdCurves.length > 0 && card(h("h3", null, "Standard curves"), res.stdCurves.map(c => {
+        h("thead", null, h("tr", null, ["Group", "Target", "Biological units", "Units", "Wells"].map(x => h("th", null, x)))),
+        h("tbody", null, res.bioSummary.map(b => h("tr", null, h("td", null, b.group || "No group"), h("td", null, b.target), h("td", null, b.units.join(", ")), h("td", { class: "num" }, b.units.length), h("td", { class: "num" }, b.wells))))))),
+    res.stdCurves.length > 0 && card(h("h2", null, "Standard curves"), res.stdCurves.map(c => {
       const cv = h("canvas", { class: "chart", role: "img", "aria-label": `Standard curve for ${c.target}` });
       after.push(() => plot(cv, { points: c.points.map(p => ({ x: p.x, y: p.y })), line: c, xLabel: "log10 quantity", yLabel: "Ct/Cq" }));
-      return h("div", null, h("h4", null, `${c.target}: efficiency ${fmt(c.efficiency, 1)}%, R² ${fmt(c.r2, 4)}, slope ${fmt(c.slope, 3)}`), cv);
+      return h("figure", null, cv, h("figcaption", null, `${c.target}: efficiency ${fmt(c.efficiency, 1)}%, R² ${fmt(c.r2, 4)}, slope ${fmt(c.slope, 3)}, ${c.levels} levels.`));
     })),
-    card(h("h3", null, "Was this audit useful?"),
-      h("p", { class: "muted", style: "margin-top:-.3rem" }, "Records whether you could act on the findings. Stored in this experiment only; AssayLint sends nothing anywhere."),
-      h("div", { class: "row" }, ["Yes, I can act on it", "Partly", "No"].map(v => h("button", { class: "pill" + (fb === v ? "" : " ghost"), type: "button",
+    card(h("h2", null, "Could you act on this review?"),
+      h("p", { class: "lede" }, "Your answer is saved with this experiment and included in its report. AssayLint sends nothing anywhere."),
+      h("div", { class: "seg", role: "group", "aria-label": "Usefulness" }, ["Yes", "Partly", "No"].map(v => h("button", { type: "button", class: fb === v ? "on" : "", "aria-pressed": String(fb === v),
         onclick: () => change("feedback", `Usefulness: ${v}`, () => (st.exp.feedback = { value: v, by: actor(), at: new Date().toISOString() })) }, v))))];
 };
 
@@ -622,10 +663,10 @@ VIEWS.report = () => {
   const base = st.exp.id;
   const frame = h("iframe", { class: "report-frame", sandbox: "allow-same-origin allow-modals", title: "Report preview" });
   frame.srcdoc = R.reportHtml(st.exp, st.res);
-  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: "pill", type: "button", onclick: fn }, label));
+  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: "btn primary", type: "button", onclick: fn }, label));
   const log = (what, name) => change("export", `${what}: ${name}`, null, { rerender: false });
   const go = (what, name, text, type) => () => { download(name, text(), type); log(what, name); };
-  return [card(h("h3", null, "Export"),
+  return [card(h("h2", null, "Export"),
       h("div", { class: "exports" },
         box("Report (HTML)", "Readable in any browser without AssayLint: context, files and checksums, checks performed and not performed, findings with dispositions, missing metadata, audit history.", "Download report",
           go("Report", `${base}.report.html`, () => R.reportHtml(st.exp, st.res), "text/html")),
@@ -635,14 +676,14 @@ VIEWS.report = () => {
         box("Structured results (JSON)", "Experiment context, analysis, findings, reviews and wells in one file.", "Download JSON", go("Structured results", `${base}.results.json`, () => R.structuredJson(st.exp, st.res), "application/json")),
         box("Experiment packet", "Everything, including the original files and audit history. Re-import it here or archive it with your notebook.", "Download packet", go("Experiment packet", `${base}.assaylint-packet.json`, () => R.packetJson(st.exp, st.res), "application/json"))),
       h("p", { class: "fine" }, "Exports are recorded in the audit history. Formats are described in docs/formats.md in the repository.")),
-    card(h("h3", null, "Report preview"), frame)];
+    card(h("h2", null, "Report preview"), frame)];
 };
 
 // ---------------------------------------------------------------- Compare runs (FR-7)
 VIEWS.compare = () => {
   const others = S.index().filter(x => x.id !== st.exp.id);
   if (!others.length) return [emptyCard("Create or import a second experiment to compare runs.")];
-  const out = [card(h("h3", null, "Compare with another run"),
+  const out = [card(h("h2", null, "Compare with another run"),
     h("select", { "aria-label": "Run to compare", onchange: ev => { st.compareId = ev.target.value; renderMain(); } }, h("option", { value: "" }, "Choose a run…"),
       others.map(o => h("option", { value: o.id, selected: o.id === st.compareId }, `${o.title} (${o.date}, ${o.id})`))),
     h("p", { class: "fine" }, "Lists which recorded variables differ. Differences are shown for review, not judged."))];
@@ -653,11 +694,11 @@ VIEWS.compare = () => {
   const c = C.compareRuns(st.exp, st.res, other, ores), A = st.exp.title, B = other.title;
   const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
   const diffs = c.fields.filter(f => !f.same).length;
-  out.push(card(h("h3", null, `Recorded context and settings (${diffs} differ)`), tbl(["Item", A, B], c.fields.map(f => h("tr", { class: f.same ? "" : "diff" }, h("td", null, f.label), h("td", null, f.a || "—"), h("td", null, f.b || "—"))))),
-    card(h("h3", null, "Mean Ct/Cq by biological unit and target"), tbl(["Target", "Biological unit", `${A}: mean (SD)`, `${B}: mean (SD)`, "Difference (B − A)"],
+  out.push(card(h("h2", null, `Recorded context and settings (${diffs} differ)`), tbl(["Item", A, B], c.fields.map(f => h("tr", { class: f.same ? "" : "diff" }, h("td", null, f.label), h("td", null, f.a || "—"), h("td", null, f.b || "—"))))),
+    card(h("h2", null, "Mean Ct/Cq by biological unit and target"), tbl(["Target", "Biological unit", `${A}: mean (SD)`, `${B}: mean (SD)`, "Difference (B − A)"],
       c.groups.map(g => h("tr", null, h("td", null, g.target), h("td", null, g.unit), h("td", { class: "num" }, `${fmt(g.a)} (${fmt(g.sdA, 3)})`), h("td", { class: "num" }, `${fmt(g.b)} (${fmt(g.sdB, 3)})`), h("td", { class: "num" }, fmt(g.delta)))))),
-    card(h("h3", null, "Controls"), tbl(["Target", "Control", A, B], c.controls.map(x => h("tr", { class: x.a === x.b ? "" : "diff" }, h("td", null, x.target), h("td", null, x.label), h("td", null, x.a), h("td", null, x.b))))),
-    card(h("h3", null, "Findings by severity"), tbl(["Severity", A, B], C.SEVERITIES.map(s => h("tr", null, h("td", null, s), h("td", { class: "num" }, c.counts.a[s] || 0), h("td", { class: "num" }, c.counts.b[s] || 0))))));
+    card(h("h2", null, "Controls"), tbl(["Target", "Control", A, B], c.controls.map(x => h("tr", { class: x.a === x.b ? "" : "diff" }, h("td", null, x.target), h("td", null, x.label), h("td", null, x.a), h("td", null, x.b))))),
+    card(h("h2", null, "Findings by severity"), tbl(["Severity", A, B], C.SEVERITIES.map(s => h("tr", null, h("td", null, s), h("td", { class: "num" }, c.counts.a[s] || 0), h("td", { class: "num" }, c.counts.b[s] || 0))))));
   return out;
 };
 

@@ -23,15 +23,15 @@ function table(head, rows, cls = "") {
 }
 const kv = pairs => `<dl>${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || "—")}</dd>`).join("")}</dl>`;
 
-const CSS = `body{font:14px/1.5 system-ui,"Segoe UI",sans-serif;color:#14161a;max-width:1100px;margin:0 auto;padding:24px}
-h1{margin:0 0 4px;font-size:24px}h2{font-size:17px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid #0a84ff}
-.sub{color:#5d6470}.note{background:#f2f6ff;border-left:4px solid #0a84ff;padding:10px 14px;margin:14px 0}
-.status{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;background:#eef0f4}
+const CSS = `body{font:14px/1.55 "IBM Plex Sans","Segoe UI",system-ui,sans-serif;color:#17201c;font-variant-numeric:tabular-nums;max-width:1100px;margin:0 auto;padding:24px}
+h1{margin:0 0 4px;font-size:24px}h2{font-size:17px;margin:32px 0 8px;padding-bottom:6px;border-bottom:1px solid #d3dad6}
+.sub{color:#5b6762}.note{background:#e3f0ec;border-left:3px solid #0b6b5c;padding:10px 14px;margin:14px 0}
+.status{display:inline-block;padding:3px 10px;border-radius:4px;font-weight:600;background:#e6ebe8}
 .review_needed{background:#fde2e2;color:#9b1c1f}.findings_present{background:#fff1d6;color:#7a4a00}.no_flags{background:#ddf5e5;color:#145c2c}
-table{border-collapse:collapse;width:100%;font-size:12.5px;margin:6px 0}th,td{border:1px solid #dde2ea;padding:5px 7px;text-align:left;vertical-align:top}
-th{background:#f4f6f9}td.none{color:#5d6470}dl{display:grid;grid-template-columns:260px 1fr;gap:4px 12px;margin:0}dt{color:#5d6470}dd{margin:0;white-space:pre-wrap}
-.counts{display:flex;gap:18px;flex-wrap:wrap}.counts div{background:#f4f6f9;border-radius:10px;padding:8px 14px}.counts b{display:block;font-size:20px}
-ul{margin:4px 0;padding-left:20px}.mono{font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin:6px 0}th,td{border:1px solid #d3dad6;padding:5px 7px;text-align:left;vertical-align:top}
+th{background:#f4f6f5;font-weight:500;color:#5b6762}td.none{color:#5b6762}dl{display:grid;grid-template-columns:260px 1fr;gap:4px 12px;margin:0}dt{color:#5b6762}dd{margin:0;white-space:pre-wrap}
+.counts{display:flex;gap:18px;flex-wrap:wrap}.counts div{border:1px solid #d3dad6;border-radius:6px;padding:8px 14px}.counts b{display:block;font-size:20px}
+ul{margin:4px 0;padding-left:20px}.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;word-break:break-all}
 @media print{body{padding:0}h2{break-after:avoid}tr{break-inside:avoid}}`;
 
 export function reportHtml(exp, res, generatedAt = new Date().toISOString()) {
