@@ -171,3 +171,26 @@ test("run comparison lists differing variables", async () => {
 test("rule catalog is complete", () => {
   for (const [id, r] of Object.entries(C.RULES)) for (const k of ["version", "category", "severity", "title", "checks", "why"]) assert.ok(r[k], `${id}.${k}`);
 });
+
+test("detectFileKind tells results, amplification and melt files apart", () => {
+  assert.equal(C.detectFileKind(f.results).kind, "results");
+  assert.equal(C.detectFileKind(f.amp).kind, "amp");
+  assert.equal(C.detectFileKind(f.melt).kind, "melt");
+  assert.equal(C.detectFileKind("hello,world\n1,2\n").kind, null);
+  const sds = C.detectFileKind("Well\tSample Name\tDetector\tCt\n1\ta\tG\t20\n13\tb\tG\t21\n");
+  assert.equal(sds.kind, "results"); assert.ok(sds.needsPlateSize);
+});
+
+test("nextSteps follows the run's state", async () => {
+  const e = await demoExp(), res = C.analyze(e);
+  const s = Object.fromEntries(C.nextSteps(e, res).map(x => [x.id, x]));
+  assert.ok(s.upload.done);
+  assert.ok(!s.labels.done && s.labels.text.includes("B1"));
+  assert.ok(s.controls.done);
+  assert.ok(!s.flags.done && !s.report.done);
+  for (const x of res.findings) e.reviews[x.id] = { disposition: "accepted" };
+  C.logAudit(e, "t", "export", "Report: x.report.html");
+  const after = Object.fromEntries(C.nextSteps(e, C.analyze(e)).map(x => [x.id, x]));
+  assert.ok(after.labels.done && after.flags.done && after.report.done);
+  assert.equal(C.nextSteps(C.newExperiment({}, "t"), null)[0].id, "upload");
+});

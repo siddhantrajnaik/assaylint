@@ -10,14 +10,17 @@ It runs in your browser. Your files never get uploaded anywhere, and there's no 
 
 It won't tell you your experiment is right. It points out things worth a second look, and you decide what to do about each one.
 
-## What you can do with it
+## How to use it
 
-- **Upload** a results file from QuantStudio, Bio-Rad CFX, ABI 7500/7900HT, LightCycler 480, or a plain CSV with well and Ct/Cq columns. Amplification and melt curve files are optional. You see what was read before anything gets checked.
-- **Fix the plate map**: samples, targets, controls (NTC, positive, no-RT, standards) and which wells are the same biological sample.
-- **Add method details** and set your own thresholds, or save them as a lab profile.
-- **Go through the flags.** Each one tells you what was checked, what it found, why it might matter and what to look at next. Mark each as accepted, not applicable, resolved or unresolved, and add a note.
-- **Download** a report (HTML or PDF), the well data and flags as CSV, or the whole experiment as one file you can open again later.
-- **Compare** two runs to see what changed.
+1. Open the site and drop your instrument export on the home page. Add the amplification and melt curve files at the same time if you have them.
+2. It takes you straight to **Review**: each flag shows what was found and the values behind it. Click "Looks fine", "Doesn't apply", "I'll fix it" or "Fixed", and it moves to the next one.
+3. The bar at the top tells you what's left, for example labelling a well that has no sample, or marking which wells are controls. "Take me there" opens the right place.
+4. On **Plate**, click wells (or a whole row or column) and pick what they are: sample, NTC, positive control, no-RT, standard or not used.
+5. Download the report from **Report**.
+
+Method details, thresholds, comparing two runs and renaming or deleting a run are under **More**. Tick "Show all steps" in the sidebar if you prefer the full step-by-step view.
+
+It reads exports from QuantStudio, Bio-Rad CFX, ABI 7500/7900HT and LightCycler 480, or a plain CSV with well and Ct/Cq columns. Besides the report, you can download the well data and flags as CSV, everything as JSON, or the whole run as one file you can open again later.
 
 ## Run it yourself
 

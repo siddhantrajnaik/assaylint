@@ -945,3 +945,34 @@ export async function verifyPacket(obj) {
   if (exp.source) parseResults(exp.source.text, { plateSize: exp.source.plateSize });
   return exp;
 }
+
+// ---------------------------------------------------------------- quick start helpers
+// Works out what a dropped file is: a results table, amplification curves or melt curves.
+export function detectFileKind(text) {
+  try { return { kind: "results", parsed: parseResults(text) }; } catch (e) {
+    if (e.details?.needsPlateSize) return { kind: "results", needsPlateSize: true, error: e };
+    for (const kind of ["amp", "melt"]) { try { return { kind, parsed: parseCurves(text, kind) }; } catch { /* try the next kind */ } }
+    return { kind: null, error: e };
+  }
+}
+
+// The short "what's next" list shown at the top of an experiment. Built only from existing findings.
+export function nextSteps(exp, res) {
+  if (!exp.source || !res?.rows?.length) return [{ id: "upload", tab: "data", done: false, text: "Upload the results file from your instrument" }];
+  const open = f => !CLOSED.has(exp.reviews?.[f.id]?.disposition);
+  const openOf = (...rules) => res.findings.filter(f => rules.includes(f.rule) && open(f));
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const unlabelled = [...new Set(openOf("unmapped_well", "unmapped_role").flatMap(f => f.wells))];
+  const noControls = openOf("no_control_roles").length > 0, missingCtrl = openOf("missing_control");
+  const serious = res.findings.filter(f => (f.severity === "high" || f.severity === "medium") && open(f) && f.category !== "missing_context");
+  const meta = openOf("missing_metadata").filter(f => f.severity === "medium");
+  const reported = exp.audit.some(a => a.action === "export" && /^Report/.test(a.detail));
+  return [
+    { id: "upload", tab: "data", done: true, text: `Uploaded ${exp.source.name}` },
+    { id: "labels", tab: "map", done: !unlabelled.length, text: unlabelled.length ? `Label ${plural(unlabelled.length, "well")} that ${unlabelled.length === 1 ? "has" : "have"} no sample or target (${unlabelled.slice(0, 4).join(", ")}${unlabelled.length > 4 ? "…" : ""})` : "Every well has a sample and target" },
+    { id: "controls", tab: "map", done: !noControls && !missingCtrl.length, text: noControls ? "Show which wells are controls" : missingCtrl.length ? `${plural(missingCtrl.length, "expected control")} not found; mark them on the plate or say why not` : "Controls are marked" },
+    { id: "flags", tab: "findings", done: !serious.length, text: serious.length ? `Look at ${plural(serious.length, "flag")} that need${serious.length === 1 ? "s" : ""} attention` : "No flags left that need attention" },
+    { id: "details", tab: "context", done: !meta.length, optional: true, text: meta.length ? `Add ${meta.map(f => f.title.replace(/^Not provided: /, "").split(" (")[0].toLowerCase()).join(" and ")} for the report` : "Method details are filled in" },
+    { id: "report", tab: "report", done: reported, text: reported ? "Report downloaded" : "Download your report" },
+  ];
+}

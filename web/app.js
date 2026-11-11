@@ -82,27 +82,25 @@ function creditBlock(cls) {
     h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=AssayLint`, class: "link" }, CREDIT.email), "."),
     CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
 }
+function goHome() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null }); render(); scrollTo(0, 0); }
 function renderSidebar() {
   const list = S.index();
   put($("#side"),
-    h("div", { class: "brand" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "AssayLint")),
-    h("div", { class: "side-actions" },
-      h("button", { class: "btn primary", type: "button", onclick: newExp }, "New experiment"),
-      h("div", { class: "btn-row" },
-        h("button", { class: "btn", type: "button", onclick: loadDemo }, "Open demo run"),
-        h("label", { class: "btn" }, "Import packet", h("input", { type: "file", accept: ".json,application/json", onchange: e => importPacket(e.target.files[0]) })))),
-    h("h2", { class: "side-h" }, "Experiments"),
-    h("nav", { class: "explist", "aria-label": "Experiments" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
+    h("button", { class: "brand", type: "button", onclick: goHome, title: "Home" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "AssayLint")),
+    h("button", { class: "btn primary", type: "button", onclick: goHome }, "Check a new run"),
+    h("h2", { class: "side-h" }, "Your runs"),
+    h("nav", { class: "explist", "aria-label": "Your runs" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
       h("span", { class: "exp-title" }, x.title), h("span", { class: "exp-meta" }, h("span", { class: "status " + x.status }, x.label), h("span", null, x.date))))
-      : h("p", { class: "muted" }, "Nothing here yet. Start a new one, or open the demo to see how it works.")),
+      : h("p", { class: "muted" }, "Runs you check will show up here.")),
     h("div", { class: "side-foot" },
-      h("label", { class: "field" }, h("span", null, "Your name for the audit history"),
+      h("label", { class: "field" }, h("span", null, "Your name for the history"),
         h("input", { type: "text", value: S.getSetting("actor") || "", placeholder: "local user", onchange: e => { try { S.setSetting("actor", e.target.value.trim()); } catch { /* storage unavailable */ } } })),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!S.getSetting("allSteps"), onchange: e => { try { S.setSetting("allSteps", e.target.checked); } catch { /* storage unavailable */ } renderMain(); } }), "Show all steps"),
       h("div", { class: "side-links" },
-        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Data handling"),
+        h("button", { class: "link", type: "button", onclick: goHome }, "Home"),
+        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
         h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"),
-        h("a", { href: "#", class: "link", id: "src-link", hidden: true }, "Source code")),
-      st.exp && creditBlock("side-credit")),
+        h("a", { href: "#", class: "link", id: "src-link", hidden: true }, "Source code"))),
     st.saveError && h("p", { class: "error" }, st.saveError));
   setSourceLink();
 }
@@ -112,25 +110,56 @@ function setSourceLink() {
   if (a && repo) { a.href = `https://github.com/${user}/${repo}`; a.hidden = false; }
 }
 
+// Four everyday steps; the rest lives under "More" unless "Show all steps" is on.
 const TABS = [["setup", "Setup", 1], ["data", "Data", 2], ["map", "Plate map", 3], ["context", "Context & rules", 4],
   ["findings", "Findings", 5], ["report", "Report & export", 6], ["compare", "Compare runs", null]];
-const tabLabel = k => TABS.find(t => t[0] === k)[1];
+const SIMPLE_TABS = [["data", "Upload"], ["map", "Plate"], ["findings", "Review"], ["report", "Report"]];
+const MORE_TABS = [["context", "Method details and thresholds"], ["compare", "Compare with another run"], ["setup", "Rename or delete this run"]];
+const tabLabel = k => (S.getSetting("allSteps") ? TABS : [...SIMPLE_TABS, ...MORE_TABS]).find(t => t[0] === k)[1];
+function goTab(k) { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); }
+function stepsNav() {
+  const tab = (k, label, n) => h("button", { type: "button", role: "tab", class: k === st.tab ? "on" : "", "aria-selected": String(k === st.tab), onclick: () => goTab(k) }, n && h("span", { class: "step-n" }, n), label);
+  if (S.getSetting("allSteps")) return h("nav", { class: "steps", role: "tablist", "aria-label": "Steps" }, TABS.map(([k, l, n]) => tab(k, l, n)));
+  const inMore = MORE_TABS.some(([k]) => k === st.tab);
+  return h("nav", { class: "steps", "aria-label": "Steps" },
+    h("div", { role: "tablist", class: "tabs-main" }, SIMPLE_TABS.map(([k, l]) => tab(k, l))),
+    h("details", { class: "more" + (inMore ? " on" : "") },
+      h("summary", null, inMore ? tabLabel(st.tab) : "More"),
+      h("div", { class: "more-menu" }, MORE_TABS.map(([k, l]) => h("button", { type: "button", class: k === st.tab ? "on" : "", onclick: () => goTab(k) }, l)))));
+}
+// One line telling a new user what to do next, with the full list folded away.
+function goStep(s) {
+  st.tab = s.tab; st.sel = new Set(); st.selFinding = null;
+  if (s.id === "labels") st.sel = new Set(st.res.findings.filter(f => ["unmapped_well", "unmapped_role"].includes(f.rule)).flatMap(f => f.wells).map(C.wellKey).filter(Boolean));
+  renderMain(); scrollTo(0, 0);
+}
+function nextBar() {
+  const steps = C.nextSteps(st.exp, st.res), done = steps.filter(s => s.done).length;
+  const next = steps.find(s => !s.done && !s.optional) || steps.find(s => !s.done);
+  return h("div", { class: "nextbar" },
+    h("div", { class: "nb-main" },
+      next ? [h("span", { class: "nb-label" }, "Next"), h("span", { class: "nb-text" }, next.text),
+        next.tab !== st.tab && h("button", { class: "btn small", type: "button", onclick: () => goStep(next) }, "Take me there")]
+        : h("span", { class: "nb-text" }, "All done. You can still go back and change anything."),
+      h("details", { class: "nb-all" }, h("summary", null, `${done} of ${steps.length} done`),
+        h("ul", null, steps.map(s => h("li", { class: s.done ? "done" : "" },
+          h("button", { type: "button", class: "link", onclick: () => goStep(s) }, s.text, s.optional && !s.done ? " (optional)" : "")))))));
+}
 function renderMain() {
   after.length = 0; mapRefresh = null;
   const y = scrollY, m = $("#main");
-  if (!st.exp) { put(m, welcome()); return; }
-  const e = st.exp, sum = st.res?.summary;
   const flashEl = st.flash && h("p", { class: "flash" + (st.flash.bad ? " bad" : ""), role: "status" }, st.flash.msg);
   st.flash = null;
+  if (!st.exp) { put(m, flashEl, home()); return; }
+  const e = st.exp, sum = st.res?.summary;
   put(m,
     h("header", { class: "exp-head" },
       h("div", null, h("h1", null, e.title),
-        h("dl", { class: "meta" }, h("div", null, h("dt", null, "ID"), h("dd", { class: "mono" }, e.id)), h("div", null, h("dt", null, "Run date"), h("dd", null, e.date)),
-          e.operator && h("div", null, h("dt", null, "Operator"), h("dd", null, e.operator)), e.source && h("div", null, h("dt", null, "Results"), h("dd", null, e.source.name)))),
+        h("dl", { class: "meta" }, h("div", null, h("dt", null, "Run date"), h("dd", null, e.date)),
+          e.operator && h("div", null, h("dt", null, "Operator"), h("dd", null, e.operator)), e.source && h("div", null, h("dt", null, "File"), h("dd", null, e.source.name)))),
       sum && h("span", { class: "status big " + sum.status }, sum.label)),
-    h("nav", { class: "steps", role: "tablist", "aria-label": "Experiment steps" }, TABS.map(([k, label, n]) =>
-      h("button", { type: "button", role: "tab", class: k === st.tab ? "on" : "", "aria-selected": String(k === st.tab),
-        onclick: () => { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); } }, n && h("span", { class: "step-n" }, n), label))),
+    stepsNav(),
+    st.res && nextBar(),
     flashEl,
     st.err && h("p", { class: "error" }, `The analysis could not run: ${st.err}`),
     ...VIEWS[st.tab]());
@@ -138,36 +167,93 @@ function renderMain() {
   for (const fn of after) fn();
 }
 const card = (...kids) => h("section", { class: "sec" }, ...kids);
-const emptyCard = (msg, tab) => card(h("p", null, msg), tab && h("button", { class: "btn primary", type: "button", onclick: () => { st.tab = tab; renderMain(); } }, "Go to " + tabLabel(tab)));
+const emptyCard = (msg, tab) => card(h("p", null, msg), tab && h("button", { class: "btn primary", type: "button", onclick: () => goTab(tab) }, "Go to " + tabLabel(tab)));
 
-function welcome() {
-  const lit = { C3: "--w-high", C4: "--w-ok", C5: "--w-ok", E8: "--w-medium", E9: "--w-ok", B10: "--w-low", G2: "--w-ok", G3: "--w-ok", G4: "--w-ok", F11: "--w-high" };
-  return h("section", { class: "welcome" },
-    h("div", { class: "welcome-text" },
-      h("h1", null, "Check your qPCR run before you trust the numbers"),
-      h("p", { class: "lede" }, "I made AssayLint to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control. Upload your instrument export and it shows you what looks off and the exact values behind each flag."),
-      h("ol", { class: "how" },
-        h("li", null, "Upload the results file from your instrument."),
-        h("li", null, "Check the plate map: samples, targets, controls."),
-        h("li", null, "Add your method details."),
-        h("li", null, "Go through the flags and note what you did about each one."),
-        h("li", null, "Download a report to keep with your notebook.")),
-      h("div", { class: "btn-row" },
-        h("button", { class: "btn primary", type: "button", onclick: newExp }, "New experiment"),
-        h("button", { class: "btn", type: "button", onclick: loadDemo }, "Open demo run")),
-      h("p", { class: "fine" }, "Your files never leave your browser. AssayLint points out things worth a second look; it can't tell you your experiment is right.")),
-    h("figure", { class: "welcome-plate" }, plateArt(8, 12, lit),
-      h("figcaption", null, "Each well gets the colour of its worst open flag.")),
+// ---------------------------------------------------------------- Home: who I am, what this is, and a place to drop a file
+function bigDrop() {
+  const z = h("div", { class: "home-drop", ondragover: ev => { ev.preventDefault(); z.classList.add("over"); }, ondragleave: () => z.classList.remove("over"),
+    ondrop: ev => { ev.preventDefault(); z.classList.remove("over"); quickFiles(ev.dataTransfer.files); } },
+    h("p", { class: "hd-title" }, "Drop your instrument export here"),
+    h("p", { class: "hd-sub" }, "The results file with your Ct or Cq values. Add the amplification and melt curve files too if you have them."),
+    h("label", { class: "btn primary" }, "Choose files", h("input", { type: "file", multiple: true, accept: ".csv,.txt,.tsv,text/csv,text/plain", onchange: ev => quickFiles(ev.target.files) })));
+  return z;
+}
+function home() {
+  const lit = { C3: "--w-high", E8: "--w-medium", B10: "--w-low", F11: "--w-high" };
+  return h("div", { class: "home" },
+    h("section", { class: "home-hero" },
+      h("div", { class: "home-text" },
+        h("h1", null, "Check your qPCR run before you trust the numbers"),
+        h("p", { class: "lede" }, `Hi, I'm ${CREDIT.name} (${CREDIT.affiliation}). I made AssayLint to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control.`),
+        CREDIT.bio && h("p", { class: "lede" }, CREDIT.bio),
+        bigDrop(),
+        h("div", { class: "home-alt" },
+          h("button", { class: "link", type: "button", onclick: loadDemo }, "No file handy? Try it with a sample run"),
+          h("label", { class: "link" }, "Open a run you saved earlier", h("input", { type: "file", accept: ".json,application/json", hidden: true, onchange: e => importPacket(e.target.files[0]) })))),
+      h("figure", { class: "welcome-plate" }, plateArt(8, 12, lit), h("figcaption", null, "Each well gets the colour of its worst flag. Everything else stays grey."))),
+    h("section", { class: "home-cols" },
+      h("div", null, h("h2", null, "What it does"), h("ul", null,
+        h("li", null, "Reads exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT, LightCycler 480, or any CSV with wells and Ct values."),
+        h("li", null, "Checks your controls, replicates, plate labels, curves and standard curve, and shows the numbers behind every flag."),
+        h("li", null, "Gives you a report to keep with your notebook."))),
+      h("div", null, h("h2", null, "What it doesn't do"), h("ul", null,
+        h("li", null, "It doesn't upload your data. Everything stays in this browser."),
+        h("li", null, "It doesn't decide whether your experiment worked. You make the call on each flag."),
+        h("li", null, "It doesn't replace your analysis software or your lab notebook."))),
+      h("div", null, h("h2", null, "How it goes"), h("ol", null,
+        h("li", null, "Drop your file."),
+        h("li", null, "Check the plate is labelled right."),
+        h("li", null, "Go through the flags."),
+        h("li", null, "Download the report.")))),
     creditBlock("welcome-credit"));
 }
 
-// ---------------------------------------------------------------- experiment lifecycle (FR-1, FR-23)
-function newExp() {
-  st.exp = C.newExperiment({ operator: S.getSetting("actor") || "" }, actor());
-  Object.assign(st, { tab: "setup", sel: new Set(), selFinding: null, pending: {} });
-  reanalyze(); persist(); render();
-  setTimeout(() => $("#f-title")?.select(), 0);
+// ---------------------------------------------------------------- quick start: files in, straight to the review
+async function quickFiles(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const tooBig = files.find(f => f.size > 25e6);
+  if (tooBig) { flash(`${tooBig.name} is larger than 25 MB, so I didn't read it.`, true); return render(); }
+  const items = await Promise.all(files.map(async f => { const text = await f.text(); return { name: f.name, text, sha: await C.sha256(text), ...C.detectFileKind(text) }; }));
+  const results = items.filter(i => i.kind === "results"), unread = items.filter(i => !i.kind);
+  if (results.length !== 1) {
+    const msg = results.length > 1 ? `I got ${results.length} results files (${results.map(r => r.name).join(", ")}). Drop one run at a time.`
+      : unread.length ? `I couldn't read ${unread.map(u => u.name).join(", ")}. A results file needs a well column (like A1) and a Ct or Cq column. If yours has both, email it to ${CREDIT.email} and I'll add support for it.`
+        : "These look like curve files. Drop the results file (the one with Ct or Cq values) together with them.";
+    flash(msg, true); return render();
+  }
+  const r = results[0], a = actor();
+  const e = C.newExperiment({ title: r.name.replace(/\.(csv|txt|tsv)$/i, ""), operator: S.getSetting("actor") || "" }, a);
+  Object.assign(st, { exp: e, pending: {}, sel: new Set(), selFinding: null });
+  if (r.needsPlateSize) st.pending.results = { name: r.name, text: r.text, sha: r.sha, error: r.error.message, details: r.error.details || {} };
+  else {
+    e.source = C.fileRecord({ name: r.name, text: r.text, sha: r.sha, actor: a, format: r.parsed.format });
+    C.logAudit(e, a, "file.import", `Results: ${r.name} (sha256 ${r.sha.slice(0, 12)}…; ${C.FORMATS[r.parsed.format]}, ${r.parsed.rows.length} rows)`);
+  }
+  for (const c of items.filter(i => i.kind === "amp" || i.kind === "melt")) {
+    if (e[c.kind]) continue;
+    e[c.kind] = C.fileRecord({ name: c.name, text: c.text, sha: c.sha, actor: a, ...(c.kind === "melt" ? { valueType: c.parsed.guessedValueType } : {}) });
+    C.logAudit(e, a, "file.import", `${c.kind === "amp" ? "Amplification curves" : "Melt curves"}: ${c.name} (sha256 ${c.sha.slice(0, 12)}…)`);
+    if (c.kind === "melt") { e.ruleset.values.meltChecks = true; C.logAudit(e, a, "ruleset.edit", "Melt-curve checks turned on because a melt file was added"); }
+  }
+  st.quick = { id: e.id, files: [r, ...items.filter(i => i.kind === "amp" || i.kind === "melt")].map(i => i.name), skipped: unread.map(u => u.name),
+    rows: r.parsed?.rows.length, format: r.parsed && C.FORMATS[r.parsed.format], melt: e.melt?.valueType };
+  st.tab = r.needsPlateSize ? "data" : "findings";
+  reanalyze(); persist(); render(); scrollTo(0, 0);
 }
+function quickNote() {
+  const q = st.quick;
+  if (!q || q.id !== st.exp.id || !st.exp.source) return null;
+  return h("div", { class: "quick-note" },
+    h("p", null, `Read ${q.rows} rows from ${q.files[0]}` + (q.files.length > 1 ? `, plus the curves in ${q.files.slice(1).join(" and ")}` : "") + "." +
+      (q.melt ? ` Melt values were read as ${q.melt}.` : "") + (q.skipped.length ? ` I couldn't read ${q.skipped.join(", ")}, so it was left out.` : "")),
+    h("div", { class: "row" },
+      h("button", { class: "link", type: "button", onclick: () => goTab("data") }, "See what was read"),
+      h("button", { class: "link", type: "button", onclick: () => { S.remove(st.exp.id); st.quick = null; goHome(); } }, "Undo"),
+      h("button", { class: "link", type: "button", onclick: () => { st.quick = null; renderMain(); } }, "Hide")));
+}
+
+// ---------------------------------------------------------------- experiment lifecycle (FR-1, FR-23)
 async function loadDemo() {
   const f = demoFiles(), a = actor();
   const e = C.newExperiment({ title: DEMO_TITLE, operator: "Demo user", project: "AssayLint demo" }, a);
@@ -279,7 +365,7 @@ function preview(kind, p) {
       [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "btn primary", type: "button", onclick: () => stageText(kind, p.name, p.text, n) }, `${n}-well (row by row)`)),
       h("small", { class: "muted" }, "Pick the plate your instrument used. The preview will show the resulting positions so you can check them.")),
     kind === "results" && !p.details.needsPlateSize && h("p", null, "AssayLint needs a well column (for example “Well” or “Well Position”) and a Ct/Cq column. If your export differs, copy the data into the import template."),
-    h("div", { class: "row" }, kind === "results" && h("button", { class: "btn primary", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
+    h("div", { class: "row" }, kind === "results" && !p.details.needsPlateSize && h("button", { class: "btn primary", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
   const r = p.parsed, confirmBtn = h("button", { class: "btn primary", type: "button", onclick: () => confirmImport(kind) }, "Confirm import");
   if (kind !== "results") {
     const used = new Set((st.res?.rows || []).map(x => x.key).filter(Boolean));
@@ -326,6 +412,12 @@ VIEWS.data = () => {
         kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], cur.format && ["Layout", C.FORMATS[cur.format]],
           cur.plateSize && ["Plate", `${cur.plateSize}-well`], cur.valueType && ["Melt values", cur.valueType],
           ["Checksum", h("span", { class: "mono", title: "SHA-256 of the file as imported" }, cur.sha256)]]),
+        kind === "results" && st.res?.parsed && h("details", { class: "what-read", open: st.quick?.id === st.exp.id }, h("summary", null, "What was read from this file"),
+          kv([["Columns used", Object.entries(st.res.parsed.columns).map(([k, v]) => `${C.FIELD_LABEL[k]} from “${v}”`).join(", ")],
+            st.res.parsed.unrecognized.length && ["Columns ignored", st.res.parsed.unrecognized.join(", ")],
+            ["Wells", `${st.res.rows.length} rows, ${new Set(st.res.rows.map(r => r.key).filter(Boolean)).size} wells`],
+            ["Targets", [...new Set(st.res.rows.map(r => r.target).filter(Boolean))].join(", ") || "none named"],
+            st.res.parsed.warnings.length && ["Notes", st.res.parsed.warnings.join(" ")]])),
         !p && h("div", { class: "row" },
           h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
           h("label", { class: "btn" }, "Replace", h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain", onchange: ev => stage(kind, ev.target.files[0]) })),
@@ -355,6 +447,11 @@ function plateGrid({ rows, cols, cls, label = () => "", title = () => "", style 
   }
   return g;
 }
+// Short explanations shown when hovering a role button.
+const ROLE_HELP = { sample: "One of your samples.", ntc: "No-template control: no template went in, so it shouldn't amplify.",
+  positive: "A well that should amplify, showing the assay worked on this plate.", nrt: "No-RT control: RNA taken through without reverse transcriptase. Signal can mean genomic DNA.",
+  standard: "Part of a dilution series of known amounts, used for the standard curve.", empty: "A well you didn't use." };
+const ROLE_BUTTONS = [["sample", "Sample"], ["ntc", "NTC"], ["positive", "Positive control"], ["nrt", "No-RT"], ["standard", "Standard"], ["empty", "Not used"]];
 const GROUP_TONES = ["#6C8796", "#8DA68A", "#B79A62", "#9C8AA5", "#6F9C98", "#A3877C"];
 const MAP_FIELDS = [["sample", "Sample"], ["target", "Target"], ["group", "Group / condition"], ["role", "Role"], ["bio_unit", "Biological unit"], ["quantity", "Quantity (standards)"]];
 const currentRow = id => st.res.rows.find(r => r.id === id);
@@ -441,28 +538,52 @@ VIEWS.map = () => {
     ? h("select", { onchange: ev => setCell(r.id, f, ev.target.value), "aria-label": `Role for ${r.key || r.well}` }, C.ROLES.map(x => h("option", { value: x, selected: x === r.role }, C.ROLE_LABEL[x])))
     : h("input", { type: "text", value: r[f] ?? "", "aria-label": `${f} for ${r.key || r.well}`, onchange: ev => setCell(r.id, f, ev.target.value.trim()) }), src(r, f) && h("small", null, src(r, f)));
   const shown = st.mapFilter === "selected" ? res.rows.filter(r => st.sel.has(r.key)) : res.rows;
-  return [card(h("div", { class: "head" }, h("div", null, h("h2", null, "Plate map"),
-      h("p", { class: "muted", style: "margin:0;max-width:640px" }, "Click wells, or a row letter or column number, to select them. Changing a label here doesn't touch your data; the original value is shown under anything you edit.")),
-      h("div", { class: "row" },
-        h("label", { class: "btn" }, "Import plate-map template", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
-        h("button", { class: "btn", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"))),
-    gridHost,
-    legendHost,
-    st.exp.template && h("p", { class: "fine" }, `Template applied: ${st.exp.template.name} (${st.exp.template.wells.length} wells, ${when(st.exp.template.importedAt)}).`),
-    h("div", { class: "bulk" }, count,
-      h("select", { onchange: ev => { st.bulkField = ev.target.value; renderMain(); }, "aria-label": "Field to set" }, MAP_FIELDS.map(([k, l]) => h("option", { value: k, selected: k === st.bulkField }, l))),
-      valueInput, h("button", { class: "btn primary", type: "button", disabled: !st.sel.size, onclick: applyBulk }, "Apply to selected"),
-      h("button", { class: "btn", type: "button", disabled: !st.sel.size, onclick: resetSel }, "Revert selected to file values"),
-      h("button", { class: "btn", type: "button", onclick: () => { st.sel = new Set(present); renderMain(); } }, "Select all"),
-      h("button", { class: "btn", type: "button", onclick: () => { st.sel.clear(); renderMain(); } }, "Clear selection")),
-    h("p", { class: "fine" }, "Wells with the same biological unit and target count as technical replicates. A biological unit is one independent sample (one mouse, one culture). Leave it blank and the sample name is used instead.")),
-  card(h("div", { class: "head" }, h("h2", null, `Wells (${shown.length} rows)`),
-      h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.mapFilter === "selected", onchange: ev => { st.mapFilter = ev.target.checked ? "selected" : "all"; renderMain(); } }), "Show selected wells only")),
-    h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
-      h("thead", null, h("tr", null, ["Line", "Well", "Sample", "Target", "Group", "Role", "Biological unit", "Quantity", "Ct/Cq (raw)"].map(x => h("th", null, x)))),
-      h("tbody", null, shown.map(r => h("tr", { class: st.sel.has(r.key) ? "sel" : "" }, h("td", null, r.line), h("td", null, r.key || r.well),
-        cell(r, "sample"), cell(r, "target"), cell(r, "group"), cell(r, "role"), cell(r, "bio_unit"), cell(r, "quantity"),
-        h("td", { class: "mono" }, r.ct ?? "(empty)")))))))];
+  const picked = res.rows.filter(r => st.sel.has(r.key)), keys = [...st.sel];
+  const setFor = (f, val) => { flash(`${keys.length === 1 ? keys[0] : `${keys.length} wells`} set to ${f === "role" ? (C.ROLE_LABEL[val][0].toLowerCase() + C.ROLE_LABEL[val].slice(1)) : `${f} “${val}”`}.`); change("map.bulk", `${f} = "${val}" for ${keys.join(", ")}`, () => { for (const r of picked) st.exp.map[r.id] = { ...st.exp.map[r.id], [f]: val }; st.sel = new Set(); }); };
+  const nameIn = h("input", { type: "text", placeholder: "Sample name, e.g. ctrl-1", "aria-label": "Sample name" });
+  const qtyIn = h("input", { type: "text", placeholder: "Quantity, e.g. 1e5", "aria-label": "Quantity" });
+  const roleBar = picked.length
+    ? h("div", { class: "rolebar" },
+      h("p", { class: "rb-q" }, `${keys.length} well${keys.length === 1 ? "" : "s"} selected (${keys.slice(0, 8).join(", ")}${keys.length > 8 ? "…" : ""}). What ${keys.length === 1 ? "is it" : "are they"}?`),
+      h("div", { class: "seg roles", role: "group", "aria-label": "Set role" }, ROLE_BUTTONS.map(([k, l]) => {
+        const all = picked.every(r => r.role === k);
+        return h("button", { type: "button", class: all ? "on" : "", title: ROLE_HELP[k], "aria-pressed": String(all), onclick: () => setFor("role", k) }, l);
+      })),
+      h("div", { class: "row rb-more" },
+        nameIn, h("button", { class: "btn", type: "button", onclick: () => nameIn.value.trim() && setFor("sample", nameIn.value.trim()) }, "Set name"),
+        picked.some(r => r.role === "standard") && [qtyIn, h("button", { class: "btn", type: "button", onclick: () => qtyIn.value.trim() && setFor("quantity", qtyIn.value.trim()) }, "Set quantity")],
+        h("button", { class: "link", type: "button", onclick: () => { st.sel.clear(); renderMain(); } }, "Clear selection")))
+    : h("p", { class: "rb-hint" }, "Select wells on the plate, then choose what they are. Click a row letter or column number to pick a whole row or column.");
+  const inferred = res.rows.filter(r => r.roleSource?.startsWith("inferred"));
+  const suggestion = inferred.length > 0 && h("div", { class: "quick-note" },
+    h("p", null, `I think ${inferred.map(r => r.key || r.well).join(", ")} ${inferred.length === 1 ? "is a no-template control" : "are no-template controls"} because of the sample name. Is that right?`),
+    h("div", { class: "row" },
+      h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Confirmed NTC for ${inferred.map(r => r.key).join(", ")}`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role: "ntc" }; }) }, "Yes"),
+      h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Set ${inferred.map(r => r.key).join(", ")} back to sample`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role: "sample" }; }) }, "No, they're samples")));
+  return [card(h("h2", null, "Plate"),
+      h("p", { class: "lede" }, "Check that every well is labelled right. Changing a label here doesn't touch your data; the original value is kept and shown in the report."),
+      suggestion,
+      gridHost,
+      legendHost,
+      roleBar,
+      st.exp.template && h("p", { class: "fine" }, `Template applied: ${st.exp.template.name} (${st.exp.template.wells.length} wells, ${when(st.exp.template.importedAt)}).`)),
+    h("section", { class: "sec" }, h("details", { class: "map-more", open: !!st.mapMoreOpen, ontoggle: ev => (st.mapMoreOpen = ev.target.open) },
+      h("summary", null, "More options: edit as a table, groups and biological units, plate-map files"),
+      h("p", { class: "fine" }, "Wells with the same biological unit and target count as technical replicates. A biological unit is one independent sample (one mouse, one culture). Leave it blank and the sample name is used."),
+      h("div", { class: "bulk" }, count,
+        h("select", { onchange: ev => { st.bulkField = ev.target.value; renderMain(); }, "aria-label": "Field to set" }, MAP_FIELDS.map(([k, l]) => h("option", { value: k, selected: k === st.bulkField }, l))),
+        valueInput, h("button", { class: "btn primary", type: "button", disabled: !st.sel.size, onclick: applyBulk }, "Apply to selected"),
+        h("button", { class: "btn", type: "button", disabled: !st.sel.size, onclick: resetSel }, "Revert selected to file values"),
+        h("button", { class: "btn", type: "button", onclick: () => { st.sel = new Set(present); renderMain(); } }, "Select all")),
+      h("div", { class: "row", style: "margin:12px 0" },
+        h("label", { class: "btn" }, "Import plate-map file", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
+        h("button", { class: "btn", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"),
+        h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.mapFilter === "selected", onchange: ev => { st.mapFilter = ev.target.checked ? "selected" : "all"; renderMain(); } }), "Only selected wells")),
+      h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
+        h("thead", null, h("tr", null, ["Line", "Well", "Sample", "Target", "Group", "Role", "Biological unit", "Quantity", "Ct/Cq (raw)"].map(x => h("th", null, x)))),
+        h("tbody", null, shown.map(r => h("tr", { class: st.sel.has(r.key) ? "sel" : "" }, h("td", null, r.line), h("td", null, r.key || r.well),
+          cell(r, "sample"), cell(r, "target"), cell(r, "group"), cell(r, "role"), cell(r, "bio_unit"), cell(r, "quantity"),
+          h("td", { class: "mono" }, r.ct ?? "(empty)"))))))))];
 };
 
 // ---------------------------------------------------------------- 4 · Context & rules (FR-6, FR-9, FR-16)
@@ -560,11 +681,22 @@ function setReview(f, patch) {
   const what = "disposition" in patch ? `disposition ${C.DISPOSITION_LABEL[old.disposition || "unreviewed"]} → ${C.DISPOSITION_LABEL[patch.disposition]}` : `note: "${old.note || ""}" → "${patch.note}"`;
   change("review", `${f.id}: ${what}`, () => (st.exp.reviews[f.id] = next), { rerender: "disposition" in patch });
 }
-function selectFinding(f) {
-  st.selFinding = st.selFinding === f.id ? null : f.id;
-  st.sel = new Set(st.selFinding ? f.wells.map(C.wellKey).filter(Boolean) : []);
-  renderMain();
+function selectFinding(f, { render = true } = {}) {
+  st.selFinding = f.id;
+  st.sel = new Set(f.wells.map(C.wellKey).filter(Boolean));
+  if (render) renderMain();
 }
+const isOpen = f => !C.CLOSED.has(st.exp.reviews[f.id]?.disposition);
+const needsLook = f => f.severity === "high" || f.severity === "medium";
+// Record a decision, then move on to the next flag that still needs one.
+function decide(f, disposition) {
+  const order = sorted(st.res.findings), at = order.findIndex(x => x.id === f.id);
+  setReview(f, { disposition });
+  const after = [...order.slice(at + 1), ...order.slice(0, at)];
+  const next = after.find(x => needsLook(x) && isOpen(x) && !st.exp.reviews[x.id]?.disposition) || after.find(x => isOpen(x) && !st.exp.reviews[x.id]?.disposition);
+  if (next) { selectFinding(next, { render: false }); flash(`Saved “${DECISIONS.find(d => d[0] === disposition)[1]}”. Here's the next one.`); renderMain(); }
+}
+const DECISIONS = [["accepted", "Looks fine"], ["not_applicable", "Doesn't apply"], ["unresolved", "I'll fix it"], ["resolved", "Fixed"]];
 function plateFlags() {
   const RANK = { high: 3, medium: 2, low: 1 }, flags = new Map();
   for (const f of st.res.findings) {
@@ -605,10 +737,11 @@ function findingDetail(f) {
     h("p", null, h("strong", null, "Check next. "), f.next_check),
     h("p", { class: "fd-rule" }, `How this was checked: ${C.RULES[f.rule].checks} Rule ${f.rule}, version ${f.rule_version}.`),
     h("div", { class: "review" },
-      field("Review decision", h("select", { onchange: ev => setReview(f, { disposition: ev.target.value }) },
-        C.DISPOSITIONS.map(d => h("option", { value: d, selected: d === (rv.disposition || "unreviewed") }, C.DISPOSITION_LABEL[d])))),
-      field("Note or action taken", h("input", { type: "text", value: rv.note || "", placeholder: "Optional", onchange: ev => setReview(f, { note: ev.target.value }) })),
-      rv.at && h("p", { class: "fine" }, `Last changed by ${rv.by} on ${when(rv.at)}. Your decision is saved alongside the flag; the flag itself stays in the report.`)));
+      h("p", { class: "rv-q" }, "What do you make of it?"),
+      h("div", { class: "seg decide", role: "group", "aria-label": "Your decision" }, DECISIONS.map(([d, l]) =>
+        h("button", { type: "button", class: rv.disposition === d ? "on" : "", "aria-pressed": String(rv.disposition === d), onclick: () => decide(f, d) }, l))),
+      field("Note (optional)", h("input", { type: "text", value: rv.note || "", placeholder: "For example: re-ran this sample on 12 Nov", onchange: ev => setReview(f, { note: ev.target.value }) })),
+      rv.at && h("p", { class: "fine" }, `Last changed by ${rv.by} on ${when(rv.at)}. The flag stays in the report with your decision next to it.`)));
 }
 function curvesBlock() {
   const res = st.res, keys = [...st.sel];
@@ -638,15 +771,18 @@ VIEWS.findings = () => {
   const list = sorted(res.findings).filter(f => (!st.hideClosed || !C.CLOSED.has(st.exp.reviews[f.id]?.disposition)) &&
     (!st.category || f.category === st.category) &&
     (!q || [f.rule, f.title, f.description, f.evidence, f.wells.join(" "), f.target, f.sample].join(" ").toLowerCase().includes(q)));
+  if (!st.selFinding) { const first = sorted(res.findings).find(f => needsLook(f) && isOpen(f)) || list[0]; if (first) selectFinding(first, { render: false }); }
   const sel = st.selFinding && res.findings.find(f => f.id === st.selFinding);
+  const major = list.filter(needsLook), minor = list.filter(f => !needsLook(f));
   const selRows = res.rows.filter(r => st.sel.has(r.key));
   const fb = st.exp.feedback?.value;
   return [
     h("section", { class: "sec summary" },
+      quickNote(),
       h("p", { class: "tally" }, (() => {
-        const parts = [["high", "high"], ["medium", "medium"], ["low", "low"], ["info", "informational"]].filter(([k]) => sev[k]).map(([k, l]) => `${sev[k]} ${l}`);
-        const list = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0];
-        return parts.length ? `${list} finding${res.findings.length === 1 ? "" : "s"}. You've reviewed ${sum.reviewed} of ${sum.total}.` : "Nothing was flagged.";
+        const hi = sev.high || 0, md = sev.medium || 0, mn = (sev.low || 0) + (sev.info || 0);
+        const parts = [hi && `${hi} need${hi === 1 ? "s" : ""} a look`, md && `${md} worth checking`, mn && `${mn} minor note${mn === 1 ? "" : "s"}`].filter(Boolean);
+        return parts.length ? `${parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0]}. You've gone through ${sum.reviewed} of ${sum.total}.` : "Nothing was flagged.";
       })()),
       h("details", { class: "scope" }, h("summary", null, `What was checked: ${res.checksRun.length} groups of checks, ${res.notAssessed.length} item${res.notAssessed.length === 1 ? "" : "s"} not assessed`),
         h("div", { class: "scope-cols" },
@@ -655,14 +791,18 @@ VIEWS.findings = () => {
       h("p", { class: "fine" }, "This isn't a score. It just tells you whether anything still needs a look.")),
     h("section", { class: "sec split" },
       h("div", { class: "flist-col" },
-        h("div", { class: "ftools" },
-          h("input", { type: "search", placeholder: "Search findings", value: st.filter, "aria-label": "Search findings", onchange: ev => { st.filter = ev.target.value; renderMain(); } }),
-          h("select", { "aria-label": "Category", onchange: ev => { st.category = ev.target.value; renderMain(); } }, h("option", { value: "" }, "All categories"),
-            Object.entries(C.CATEGORY_LABEL).map(([k, l]) => h("option", { value: k, selected: st.category === k }, `${l} (${sum.byCategory[k] || 0})`))),
-          h("select", { "aria-label": "Sort", onchange: ev => { st.sort = ev.target.value; renderMain(); } }, Object.entries(SORTS).map(([k, l]) => h("option", { value: k, selected: k === st.sort }, "Sort by " + l.toLowerCase()))),
-          h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.hideClosed, onchange: ev => { st.hideClosed = ev.target.checked; renderMain(); } }), "Hide closed")),
-        h("p", { class: "fine count" }, `${list.length} of ${res.findings.length} findings`),
-        h("div", { class: "flist", role: "list" }, list.length ? list.map(findingRow) : h("p", { class: "muted" }, res.findings.length ? "No findings match these filters." : "Nothing was flagged. That's a good sign, not a guarantee."))),
+        h("details", { class: "ftools-wrap", open: !!(st.filter || st.category || st.hideClosed || st.sort !== "severity") }, h("summary", null, "Search, filter and sort"),
+          h("div", { class: "ftools" },
+            h("input", { type: "search", placeholder: "Search flags", value: st.filter, "aria-label": "Search flags", onchange: ev => { st.filter = ev.target.value; renderMain(); } }),
+            h("select", { "aria-label": "Category", onchange: ev => { st.category = ev.target.value; renderMain(); } }, h("option", { value: "" }, "All kinds"),
+              Object.entries(C.CATEGORY_LABEL).map(([k, l]) => h("option", { value: k, selected: st.category === k }, `${l} (${sum.byCategory[k] || 0})`))),
+            h("select", { "aria-label": "Sort", onchange: ev => { st.sort = ev.target.value; renderMain(); } }, Object.entries(SORTS).map(([k, l]) => h("option", { value: k, selected: k === st.sort }, "Sort by " + l.toLowerCase()))),
+            h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.hideClosed, onchange: ev => { st.hideClosed = ev.target.checked; renderMain(); } }), "Hide ones I've dealt with"))),
+        !list.length && h("p", { class: "muted" }, res.findings.length ? "No flags match these filters." : "Nothing was flagged. That's a good sign, not a guarantee."),
+        major.length > 0 && h("h3", { class: "fgroup" }, `Needs a look (${major.length})`),
+        major.length > 0 && h("div", { class: "flist", role: "list" }, major.map(findingRow)),
+        minor.length > 0 && h("details", { class: "fminor", open: !major.length || minor.some(f => f.id === st.selFinding) },
+          h("summary", null, `Minor notes (${minor.length})`), h("div", { class: "flist", role: "list" }, minor.map(findingRow)))),
       h("div", { class: "detail-col" },
         sel ? findingDetail(sel) : h("p", { class: "muted pick" }, "Pick a flag on the left to see what was checked and why, or click a well on the plate."),
         h("div", { class: "block" }, h("h3", null, "Plate"), plateHost,
@@ -698,24 +838,27 @@ VIEWS.findings = () => {
 
 // ---------------------------------------------------------------- 6 · Report & export (FR-19..FR-21)
 VIEWS.report = () => {
-  if (!st.res) return [emptyCard("The analysis has not run yet.", "data")];
-  const base = st.exp.id;
+  if (!st.res) return [emptyCard("Upload a results file first, then come back here for the report.", "data")];
+  const base = (st.exp.title || st.exp.id).replace(/[^\w.-]+/g, "_").slice(0, 60) || st.exp.id;
   const frame = h("iframe", { class: "report-frame", sandbox: "allow-same-origin allow-modals", title: "Report preview" });
   frame.srcdoc = R.reportHtml(st.exp, st.res);
-  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: title === "Report (HTML)" ? "btn primary" : "btn", type: "button", onclick: fn }, label));
-  const log = (what, name) => change("export", `${what}: ${name}`, null, { rerender: false });
-  const go = (what, name, text, type) => () => { download(name, text(), type); log(what, name); };
-  return [card(h("h2", null, "Export"),
-      h("div", { class: "exports" },
-        box("Report (HTML)", "Readable in any browser without AssayLint: context, files and checksums, checks performed and not performed, findings with dispositions, missing metadata, audit history.", "Download report",
-          go("Report", `${base}.report.html`, () => R.reportHtml(st.exp, st.res), "text/html")),
-        box("Report (PDF)", "Opens the print dialog for the report; choose “Save as PDF”.", "Print / save as PDF", () => { frame.contentWindow.print(); log("Report print", "print dialog"); }),
-        box("Well data (CSV)", "Normalised well-level data with original identifiers, raw values and file values.", "Download CSV", go("Well data", `${base}.wells.csv`, () => R.wellsCsv(st.res), "text/csv")),
-        box("Findings (CSV)", "One row per finding with rule version, evidence and disposition.", "Download CSV", go("Findings", `${base}.findings.csv`, () => R.findingsCsv(st.exp, st.res), "text/csv")),
-        box("Structured results (JSON)", "Experiment context, analysis, findings, reviews and wells in one file.", "Download JSON", go("Structured results", `${base}.results.json`, () => R.structuredJson(st.exp, st.res), "application/json")),
-        box("Experiment packet", "Everything, including the original files and audit history. Re-import it here or archive it with your notebook.", "Download packet", go("Experiment packet", `${base}.assaylint-packet.json`, () => R.packetJson(st.exp, st.res), "application/json"))),
-      h("p", { class: "fine" }, "Every download is noted in the experiment's history.")),
-    card(h("h2", null, "Report preview"), frame)];
+  const log = (what, name, rerender = false) => change("export", `${what}: ${name}`, null, { rerender });
+  const go = (what, name, text, type, rerender) => () => { download(name, text(), type); log(what, name, rerender); };
+  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: "btn", type: "button", onclick: fn }, label));
+  const open = st.res.summary.open;
+  return [card(h("h2", null, "Your report"),
+      h("p", { class: "lede" }, "One page with everything: what was checked, every flag with the values behind it, your decisions and notes, and the run details. It opens in any browser, so you can keep it with your notebook or send it to someone." +
+        (open ? ` You still have ${open} flag${open === 1 ? "" : "s"} without a decision; they'll show as not reviewed.` : "")),
+      h("div", { class: "row" },
+        h("button", { class: "btn primary big", type: "button", onclick: go("Report", `${base}-report.html`, () => R.reportHtml(st.exp, st.res), "text/html", true) }, "Download report"),
+        h("button", { class: "btn", type: "button", onclick: () => { frame.contentWindow.print(); log("Report print", "print dialog", true); } }, "Print or save as PDF")),
+      h("details", { class: "other-formats" }, h("summary", null, "Other formats"),
+        h("div", { class: "exports" },
+          box("Well data (CSV)", "Every well with its labels and the values exactly as exported.", "Download CSV", go("Well data", `${base}-wells.csv`, () => R.wellsCsv(st.res), "text/csv")),
+          box("Flags (CSV)", "One row per flag with the evidence and your decision.", "Download CSV", go("Findings", `${base}-flags.csv`, () => R.findingsCsv(st.exp, st.res), "text/csv")),
+          box("Results (JSON)", "Everything above in one structured file, for scripts.", "Download JSON", go("Structured results", `${base}-results.json`, () => R.structuredJson(st.exp, st.res), "application/json")),
+          box("Whole run (packet)", "The run with its original files and history. Open it here again later with “Open a run you saved earlier”.", "Download packet", go("Experiment packet", `${base}.assaylint-packet.json`, () => R.packetJson(st.exp, st.res), "application/json"))))),
+    card(h("h2", null, "Preview"), frame)];
 };
 
 // ---------------------------------------------------------------- Compare runs (FR-7)
