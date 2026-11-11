@@ -1,0 +1,12 @@
+﻿Well,Sample,Gene,Ct,Notes
+A01,"mouse 3, liver",Gapdh,17.92,
+A02,"mouse 3, liver",Gapdh,18.05 ,
+A03,"mouse 3, liver",Gapdh,N/A,bubble
+
+A1O,"mouse 4, liver",Gapdh,18.40,typo in well
+A05,"mouse 4, liver",Gapdh,18.31,
+A06,"mouse 4, liver",Gapdh,18.22,
+B01,water,Gapdh,,
+,,,,
+,,,,
+Average,,,18.15,
