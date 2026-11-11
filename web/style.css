@@ -146,19 +146,30 @@ textarea { resize: vertical; line-height: 1.45; }
 .tbl tr.diff td { background: #FFF8E8; }
 .tbl tr.flag td:last-child { color: var(--medium); font-weight: 500; }
 
-/* plate grids (2D) */
-.pgrid { display: grid; gap: 3px; max-width: 620px; }
+/* plate grids (2D). The plate body has the A1 corner cut, like a real microplate. */
+.plate-body { display: block; width: min(600px, 100%); padding: 14px 20px 18px 12px; background: #E6EBE8; border-radius: 10px;
+  clip-path: polygon(20px 0, 100% 0, 100% 100%, 0 100%, 0 20px); }
+.pgrid { display: grid; gap: 5px; width: 100%; }
+.plate-body.p384 { width: min(860px, 100%); } .p384 .pgrid { gap: 3px; }
 .pgrid .ph { border: 0; background: none; color: var(--muted); font-size: .72rem; cursor: pointer; padding: 0; border-radius: 3px; }
-.pgrid .ph:hover { color: var(--ink); background: var(--rule-soft); }
-.pgrid .pc { aspect-ratio: 1; min-width: 14px; border-radius: 50%; border: 2px solid transparent; padding: 0; font-size: .6rem; font-weight: 600; color: #2A3530; cursor: pointer; }
-.pc.none { background: transparent; box-shadow: inset 0 0 0 1px var(--rule-soft); cursor: default; }
-.pc.r-sample { background: #D6E6F0; } .pc.r-ntc { background: #F2CFCB; } .pc.r-positive { background: #CFE7D7; }
-.pc.r-nrt { background: #F3DDBE; } .pc.r-standard { background: #DDD5EC; } .pc.r-empty { background: var(--rule-soft); } .pc.mixed { background: #D3DAD6; }
-.pc.high { background: var(--w-high); color: #fff; } .pc.medium { background: var(--w-medium); } .pc.low { background: var(--w-low); } .pc.ok { background: var(--w-ok); }
-.pc.sel { border-color: var(--ink); }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; font-size: .8rem; color: var(--muted); }
-.sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
-.legend .sw.pc { width: 10px; height: 10px; border: 0; }
+.pgrid .ph:hover { color: var(--ink); background: rgba(23, 32, 28, .06); }
+.pc { aspect-ratio: 1; min-width: 12px; border-radius: 50%; border: 1.5px solid transparent; padding: 0; cursor: pointer; background: var(--fill, #fff); }
+.pc.none { background: transparent; border-color: #C3CCC7; cursor: default; }
+.pc.r-sample, .pc.r-standard { background: var(--fill, #AEB8B3); }
+.pc.r-positive { background: var(--ink); }
+.pc.r-ntc { background: #fff; border: 1.5px dashed var(--ink); }
+.pc.r-nrt { background: #fff; border-color: var(--ink); }
+.pc.r-empty { background: linear-gradient(135deg, transparent 45%, #9AA59F 45% 55%, transparent 55%), #fff; border-color: #C3CCC7; }
+.pc.mixed { background: linear-gradient(90deg, var(--ink) 50%, #fff 50%); border-color: var(--ink); }
+.pc.high { background: var(--w-high); } .pc.medium { background: var(--w-medium); } .pc.low { background: var(--w-low); } .pc.ok { background: var(--w-ok); }
+.pc.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pgrid .pc:not(.none):hover { outline: 2px solid #AEB8B3; outline-offset: 2px; }
+.pgrid .pc.sel:hover { outline-color: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0 0; font-size: .82rem; color: var(--muted); }
+.legend > span { display: inline-flex; align-items: center; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 7px; flex: none; }
+.sw.pc { aspect-ratio: auto; min-width: 0; cursor: default; }
+.sw-std { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, #fff), var(--accent)); width: 22px; border-radius: 6px; }
 .bulk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 6px; padding: 10px 12px; background: #F4F6F5; border-radius: var(--r); }
 .bulk select, .bulk input { width: auto; min-width: 10rem; }
 

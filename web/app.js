@@ -341,17 +341,18 @@ function plateDims(rows) {
     rows.some(r => r.key && (r.key.charCodeAt(0) > 72 || Number(r.key.slice(1)) > 12));
   return big ? { rows: 16, cols: 24 } : { rows: 8, cols: 12 };
 }
-function plateGrid({ rows, cols, cls, label = () => "", title = () => "", onCell, onRow, onCol }) {
+function plateGrid({ rows, cols, cls, label = () => "", title = () => "", style = () => "", onCell, onRow, onCol }) {
   const g = h("div", { class: "pgrid", style: `grid-template-columns:1.3em repeat(${cols},minmax(0,1fr))`, "aria-label": "Plate layout" });
   g.append(h("span"));
   for (let c = 1; c <= cols; c++) g.append(h("button", { type: "button", class: "ph", title: `Select column ${c}`, onclick: () => onCol?.(c) }, c));
   for (let r = 0; r < rows; r++) {
     const L = String.fromCharCode(65 + r);
     g.append(h("button", { type: "button", class: "ph", title: `Select row ${L}`, onclick: () => onRow?.(L) }, L));
-    for (let c = 1; c <= cols; c++) { const k = L + c; g.append(h("button", { type: "button", class: "pc " + cls(k), title: title(k), "aria-label": title(k) || k, onclick: () => onCell(k) }, label(k))); }
+    for (let c = 1; c <= cols; c++) { const k = L + c; g.append(h("button", { type: "button", class: "pc " + cls(k), style: style(k) || null, title: title(k), "aria-label": title(k) || k, "aria-pressed": st.sel.has(k) ? "true" : null, onclick: () => onCell(k) }, label(k))); }
   }
   return g;
 }
+const GROUP_TONES = ["#6C8796", "#8DA68A", "#B79A62", "#9C8AA5", "#6F9C98", "#A3877C"];
 const MAP_FIELDS = [["sample", "Sample"], ["target", "Target"], ["group", "Group / condition"], ["role", "Role"], ["bio_unit", "Biological unit"], ["quantity", "Quantity (standards)"]];
 const currentRow = id => st.res.rows.find(r => r.id === id);
 function setCell(id, f, val) {
@@ -370,14 +371,35 @@ VIEWS.map = () => {
   if (!res?.rows.length) return [emptyCard("Import a results file first.", "data")];
   const present = [...new Set(res.rows.map(r => r.key).filter(Boolean))];
   const gridHost = h("div"), count = h("span", { class: "muted" });
+  const legendHost = h("div", { class: "legend map-legend" });
   mapRefresh = () => {
-    const rows = C.groupBy(st.res.rows.filter(r => r.key), r => r.key);
-    gridHost.replaceChildren(plateGrid({ ...plateDims(st.res.rows),
-      cls: k => { const rs = rows.get(k); if (!rs) return "none"; const roles = new Set(rs.map(r => r.role)); return (roles.size > 1 ? "mixed" : "r-" + [...roles][0]) + (st.sel.has(k) ? " sel" : ""); },
-      label: k => (rows.get(k) ? C.ROLE_SHORT[rows.get(k)[0].role] : ""),
+    const all = st.res.rows, rows = C.groupBy(all.filter(r => r.key), r => r.key);
+    // Samples take a muted tone per experimental group; standards get darker with more template.
+    const groups = [...new Set(all.filter(r => r.role === "sample").map(r => r.group || ""))].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
+    const named = groups.filter(Boolean), tone = g => (g ? GROUP_TONES[named.indexOf(g) % GROUP_TONES.length] : "#AEB8B3");
+    const logq = r => { const q = C.toNum(r.quantity, r.dc); return q > 0 ? Math.log10(q) : null; };
+    const qs = all.filter(r => r.role === "standard").map(logq).filter(x => x !== null), qmin = Math.min(...qs), qmax = Math.max(...qs);
+    const roleOf = k => { const rs = rows.get(k); if (!rs) return null; const set = new Set(rs.map(r => r.role)); return set.size > 1 ? "mixed" : [...set][0]; };
+    const wellStyle = k => {
+      const role = roleOf(k), r = rows.get(k)?.[0];
+      if (role === "sample") return `--fill:${tone(r.group)}`;
+      if (role === "standard") { const v = logq(r), t = v === null || qmax === qmin ? 0.5 : (v - qmin) / (qmax - qmin); return `--fill:color-mix(in srgb, var(--accent) ${Math.round(22 + t * 78)}%, #fff)`; }
+      return "";
+    };
+    gridHost.replaceChildren(h("div", { class: "plate-body" + (plateDims(all).cols === 24 ? " p384" : "") }, plateGrid({ ...plateDims(all),
+      cls: k => (roleOf(k) ? (roleOf(k) === "mixed" ? "mixed" : "r-" + roleOf(k)) : "none") + (st.sel.has(k) ? " sel" : ""),
+      style: wellStyle,
       title: k => rows.get(k)?.map(r => `${k}: ${r.sample ?? "—"} / ${r.target ?? "—"} (${C.ROLE_LABEL[r.role]})`).join("\n") ?? "",
-      onCell: k => rows.has(k) && toggle([k]), onRow: L => toggle(present.filter(k => k[0] === L)), onCol: c => toggle(present.filter(k => k.slice(1) === String(c))) }));
-    count.textContent = `${st.sel.size} well(s) selected`;
+      onCell: k => rows.has(k) && toggle([k]), onRow: L => toggle(present.filter(k => k[0] === L)), onCol: c => toggle(present.filter(k => k.slice(1) === String(c))) })));
+    const roles = new Set([...rows.keys()].map(roleOf));
+    const item = (swatch, text) => h("span", null, swatch, text);
+    legendHost.replaceChildren(
+      ...groups.map(g => item(h("span", { class: "sw", style: `background:${tone(g)}` }), g ? g : "Sample, no group")),
+      roles.has("standard") && item(h("span", { class: "sw sw-std" }), "Standard, darker = more template"),
+      ...[["positive", "Positive control"], ["ntc", "No-template control"], ["nrt", "No-RT control"], ["empty", "Not used"], ["mixed", "Mixed roles"]]
+        .filter(([k]) => roles.has(k)).map(([k, l]) => item(h("span", { class: "sw pc " + (k === "mixed" ? "mixed" : "r-" + k) }), l)),
+      item(h("span", { class: "sw pc none" }), "No data"));
+    count.textContent = `${st.sel.size} well${st.sel.size === 1 ? "" : "s"} selected`;
   };
   mapRefresh();
   const valueInput = st.bulkField === "role"
@@ -422,7 +444,7 @@ VIEWS.map = () => {
         h("label", { class: "btn" }, "Import plate-map template", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
         h("button", { class: "btn", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"))),
     gridHost,
-    h("div", { class: "legend" }, Object.entries(C.ROLE_LABEL).map(([k, l]) => h("span", null, h("span", { class: "sw pc r-" + k }), `${C.ROLE_SHORT[k]} ${l}`))),
+    legendHost,
     st.exp.template && h("p", { class: "fine" }, `Template applied: ${st.exp.template.name} (${st.exp.template.wells.length} wells, ${when(st.exp.template.importedAt)}).`),
     h("div", { class: "bulk" }, count,
       h("select", { onchange: ev => { st.bulkField = ev.target.value; renderMain(); }, "aria-label": "Field to set" }, MAP_FIELDS.map(([k, l]) => h("option", { value: k, selected: k === st.bulkField }, l))),
