@@ -146,8 +146,8 @@ test("report escapes file content and states limits", async () => {
   const html = R.reportHtml(e, C.analyze(e));
   assert.ok(!html.includes("<script>alert"));
   assert.ok(html.includes("&lt;script&gt;"));
-  assert.match(html, /not a certification/);
-  assert.match(html, /Not assessed/);
+  assert.match(html, /doesn't certify/);
+  assert.match(html, /Not checked/);
 });
 
 test("packets round-trip and detect tampering", async () => {

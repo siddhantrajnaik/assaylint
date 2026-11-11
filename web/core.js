@@ -177,7 +177,7 @@ export const RULESET_FIELDS = [
   { key: "minStdLevels", label: "Minimum dilution levels for a standard curve", type: "number", step: 1 },
 ];
 export const DEFAULT_PROFILE = {
-  id: "assaylint-default", name: "AssayLint default (placeholder thresholds, not expert-reviewed)", version: 1,
+  id: "assaylint-default", name: "AssayLint defaults", version: 1,
   values: { sdThreshold: 0.3, ntcCtThreshold: 35, expectNtc: true, expectPositive: false, expectNrt: false,
     ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3,
     effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3 },

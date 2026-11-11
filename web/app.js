@@ -204,6 +204,8 @@ function textInput(value, onCommit, o = {}) {
   const attrs = { id: o.id, value: value ?? "", placeholder: o.placeholder || "", onchange: ev => onCommit(ev.target.value) };
   return o.multiline ? h("textarea", { rows: 3, ...attrs }) : h("input", { type: o.type || "text", ...attrs });
 }
+// A label on the left, the control on the right: how a lab form is usually laid out.
+const line = (label, control, hint) => h("label", { class: "line" }, h("span", { class: "line-l" }, label), h("span", { class: "line-c" }, control, hint && h("small", null, hint)));
 const setExp = (k, label) => val => {
   const old = st.exp[k] ?? "";
   if (old === val) return;
@@ -213,13 +215,12 @@ const VIEWS = {};
 VIEWS.setup = () => {
   const e = st.exp;
   return [
-    card(h("h2", null, "Experiment"), h("div", { class: "form2" },
-      field("Title", textInput(e.title, setExp("title", "Title"), { id: "f-title" })),
-      field("Assay type", h("input", { type: "text", value: "qPCR", disabled: true }), "This version supports qPCR only."),
-      field("Run date", textInput(e.date, setExp("date", "Run date"), { type: "date" })),
-      field("Operator", textInput(e.operator, setExp("operator", "Operator"))),
-      field("Project (optional)", textInput(e.project, setExp("project", "Project"))),
-      field("Experiment ID", h("input", { type: "text", value: e.id, disabled: true }), "Stable and unique; included in every export.")),
+    card(h("h2", null, "Experiment"),
+      h("div", { class: "rows" },
+        line("Title", textInput(e.title, setExp("title", "Title"), { id: "f-title" })),
+        line("Run date", textInput(e.date, setExp("date", "Run date"), { type: "date" })),
+        line("Operator", textInput(e.operator, setExp("operator", "Operator"))),
+        line("Project", textInput(e.project, setExp("project", "Project"), { placeholder: "Optional" }))),
       h("div", { class: "row", style: "margin-top:1rem" }, h("button", { class: "btn primary", type: "button", onclick: () => { st.tab = "data"; renderMain(); } }, "Continue to Data"))),
     h("section", { class: "sec danger" }, h("h3", null, "Delete experiment"),
       h("p", { class: "muted" }, "This removes the experiment and everything saved with it from this browser. Download the experiment packet first if you want to keep a copy."),
@@ -321,16 +322,18 @@ VIEWS.data = () => {
   const cards = Object.entries(KIND).map(([kind, k]) => {
     const cur = st.exp[k.slot], p = st.pending[kind];
     return card(h("h2", null, k.title), h("p", { class: "muted", style: "margin-top:-.4rem" }, k.sub),
-      cur && h("div", { class: "filemeta" }, h("b", null, cur.name), h("small", { class: "mono" }, `sha256 ${cur.sha256}`),
-        kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], ["Parser", `version ${cur.parserVersion}`], cur.format && ["Format", C.FORMATS[cur.format]],
-          cur.plateSize && ["Plate layout", `${cur.plateSize}-well`], cur.valueType && ["Melt values", cur.valueType]]),
-        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
+      cur && h("div", { class: "filemeta" }, h("b", null, cur.name),
+        kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], cur.format && ["Layout", C.FORMATS[cur.format]],
+          cur.plateSize && ["Plate", `${cur.plateSize}-well`], cur.valueType && ["Melt values", cur.valueType],
+          ["Checksum", h("span", { class: "mono", title: "SHA-256 of the file as imported" }, cur.sha256)]]),
+        !p && h("div", { class: "row" },
+          h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
+          h("label", { class: "btn" }, "Replace", h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain", onchange: ev => stage(kind, ev.target.files[0]) })),
           kind !== "results" && h("button", { class: "btn", type: "button", onclick: () => removeFile(kind) }, "Remove"))),
-      p ? preview(kind, p) : (kind === "results" || st.exp.source) ? dropzone(kind, cur ? "Choose a replacement" : "Choose file") : h("p", { class: "fine" }, "Add the results file first."));
+      p ? preview(kind, p) : cur ? null : (kind === "results" || st.exp.source) ? dropzone(kind, "Choose file") : h("p", { class: "fine" }, "Add the results file first."));
   });
-  return [...cards, card(h("h2", null, "Supported layouts"),
-    h("ul", null, Object.values(C.FORMATS).map(f => h("li", null, f)),
-      h("li", null, "Curves: long layout (well, optional target, cycle or temperature, value) or wide layout (a cycle or temperature column plus one column per well).")),
+  return [...cards, card(h("h2", null, "Which files work"),
+    h("p", null, "Results exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT and LightCycler 480, or any CSV with a well column and a Ct or Cq column. Curve files can have one row per reading or one column per well."),
     h("p", { class: "fine" }, "I've tested it on real exports from QuantStudio, Bio-Rad CFX and ABI 7500/7900HT machines, plus LightCycler 480 and European-format files. Other machines may lay things out differently, so look at the preview before you confirm. Excel and raw run files (.eds, .pcrd) won't open; export CSV or text instead. If your file doesn't work, email it to me and I'll add support."),
     h("button", { class: "btn", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
 };
@@ -500,6 +503,9 @@ function setNA(role, target, reason) {
   else if (reason.trim()) change("control.na", `${C.ROLE_LABEL[role]} / ${target} marked not applicable: ${reason.trim()}`, () => (st.exp.controlNA[key] = { reason: reason.trim(), by: actor(), at: new Date().toISOString() }));
   else { flash("Enter a reason before marking a control not applicable.", true); renderMain(); }
 }
+const RULE_GROUPS = [["Replicates", ["sdThreshold"]], ["Controls", ["expectNtc", "expectPositive", "expectNrt", "ntcCtThreshold"]],
+  ["Curves", ["ctTolerance", "meltChecks", "meltTmTolerance", "meltSecondaryRatio"]], ["Standard curve", ["effMin", "effMax", "r2Min", "minStdLevels"]]];
+const onoff = v => (v === true ? "on" : v === false ? "off" : String(v));
 VIEWS.context = () => {
   const e = st.exp, rs = e.ruleset, fileInst = Object.entries(st.res?.parsed?.metadata || {}).find(([k]) => /instrument/i.test(k));
   const profiles = S.profiles(), changes = C.rulesetChanges(rs);
@@ -507,29 +513,31 @@ VIEWS.context = () => {
   return [
     card(h("h2", null, "Run and method context"),
       h("p", { class: "muted", style: "margin-top:-.3rem" }, "Fill in what you have. Anything blank shows up as \u201cnot provided\u201d, not as a problem with your assay."),
-      h("div", { class: "form2" }, C.CONTEXT_FIELDS.map(f => field(h("span", null, f.label, f.severity === "medium" ? h("span", { class: "req" }, "Recommended") : (f.severity === "info" || !f.severity) ? h("span", { class: "opt" }, "Optional") : null),
-        textInput(e.context[f.key], v => setContext(f, v), { multiline: f.multiline, placeholder: f.key === "instrument" && fileInst ? `From file: ${fileInst[1]}` : "" }),
-        f.key === "efficiency_evidence" ? "Satisfied automatically when this run has a standard curve." : f.key === "instrument" && fileInst ? "The file header names the instrument, so this is optional." : null)))),
-    card(h("div", { class: "head" }, h("div", null, h("h2", null, "Rule set"),
-        h("p", { class: "muted", style: "margin:0" }, rs.profile.name, h("br"), h("span", { class: "mono" }, C.rulesetId(rs))),
-        changes.length > 0 && h("p", { class: "warn", style: "margin:.4rem 0 0" }, "Changed in this experiment: " + changes.map(c => `${c.label} ${c.from} → ${c.to}`).join("; "))),
+      h("div", { class: "rows" }, C.CONTEXT_FIELDS.map(f => line(f.label,
+        textInput(e.context[f.key], v => setContext(f, v), { multiline: f.multiline,
+          placeholder: f.key === "instrument" && fileInst ? `From the file: ${fileInst[1]}` : (f.severity === "info" || !f.severity) ? "Optional" : "" }),
+        f.key === "efficiency_evidence" ? "Not needed if this run has a standard curve." : null)))),
+    card(h("div", { class: "head" }, h("div", null, h("h2", null, "Thresholds and expected controls"),
+        h("p", { class: "muted", style: "margin:4px 0 0" }, `Using ${rs.profile.name}, version ${rs.profile.version}.`,
+          changes.length > 0 && ` Changed here: ${changes.map(c => `${c.label[0].toLowerCase() + c.label.slice(1)} ${onoff(c.to)}`).join("; ")}.`)),
       h("div", { class: "row" },
-        h("select", { id: "profile-pick", "aria-label": "Rule profile" }, h("option", { value: C.DEFAULT_PROFILE.id }, C.DEFAULT_PROFILE.name + " v1"),
+        h("select", { id: "profile-pick", "aria-label": "Rule profile" }, h("option", { value: C.DEFAULT_PROFILE.id }, C.DEFAULT_PROFILE.name),
           profiles.map(p => h("option", { value: p.id, selected: p.id === rs.profile.id }, `${p.name} v${p.versions.at(-1).version}`))),
         h("button", { class: "btn", type: "button", onclick: () => applyProfile($("#profile-pick").value) }, "Apply profile"),
         h("button", { class: "btn", type: "button", onclick: () => saveProfile(true) }, "Save as new profile…"),
         profiles.some(p => p.id === rs.profile.id) && h("button", { class: "btn", type: "button", onclick: () => saveProfile(false) }, "Save as next version"))),
-      h("div", { class: "form2" }, C.RULESET_FIELDS.map(f => f.type === "bool"
-        ? h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!rs.values[f.key], onchange: ev => setRule(f, ev.target.checked) }), f.label)
-        : field(f.label, h("input", { type: "number", step: f.step, min: 0, value: rs.values[f.key], onchange: ev => setRule(f, ev.target.value) })))),
+      RULE_GROUPS.map(([title, keys]) => h("div", { class: "rule-group" }, h("h3", null, title),
+        h("div", { class: "rows" }, keys.map(k => C.RULESET_FIELDS.find(f => f.key === k)).map(f => f.type === "bool"
+          ? h("label", { class: "line" }, h("span", { class: "line-l" }, f.label), h("span", { class: "line-c" }, h("input", { type: "checkbox", class: "toggle", checked: !!rs.values[f.key], onchange: ev => setRule(f, ev.target.checked) })))
+          : line(f.label, h("input", { type: "number", class: "num-in", step: f.step, min: 0, value: rs.values[f.key], onchange: ev => setRule(f, ev.target.value) })))))),
       h("p", { class: "fine" }, "The defaults are common rules of thumb, not reviewed standards, so change them to match your lab. Saving a profile makes a new version; old experiments keep the values they were checked with.")),
     card(h("h2", null, "Expected controls by target"),
       controls.length ? h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
-        h("thead", null, h("tr", null, ["Target", "Control", "Expected", "Wells", "Status", "Not applicable"].map(x => h("th", null, x)))),
+        h("thead", null, h("tr", null, ["Target", "Control", "Expected", "Wells", "Result", "Not applicable because"].map(x => h("th", null, x)))),
         h("tbody", null, controls.map(c => {
           const reason = h("input", { type: "text", placeholder: "Reason", value: c.na || "", "aria-label": "Reason" });
-          return h("tr", null, h("td", null, c.target), h("td", null, c.label), h("td", null, c.expected ? "yes" : "no"), h("td", null, c.wells.join(", ") || "—"),
-            h("td", null, c.wells.length ? (c.amplified.length ? "amplified: " + c.amplified.join(", ") : "no amplification") : c.na ? "not applicable" : c.expected ? "missing" : "—"),
+          return h("tr", null, h("td", null, c.target), h("td", null, c.label), h("td", null, c.expected ? "Yes" : "No"), h("td", null, c.wells.join(", ") || "—"),
+            h("td", null, c.wells.length ? (c.amplified.length ? "Amplified: " + c.amplified.join(", ") : "No amplification") : c.na ? "Not applicable" : c.expected ? "Missing" : "—"),
             h("td", null, !c.wells.length && c.expected ? h("div", { class: "row" }, reason,
               h("button", { class: "btn", type: "button", onclick: () => setNA(c.role, c.target, reason.value) }, c.na ? "Update" : "Mark N/A"),
               c.na && h("button", { class: "btn", type: "button", onclick: () => setNA(c.role, c.target, null) }, "Clear")) : ""));
@@ -713,7 +721,7 @@ VIEWS.report = () => {
 // ---------------------------------------------------------------- Compare runs (FR-7)
 VIEWS.compare = () => {
   const others = S.index().filter(x => x.id !== st.exp.id);
-  if (!others.length) return [emptyCard("Create or import a second experiment to compare runs.")];
+  if (!others.length) return [emptyCard("To compare runs you need a second experiment. Start a new one, or import a packet from an earlier run.")];
   const out = [card(h("h2", null, "Compare with another run"),
     h("select", { "aria-label": "Run to compare", onchange: ev => { st.compareId = ev.target.value; renderMain(); } }, h("option", { value: "" }, "Choose a run…"),
       others.map(o => h("option", { value: o.id, selected: o.id === st.compareId }, `${o.title} (${o.date}, ${o.id})`))),
