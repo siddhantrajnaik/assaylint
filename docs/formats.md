@@ -1,0 +1,57 @@
+# Formats
+
+## Inputs
+
+### Results file (required)
+Comma, tab or semicolon separated text. Column names are matched case-insensitively.
+
+| Field | Accepted column names | Required |
+|---|---|---|
+| Well | `Well Position`, `Well`, `Pos`, `Position` (values such as `A1` or `A01`) | yes |
+| Ct/Cq | `Ct`, `Cq`, `CT`, `Cт`, `C_T`, `CRT`, `Cp` | yes |
+| Sample | `Sample`, `Sample Name`, `Name` | no |
+| Target | `Target`, `Target Name`, `Detector`, `Detector Name`, `Gene`, `Assay` | no |
+| Role | `Role`, `Task`, `Content`, `Type` | no |
+| Quantity | `Quantity`, `Starting Quantity (SQ)`, `SQ`, `Qty` | no |
+| Group | `Group`, `Condition`, `Biological Group`, `Biological Set Name` | no |
+| Biological unit | `bio_unit`, `Biological Unit`, `Biological Replicate`, `Bio Rep` | no |
+
+The header row is found anywhere in the first 500 lines (the first row with both a well and a Ct/Cq column). Lines before it are kept as file metadata (`* key = value`, `key,value` and `key: value` lines). The table ends at the next `[Section]` line or a repeated header; blank lines inside it are skipped. A trailing block of rows without well positions (for example Slope / R² or “Analysis Type”) is reported as a footer, not data.
+
+Detected layouts:
+- **Thermo QuantStudio**: text export with `* key = value` lines and `[Results]`, or CSV with a key,value preamble (`Block Type`, …). `Omit` flags are kept and reported.
+- **Applied Biosystems SDS** (7000/7300/7500/7900HT, SDS 1.x/2.x): text with a preamble and `Detector` / `Detector Name` columns.
+- **Bio-Rad CFX “Quantification Cq Results”**: has `Fluor` and `Content` columns; a leading unnamed index column is ignored.
+- **Generic**: anything else with a well and a Ct/Cq column, including Roche LightCycler 480 text exports (`Pos`, `Name`, `Cp`).
+
+Numeric wells: if the well column holds numbers (SDS 2.x), they are converted row by row using the plate size stated in the file, 384 if any number exceeds 96, or the size the user chooses in the preview (`--plate-size` in the CLI). The size is never guessed.
+
+Numbers: in semicolon-separated files, decimal commas (`24,31`) are read as decimals. Thousands separators in quantities (`12,963.927`) are accepted. Raw strings are stored unchanged.
+
+Role values: `Unkn…`/`Unknown`/`Sample` → sample, `NTC`/`No template…` → NTC, `Std…`/`Standard` → standard, `Pos…` → positive, `NRT`/`No RT`/`-RT`/`NAC` → no-RT, `Empty`/`Unused` → empty. Other values (such as `Neg Ctrl`) are not mapped and are flagged. Samples named `NTC`, `water`, `H2O`, `blank` or `no template control` are treated as NTC when there is no role column or the role is “Unknown”; the source of the role is shown in the preview and plate map.
+
+No-amplification markers: empty, `Undetermined`, `NaN`, `N/A`, `NA`, `No Ct`, `No Cq`, `-`, `None`, `No Amp`. Any other non-numeric value is kept and flagged.
+
+Safe failure: if the well or Ct/Cq column is missing, the plate size for numeric wells is unknown, or more than half the rows cannot be parsed, nothing is analysed. Otherwise unparseable rows are excluded and reported as findings.
+
+Import template: `well,sample,target,ct,role,group,bio_unit,quantity` (downloadable from the Data tab).
+
+### Amplification and melt curves (optional)
+- **Long layout**: columns for well, optional target, `Cycle` (or `Temperature`), and a value (`Delta Rn`, `ΔRn`, `RFU`, `Fluorescence`, `Rn`, `Value`; for melt also `Derivative`, `-dF/dT`, `-d(RFU)/dT`, `-Rn'`).
+- **Wide layout**: a `Cycle` or `Temperature` column plus one column per well (`A1`, `A01`, …), as in CFX amplification and melt exports.
+- Melt values can be derivative or raw fluorescence; the user confirms which at import.
+
+### Plate-map template
+`well` plus any of `sample, target, group, role, bio_unit, quantity`. Empty cells leave the current value. If a well has several targets, a `target` column selects the row.
+
+## Outputs
+
+| Export | Contents |
+|---|---|
+| `<id>.report.html` | Human-readable report, readable without AssayLint. Can be printed to PDF. |
+| `<id>.wells.csv` | One row per source data row: source line, raw and normalised well, effective labels, role and its source, raw Ct/Cq, and the file's original label values. |
+| `<id>.findings.csv` | One row per finding: ID, rule, rule version, category, severity, description, wells, source lines, evidence, next check, disposition, note, reviewer. |
+| `<id>.results.json` | `format: "assaylint-results"`: experiment context, file metadata and checksums, rule set, checks performed and not assessed, summary, findings, replicate groups, controls, standard curves, reviews and wells. |
+| `<id>.assaylint-packet.json` | `format: "assaylint-packet"`, `packet_version: 1`: the complete experiment, including original files and audit history, plus the analysis. Importing verifies each embedded file's SHA-256. |
+
+Finding IDs are `<rule>:<key>` and stay stable across re-analysis of the same input, so reviews remain attached. Reviews of findings that no longer appear (for example after a plate-map correction) are kept and listed separately in the report.

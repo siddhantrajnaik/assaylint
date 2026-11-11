@@ -1,0 +1,17 @@
+Experiment: 2024-03-11 CMV load  Selected Filter: SYBR Green I / HRM Dye (465-510)
+Include	Color	Pos	Name	Cp	Concentration	Standard	Status
+True	255	A1	Std 1e+5	17.90	6.70e+3	1.00e+5	
+True	255	A2	Std 1e+5	17.87	6.84e+3	1.00e+5	
+True	255	A3	Std 1e+4	21.32	6.84e+2	1.00e+4	
+True	255	A4	Std 1e+4	21.35	6.70e+2	1.00e+4	
+True	255	A5	Std 1e+3	24.72	7.07e+1	1.00e+3	
+True	255	A6	Std 1e+3	24.75	6.93e+1	1.00e+3	
+True	255	A7	Std 1e+2	28.22	6.84e+0	1.00e+2	
+True	255	A8	Std 1e+2	28.14	7.21e+0	1.00e+2	
+True	255	A9	Patient A	26.11	2.79e+1		
+True	255	A10	Patient A	26.13	2.76e+1		
+True	255	A11	Patient B	24.07	1.09e+2		
+True	255	A12	Patient B	24.04	1.11e+2		
+True	255	B1	Patient C	25.04	5.71e+1		
+True	255	B2	Patient C	25.15	5.30e+1		
+True	255	B3	H2O				

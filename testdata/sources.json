@@ -1,0 +1,14 @@
+[
+  { "repo": "jrcunning/qpcr-analysis", "path": "data/20180406_NS_moteLH01.txt", "instrument": "QuantStudio (text, [Results])", "license": "none stated", "rows": 132, "format": "thermo-quantstudio" },
+  { "repo": "jrcunning/qpcr-analysis", "path": "data/20180723_NS_moteLH05.txt", "instrument": "QuantStudio (text, [Results])", "license": "none stated", "rows": 138, "format": "thermo-quantstudio" },
+  { "repo": "jrcunning/mcav_shuffle", "path": "data/symbionts/CD_Mote1_Plate1.csv", "instrument": "QuantStudio (CSV with preamble, multiplex)", "license": "none stated", "rows": 144, "format": "thermo-quantstudio" },
+  { "repo": "neuroeddu/Auto-qPCR", "path": "Example_Data/RELATIVE_example.csv", "instrument": "QuantStudio, 384-well, with footer", "license": "see repository", "rows": 60, "format": "thermo-quantstudio" },
+  { "repo": "neuroeddu/Auto-qPCR", "path": "Example_Data/Absolute/2019-04-25_124559-GAPDH.csv", "instrument": "QuantStudio, standard curve", "license": "see repository", "rows": 94, "format": "thermo-quantstudio" },
+  { "repo": "DIGI-UW/openelisglobal-plugins", "path": "analyzers/QuantStudio3/quaintStudioSampleOutput.csv", "instrument": "QuantStudio 3 sample output", "license": "MPL-2.0", "rows": 1, "format": "thermo-quantstudio" },
+  { "repo": "felixhorns/RNA-export-2023", "path": "preprocessed_data/qPCR_data/qPCR_GAPDH_Cq.csv", "instrument": "Bio-Rad CFX", "license": "MIT", "rows": 17, "format": "biorad-cfx-cq" },
+  { "repo": "felixhorns/RNA-export-2023", "path": "preprocessed_data/qPCR_data/qPCR_NoRT_Cq_plate1.csv", "instrument": "Bio-Rad CFX, RT / no-RT", "license": "MIT", "rows": 43, "format": "biorad-cfx-cq" },
+  { "repo": "rasilab/nugent_2024", "path": "data/qpcr/zaki_gcn1_hht/cq_values_plate6.csv", "instrument": "Bio-Rad CFX, unlabelled plate", "license": "none stated", "rows": 72, "format": "biorad-cfx-cq" },
+  { "repo": "LabKey/ehrModules", "path": "Viral_Load_Assay/resources/web/Viral_Load_Assay/SampleData/ABI7500.txt", "instrument": "ABI 7500, SDS 1.4", "license": "none stated", "rows": 96, "format": "abi-sds" },
+  { "repo": "bleakley/pyqpcr", "path": "samples/AppliedBiosystems/raw_data_AB7900_96w.txt", "instrument": "ABI 7900HT, SDS 2.3, numeric wells (384 layout)", "license": "GPL-3.0", "rows": 65, "format": "abi-sds", "plateSize": 384 },
+  { "repo": "reinson/qPCR_analysis", "path": "data.txt", "instrument": "ABI 7900HT, SDS 2.4, numeric wells, footer", "license": "none stated", "rows": 258, "format": "abi-sds" }
+]

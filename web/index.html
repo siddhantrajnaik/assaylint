@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AssayLint — review your qPCR run before you rely on it</title>
+<meta name="description" content="Transparent, evidence-linked checks for qPCR runs. Runs entirely in your browser.">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+<div class="app">
+  <aside id="side" class="glass side" aria-label="Experiments"></aside>
+  <main id="main" aria-live="polite"></main>
+</div>
+
+<dialog id="dlg-privacy" aria-labelledby="privacy-title">
+  <h2 id="privacy-title">How AssayLint handles your data</h2>
+  <ul>
+    <li><b>Processing:</b> all parsing and checks run in this browser tab. Files are never uploaded; this site has no server-side code, accounts, analytics or telemetry.</li>
+    <li><b>Storage:</b> experiments (including the original files you import) are saved in this browser's local storage on this device, for this site only. They are not encrypted by AssayLint; protection relies on your device account and disk encryption.</li>
+    <li><b>Access:</b> only people who can use this browser profile can see the data. To share with a collaborator, export the experiment packet or report and send it through a channel you trust.</li>
+    <li><b>Retention and backup:</b> data stays until you delete it or clear site data. There is no automatic backup; export the packet to keep a copy.</li>
+    <li><b>Deletion:</b> “Delete experiment” on the Setup tab removes the experiment, its files, plate map, notes and audit history from this browser. Clearing site data removes everything.</li>
+    <li><b>No secondary use:</b> your research data is never used for model training, benchmarking or sharing. There is nothing to opt into.</li>
+  </ul>
+  <p id="storage-usage" class="muted"></p>
+  <form method="dialog"><button class="pill">Close</button></form>
+</dialog>
+
+<dialog id="dlg-glossary" aria-labelledby="glossary-title">
+  <h2 id="glossary-title">Glossary</h2>
+  <dl class="gloss">
+    <dt>Ct / Cq</dt><dd>Threshold or quantification cycle: the cycle at which fluorescence crosses a threshold. Lower means more starting template.</dd>
+    <dt>NTC</dt><dd>No-template control: a reaction without template. It should not amplify.</dd>
+    <dt>No-RT control</dt><dd>An RNA sample taken through the reaction without reverse transcriptase. Signal can indicate genomic DNA.</dd>
+    <dt>Positive control</dt><dd>A reaction expected to amplify, showing that the assay can work on this plate.</dd>
+    <dt>Technical replicate</dt><dd>Repeated wells of the same biological sample. They measure pipetting and assay precision, not biological variation.</dd>
+    <dt>Biological unit</dt><dd>An independent sample (for example one animal, culture or patient). Statistics across conditions should be based on these.</dd>
+    <dt>Standard curve</dt><dd>A dilution series of known quantities. Its slope gives the amplification efficiency; R² shows linearity.</dd>
+    <dt>Melt curve</dt><dd>Fluorescence while heating the product after cycling (intercalating dyes only). One peak suggests one product.</dd>
+    <dt>Finding disposition</dt><dd>Your review decision: accepted, not applicable, resolved or unresolved. It never changes the data or removes the original finding.</dd>
+  </dl>
+  <form method="dialog"><button class="pill">Close</button></form>
+</dialog>
+<script type="module" src="app.js"></script>
+</body>
+</html>

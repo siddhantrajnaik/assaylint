@@ -1,0 +1,83 @@
+{
+  "realistic/quantstudio5_384_taqman.txt": {
+    "format": "thermo-quantstudio",
+    "rows": 76,
+    "must": [
+      "instrument_omit",
+      "ntc_amplification",
+      "std_curve_summary",
+      "missing_ct"
+    ],
+    "mustNot": [
+      "invalid_well_coordinate",
+      "malformed_row",
+      "melt_multiple_peaks"
+    ]
+  },
+  "realistic/cfx96_sybr.csv": {
+    "format": "biorad-cfx-cq",
+    "rows": 28,
+    "must": [
+      "unmapped_role",
+      "ntc_amplification",
+      "ntc_melt_peak",
+      "melt_multiple_peaks",
+      "replicate_dispersion"
+    ],
+    "mustNot": [
+      "malformed_row",
+      "invalid_well_coordinate",
+      "amp_curve_missing"
+    ]
+  },
+  "realistic/cfx96_sybr_european.csv": {
+    "format": "biorad-cfx-cq",
+    "rows": 28,
+    "must": [
+      "unmapped_role",
+      "ntc_amplification",
+      "replicate_dispersion"
+    ],
+    "mustNot": [
+      "non_numeric_ct",
+      "malformed_row"
+    ]
+  },
+  "realistic/lightcycler480_absquant.txt": {
+    "format": "generic-ct-csv",
+    "rows": 15,
+    "must": [
+      "unmapped_well"
+    ],
+    "mustNot": [
+      "malformed_row",
+      "missing_control"
+    ]
+  },
+  "realistic/handmade_excel.csv": {
+    "format": "generic-ct-csv",
+    "rows": 7,
+    "must": [
+      "invalid_well_coordinate",
+      "missing_ct"
+    ],
+    "mustNot": [
+      "malformed_row",
+      "non_numeric_ct",
+      "missing_control"
+    ]
+  },
+  "realistic/cfx_truncated.csv": {
+    "format": "biorad-cfx-cq",
+    "rows": 19,
+    "must": [
+      "malformed_row"
+    ],
+    "mustNot": []
+  },
+  "realistic/cfx96_sybr_amp_as_results.csv": {
+    "error": {
+      "regex": "Ct\\/Cq"
+    }
+  }
+}

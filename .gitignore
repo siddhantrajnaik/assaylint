@@ -1,0 +1,7 @@
+__pycache__/
+node_modules/
+*.report.html
+*.assaylint-packet.json
+testdata/public/
+testdata/.work/
+testdata/results.json

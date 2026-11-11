@@ -1,0 +1,99 @@
+* Block Type = 384-Well Block
+* Calibration Background is expired  = No
+* Chemistry = TAQMAN
+* Experiment Barcode = 
+* Experiment Comment = 
+* Experiment Name = 2025-02-14 GENEX drug response
+* Experiment Run End Time = 2025-02-14 16:02:11 PM CET
+* Instrument Name = QS5-lab2
+* Instrument Serial Number = 272510000
+* Instrument Type = QuantStudio™ 5 System
+* Passive Reference = ROX
+* Quantification Cycle Method = Ct
+* Signal Smoothing On = true
+* Stage/ Cycle where Analysis is performed = Stage 2, Step 2
+
+[Results]
+Well	Well Position	Omit	Sample Name	Target Name	Task	Reporter	Quencher	Cт	Cт Mean	Cт SD	Quantity	Quantity Mean	Quantity SD	Automatic Ct Threshold	Ct Threshold	Automatic Baseline	Baseline Start	Baseline End	Amp Status	Comments	Cq Conf	EXPFAIL	HIGHSD	NOAMP
+1	A1	false	ctrl-1	GENEX	UNKNOWN	FAM	NFQ-MGB	25.038						true	0.200	true	3	22	Amp		0.878	N	N	N
+1	A1	false	ctrl-1	ACTB	UNKNOWN	VIC	QSY	19.255						true	0.200	true	3	16	Amp		0.917	N	N	N
+2	A2	false	ctrl-1	GENEX	UNKNOWN	FAM	NFQ-MGB	25.064						true	0.200	true	3	22	Amp		0.917	N	N	N
+2	A2	false	ctrl-1	ACTB	UNKNOWN	VIC	QSY	19.215						true	0.200	true	3	16	Amp		0.865	N	N	N
+3	A3	false	ctrl-1	GENEX	UNKNOWN	FAM	NFQ-MGB	25.152						true	0.200	true	3	22	Amp		0.950	N	N	N
+3	A3	false	ctrl-1	ACTB	UNKNOWN	VIC	QSY	19.369						true	0.200	true	3	16	Amp		0.874	N	N	N
+4	A4	false	ctrl-2	GENEX	UNKNOWN	FAM	NFQ-MGB	25.000						true	0.200	true	3	22	Amp		0.926	N	N	N
+4	A4	false	ctrl-2	ACTB	UNKNOWN	VIC	QSY	19.344						true	0.200	true	3	16	Amp		0.894	N	N	N
+5	A5	true	ctrl-2	GENEX	UNKNOWN	FAM	NFQ-MGB	26.900						true	0.200	true	3	23	Amp		0.874	N	N	N
+5	A5	true	ctrl-2	ACTB	UNKNOWN	VIC	QSY	19.243						true	0.200	true	3	16	Amp		0.889	N	N	N
+6	A6	false	ctrl-2	GENEX	UNKNOWN	FAM	NFQ-MGB	25.169						true	0.200	true	3	22	Amp		0.891	N	N	N
+6	A6	false	ctrl-2	ACTB	UNKNOWN	VIC	QSY	19.254						true	0.200	true	3	16	Amp		0.866	N	N	N
+7	A7	false	ctrl-3	GENEX	UNKNOWN	FAM	NFQ-MGB	25.066						true	0.200	true	3	22	Amp		0.949	N	N	N
+7	A7	false	ctrl-3	ACTB	UNKNOWN	VIC	QSY	19.271						true	0.200	true	3	16	Amp		0.891	N	N	N
+8	A8	false	ctrl-3	GENEX	UNKNOWN	FAM	NFQ-MGB	25.104						true	0.200	true	3	22	Amp		0.926	N	N	N
+8	A8	false	ctrl-3	ACTB	UNKNOWN	VIC	QSY	19.328						true	0.200	true	3	16	Amp		0.942	N	N	N
+9	A9	false	ctrl-3	GENEX	UNKNOWN	FAM	NFQ-MGB	25.074						true	0.200	true	3	22	Amp		0.889	N	N	N
+9	A9	false	ctrl-3	ACTB	UNKNOWN	VIC	QSY	19.296						true	0.200	true	3	16	Amp		0.901	N	N	N
+10	A10	false	ctrl-4	GENEX	UNKNOWN	FAM	NFQ-MGB	25.140						true	0.200	true	3	22	Amp		0.878	N	N	N
+10	A10	false	ctrl-4	ACTB	UNKNOWN	VIC	QSY	19.280						true	0.200	true	3	16	Amp		0.914	N	N	N
+11	A11	false	ctrl-4	GENEX	UNKNOWN	FAM	NFQ-MGB	25.010						true	0.200	true	3	22	Amp		0.912	N	N	N
+11	A11	false	ctrl-4	ACTB	UNKNOWN	VIC	QSY	19.347						true	0.200	true	3	16	Amp		0.933	N	N	N
+12	A12	false	ctrl-4	GENEX	UNKNOWN	FAM	NFQ-MGB	25.165						true	0.200	true	3	22	Amp		0.949	N	N	N
+12	A12	false	ctrl-4	ACTB	UNKNOWN	VIC	QSY	19.207						true	0.200	true	3	16	Amp		0.870	N	N	N
+13	A13	false	drug-1	GENEX	UNKNOWN	FAM	NFQ-MGB	27.353						true	0.200	true	3	24	Amp		0.949	N	N	N
+13	A13	false	drug-1	ACTB	UNKNOWN	VIC	QSY	19.225						true	0.200	true	3	16	Amp		0.918	N	N	N
+14	A14	false	drug-1	GENEX	UNKNOWN	FAM	NFQ-MGB	27.418						true	0.200	true	3	24	Amp		0.869	N	N	N
+14	A14	false	drug-1	ACTB	UNKNOWN	VIC	QSY	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+15	A15	false	drug-1	GENEX	UNKNOWN	FAM	NFQ-MGB	27.367						true	0.200	true	3	24	Amp		0.932	N	N	N
+15	A15	false	drug-1	ACTB	UNKNOWN	VIC	QSY	19.385						true	0.200	true	3	16	Amp		0.899	N	N	N
+16	A16	false	drug-2	GENEX	UNKNOWN	FAM	NFQ-MGB	27.474						true	0.200	true	3	24	Amp		0.944	N	N	N
+16	A16	false	drug-2	ACTB	UNKNOWN	VIC	QSY	19.346						true	0.200	true	3	16	Amp		0.905	N	N	N
+17	A17	false	drug-2	GENEX	UNKNOWN	FAM	NFQ-MGB	27.512						true	0.200	true	3	24	Amp		0.950	N	N	N
+17	A17	false	drug-2	ACTB	UNKNOWN	VIC	QSY	19.209						true	0.200	true	3	16	Amp		0.930	N	N	N
+18	A18	false	drug-2	GENEX	UNKNOWN	FAM	NFQ-MGB	27.367						true	0.200	true	3	24	Amp		0.933	N	N	N
+18	A18	false	drug-2	ACTB	UNKNOWN	VIC	QSY	19.355						true	0.200	true	3	16	Amp		0.874	N	N	N
+19	A19	false	drug-3	GENEX	UNKNOWN	FAM	NFQ-MGB	27.288						true	0.200	true	3	24	Amp		0.950	N	N	N
+19	A19	false	drug-3	ACTB	UNKNOWN	VIC	QSY	19.243						true	0.200	true	3	16	Amp		0.858	N	N	N
+20	A20	false	drug-3	GENEX	UNKNOWN	FAM	NFQ-MGB	27.486						true	0.200	true	3	24	Amp		0.852	N	N	N
+20	A20	false	drug-3	ACTB	UNKNOWN	VIC	QSY	19.235						true	0.200	true	3	16	Amp		0.887	N	N	N
+21	A21	false	drug-3	GENEX	UNKNOWN	FAM	NFQ-MGB	27.348						true	0.200	true	3	24	Amp		0.869	N	N	N
+21	A21	false	drug-3	ACTB	UNKNOWN	VIC	QSY	19.374						true	0.200	true	3	16	Amp		0.861	N	N	N
+22	A22	false	drug-4	GENEX	UNKNOWN	FAM	NFQ-MGB	27.460						true	0.200	true	3	24	Amp		0.876	N	N	N
+22	A22	false	drug-4	ACTB	UNKNOWN	VIC	QSY	19.388						true	0.200	true	3	16	Amp		0.905	N	N	N
+23	A23	false	drug-4	GENEX	UNKNOWN	FAM	NFQ-MGB	27.454						true	0.200	true	3	24	Amp		0.940	N	N	N
+23	A23	false	drug-4	ACTB	UNKNOWN	VIC	QSY	19.231						true	0.200	true	3	16	Amp		0.905	N	N	N
+24	A24	false	drug-4	GENEX	UNKNOWN	FAM	NFQ-MGB	27.391						true	0.200	true	3	24	Amp		0.902	N	N	N
+24	A24	false	drug-4	ACTB	UNKNOWN	VIC	QSY	19.319						true	0.200	true	3	16	Amp		0.940	N	N	N
+49	C1	false		GENEX	STANDARD	FAM	NFQ-MGB	18.994			1000000			true	0.200	true	3	15	Amp		0.879	N	N	N
+50	C2	false		GENEX	STANDARD	FAM	NFQ-MGB	18.963			1000000			true	0.200	true	3	15	Amp		0.876	N	N	N
+51	C3	false		GENEX	STANDARD	FAM	NFQ-MGB	18.931			1000000			true	0.200	true	3	15	Amp		0.892	N	N	N
+52	C4	false		GENEX	STANDARD	FAM	NFQ-MGB	22.323			100000			true	0.200	true	3	19	Amp		0.853	N	N	N
+53	C5	false		GENEX	STANDARD	FAM	NFQ-MGB	22.291			100000			true	0.200	true	3	19	Amp		0.863	N	N	N
+54	C6	false		GENEX	STANDARD	FAM	NFQ-MGB	22.209			100000			true	0.200	true	3	19	Amp		0.877	N	N	N
+55	C7	false		GENEX	STANDARD	FAM	NFQ-MGB	25.672			10000			true	0.200	true	3	22	Amp		0.932	N	N	N
+56	C8	false		GENEX	STANDARD	FAM	NFQ-MGB	25.547			10000			true	0.200	true	3	22	Amp		0.852	N	N	N
+57	C9	false		GENEX	STANDARD	FAM	NFQ-MGB	25.527			10000			true	0.200	true	3	22	Amp		0.925	N	N	N
+58	C10	false		GENEX	STANDARD	FAM	NFQ-MGB	28.978			1000			true	0.200	true	3	25	Amp		0.932	N	N	N
+59	C11	false		GENEX	STANDARD	FAM	NFQ-MGB	28.920			1000			true	0.200	true	3	25	Amp		0.882	N	N	N
+60	C12	false		GENEX	STANDARD	FAM	NFQ-MGB	28.957			1000			true	0.200	true	3	25	Amp		0.945	N	N	N
+61	C13	false		GENEX	STANDARD	FAM	NFQ-MGB	32.216			100			true	0.200	true	3	29	Amp		0.945	N	N	N
+62	C14	false		GENEX	STANDARD	FAM	NFQ-MGB	32.359			100			true	0.200	true	3	29	Amp		0.892	N	N	N
+63	C15	false		GENEX	STANDARD	FAM	NFQ-MGB	32.189			100			true	0.200	true	3	29	Amp		0.870	N	N	N
+64	C16	false		GENEX	STANDARD	FAM	NFQ-MGB	35.513			10			true	0.200	true	3	32	Amp		0.869	N	N	N
+65	C17	false		GENEX	STANDARD	FAM	NFQ-MGB	35.488			10			true	0.200	true	3	32	Amp		0.924	N	N	N
+66	C18	false		GENEX	STANDARD	FAM	NFQ-MGB	35.583			10			true	0.200	true	3	32	Amp		0.946	N	N	N
+97	E1	false	NTC	GENEX	NTC	FAM	NFQ-MGB	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+97	E1	false	NTC	ACTB	NTC	VIC	QSY	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+98	E2	false	NTC	GENEX	NTC	FAM	NFQ-MGB	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+98	E2	false	NTC	ACTB	NTC	VIC	QSY	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+99	E3	false	NTC	GENEX	NTC	FAM	NFQ-MGB	36.800						true	0.200	true	3	33	Amp		0.919	N	N	N
+99	E3	false	NTC	ACTB	NTC	VIC	QSY	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+100	E4	false	ctrl-1 noRT	GENEX	UNKNOWN	FAM	NFQ-MGB	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+100	E4	false	ctrl-1 noRT	ACTB	UNKNOWN	VIC	QSY	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+101	E5	false	ctrl-1 noRT	GENEX	UNKNOWN	FAM	NFQ-MGB	Undetermined						true	0.200	true	3	39	No Amp		0.000	N	N	Y
+101	E5	false	ctrl-1 noRT	ACTB	UNKNOWN	VIC	QSY	34.900						true	0.200	true	3	31	Amp		0.889	N	N	N
+
+[Melt Curve Result]
+Well	Well Position	Tm1
+
+* Analysis Type = Singleplex
+* Reference Sample = ctrl-1

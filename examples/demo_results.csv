@@ -1,0 +1,44 @@
+Well,Sample Name,Target Name,Content,Biological Group,Bio Rep,Starting Quantity (SQ),Cq
+A1,ctrl-1,GAPDH,Unkn,control,ctrl-1,,18.15
+A2,ctrl-1,GAPDH,Unkn,control,ctrl-1,,18.28
+A3,ctrl-1,GAPDH,Unkn,control,ctrl-1,,18.22
+A4,ctrl-2,GAPDH,Unkn,control,ctrl-2,,18.29
+A5,ctrl-2,GAPDH,Unkn,control,ctrl-2,,18.11
+A6,ctrl-2,GAPDH,Unkn,control,ctrl-2,,18.27
+A7,kd-1,GAPDH,Unkn,knockdown,kd-1,,18.37
+A8,kd-1,GAPDH,Unkn,knockdown,kd-1,,18.31
+A9,kd-1,GAPDH,Unkn,knockdown,kd-1,,18.31
+A10,kd-2,GAPDH,Unkn,knockdown,kd-2,,18.50
+A11,kd-2,GAPDH,Unkn,knockdown,kd-2,,18.49
+A12,kd-2,GAPDH,Unkn,knockdown,kd-2,,19.90
+C1,ctrl-1,GENE1,Unkn,control,ctrl-1,,24.19
+C2,ctrl-1,GENE1,Unkn,control,ctrl-1,,24.21
+C3,ctrl-1,GENE1,Unkn,control,ctrl-1,,24.22
+C4,ctrl-2,GENE1,Unkn,control,ctrl-2,,24.26
+C5,ctrl-2,GENE1,Unkn,control,ctrl-2,,24.26
+C6,ctrl-2,GENE1,Unkn,control,ctrl-2,,abc
+C7,kd-1,GENE1,Unkn,knockdown,kd-1,,26.09
+C8,kd-1,GENE1,Unkn,knockdown,kd-1,,Undetermined
+C9,kd-1,GENE1,Unkn,knockdown,kd-1,,26.07
+C10,kd-2,GENE1,Unkn,knockdown,kd-2,,26.10
+C11,kd-2,GENE1,Unkn,knockdown,kd-2,,26.02
+C12,kd-2,GENE1,Unkn,knockdown,kd-2,,26.15
+B1,,GAPDH,Unkn,control,,,18.31
+C3,ctrl-1,GENE1,Unkn,control,ctrl-1,,24.05
+Z9,kd-2,GENE1,Unkn,knockdown,kd-2,,26.02
+E1,,GENE1,Std,,,1000000,18.25
+E2,,GENE1,Std,,,1000000,18.18
+E3,,GENE1,Std,,,100000,21.55
+E4,,GENE1,Std,,,100000,21.68
+E5,,GENE1,Std,,,10000,24.94
+E6,,GENE1,Std,,,10000,24.99
+E7,,GENE1,Std,,,1000,28.39
+E8,,GENE1,Std,,,1000,28.34
+E9,,GENE1,Std,,,100,31.74
+E10,,GENE1,Std,,,100,31.82
+F1,NTC,GAPDH,NTC,,,,Undetermined
+F2,NTC,GENE1,NTC,,,,33.20
+F3,POS,GAPDH,Pos Ctrl,,,,20.10
+F4,POS,GENE1,Pos Ctrl,,,,25.40
+F5,ctrl-1 RT-,GENE1,NRT,,,,Undetermined
+F6,ctrl-1 RT-,GAPDH,NRT,,,,31.50
