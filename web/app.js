@@ -55,6 +55,8 @@ function openExp(id) {
   reanalyze(); render(); scrollTo(0, 0);
 }
 function flash(msg, bad = false) { st.flash = { msg, bad }; }
+// Reads a dropped file as text, coping with UTF-16 and Windows-1252; returns { binary } for workbooks and project files.
+async function readText(file) { return C.decodeBytes(await file.arrayBuffer()); }
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = h("a", { href: url, download: name }); document.body.append(a); a.click(); a.remove();
@@ -214,8 +216,13 @@ async function quickFiles(fileList) {
   if (!files.length) return;
   const tooBig = files.find(f => f.size > 25e6);
   if (tooBig) { flash(`${tooBig.name} is larger than 25 MB, so I didn't read it.`, true); return render(); }
-  const items = await Promise.all(files.map(async f => { const text = await f.text(); return { name: f.name, text, sha: await C.sha256(text), ...C.detectFileKind(text) }; }));
-  const results = items.filter(i => i.kind === "results"), unread = items.filter(i => !i.kind);
+  const decoded = await Promise.all(files.map(async f => ({ file: f, ...(await readText(f)) })));
+  const packet = decoded.find(d => d.text && /^\s*\{/.test(d.text) && /"assaylint-packet"/.test(d.text.slice(0, 400)));
+  if (packet) return importPacket(packet.file);
+  const binary = decoded.filter(d => d.binary);
+  if (binary.length && binary.length === decoded.length) { flash(`${binary.map(d => d.file.name).join(", ")}: ${C.BINARY_MESSAGE}`, true); return render(); }
+  const items = await Promise.all(decoded.filter(d => d.text != null).map(async d => ({ name: d.file.name, text: d.text, encoding: d.encoding, sha: await C.sha256(d.text), ...C.detectFileKind(d.text) })));
+  const results = items.filter(i => i.kind === "results"), unread = [...items.filter(i => !i.kind), ...binary.map(d => ({ name: d.file.name }))];
   if (results.length !== 1) {
     const msg = results.length > 1 ? `I got ${results.length} results files (${results.map(r => r.name).join(", ")}). Drop one run at a time.`
       : unread.length ? `I couldn't read ${unread.map(u => u.name).join(", ")}. A results file needs a well column (like A1) and a Ct or Cq column. If yours has both, email it to ${CREDIT.email} and I'll add support for it.`
@@ -276,11 +283,13 @@ function deleteExp() {
 async function importPacket(file) {
   if (!file) return;
   try {
-    const exp = await C.verifyPacket(JSON.parse(await file.text()));
+    const d = await readText(file);
+    if (!d.text) throw new Error(C.BINARY_MESSAGE);
+    const exp = await C.verifyPacket(JSON.parse(d.text));
     if (S.load(exp.id) && !confirm(`An experiment with ID ${exp.id} already exists in this browser. Replace it with the imported packet?`)) return;
     C.logAudit(exp, actor(), "packet.import", `Imported packet ${file.name}; embedded file checksums verified`);
     Object.assign(st, { exp, tab: exp.source ? "findings" : "data", sel: new Set(), selFinding: null, pending: {} });
-    reanalyze(); persist(); flash(`Imported ${exp.title}. Checksums of the embedded files were verified.`); render();
+    reanalyze(); persist(); flash(`Opened your saved run “${exp.title}”. Its files match what was saved.`); render();
   } catch (e) { flash(`Could not import ${file.name}: ${e.message}`, true); renderMain(); }
 }
 
@@ -322,7 +331,9 @@ const KIND = {
 async function stage(kind, file) {
   if (!file) return;
   if (file.size > 25e6) { flash(`${file.name} is larger than 25 MB and was not read.`, true); renderMain(); return; }
-  stageText(kind, file.name, await file.text());
+  const d = await readText(file);
+  if (d.binary) { flash(`${file.name}: ${C.BINARY_MESSAGE}`, true); renderMain(); return; }
+  stageText(kind, file.name, d.text);
 }
 async function stageText(kind, name, text, plateSize) {
   const sha = await C.sha256(text);
@@ -516,7 +527,8 @@ VIEWS.map = () => {
   };
   const importTpl = async file => {
     if (!file) return;
-    const text = await file.text();
+    const d = await readText(file), text = d.text;
+    if (!text) { flash(`${file.name}: ${C.BINARY_MESSAGE}`, true); renderMain(); return; }
     try {
       const tpl = C.parseTemplate(text), sha = await C.sha256(text);
       let out;

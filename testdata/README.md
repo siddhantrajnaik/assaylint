@@ -46,6 +46,21 @@ On the first run, 7 of 12 real files could not be read, and the realistic set ex
 9. **Alert fatigue.** A plate of single wells produced 258 separate “spread not assessed” findings; they are now grouped into one.
 10. **Omitted wells.** QuantStudio's Omit flag is kept and surfaced as a finding rather than ignored.
 
+## Randomised and edge-case checks (`tests/robust.test.mjs`)
+
+- **400 random plates** (96 and 384 wells, 1–200 wells, random roles, Ct values, quantities, duplicates and typo wells), written in 7 layouts: generic CSV (comma, tab, semicolon with decimal commas), Bio-Rad CFX, QuantStudio text and CSV, ABI SDS with numbered wells, and LightCycler 480. They also get random damage: a BOM, old Mac line endings, blank lines at the end.
+- **Checks on every file:** it is recognised as a results file; no row disappears (each is read or reported as unreadable); every Ct read appears in the file exactly as written; findings are complete and unique; the summary adds up; the same input gives the same answer; the report, CSV, packet and checklist all build, with markup in sample names escaped.
+- **80 random curve files** (long and wide, amplification and melt) are always recognised as curves.
+- **Files that aren't exports** (empty, header only, one column, Excel bytes, JSON, HTML, random binary) fail with a clear message.
+- **Odd values** (`1.85E+01`, negative or very late Ct, lowercase `a4`, `A05`, padded spaces, `∞`, thousands separators) are read or flagged without being changed.
+- **Encodings:** the same file saved as UTF-8, UTF-8 with BOM, UTF-16 LE/BE (with and without BOM) and Windows-1252 reads identically. Excel workbooks and zipped instrument project files are recognised and explained.
+- **Size:** a full 384-well, 4-target plate (1,536 rows) and a 10,000-row file are analysed in well under a second here.
+
+What this round fixed:
+1. Files with old Mac line endings (a carriage return only) were read as one line, so nothing was found.
+2. A mistyped well on the very last row (for example `Z9`) was taken for a summary footer and dropped. Footers are now only lines whose first cell is a word, like "Average" or "Slope".
+3. UTF-16 "Unicode text" exports and Windows-1252 files were not decoded properly, and Excel or project files were read as garbage text.
+
 ## Still not covered
 
 - Bio-Rad CFX Opus / Maestro 2.x, Roche LightCycler 96, Qiagen Rotor-Gene, Agilent AriaMx and Analytik Jena exports: no public samples found yet.

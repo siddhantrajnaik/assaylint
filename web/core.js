@@ -330,7 +330,7 @@ function mapHeaders(headers) {
 export function parseResults(input, opts = {}) {
   const text = String(input ?? "").replace(/^﻿/, "");
   if (!text.trim()) throw new ParseError("The file is empty.");
-  const lines = text.split(/\r?\n/).map(l => l.replace(/^﻿/, ""));
+  const lines = text.split(/\r\n|\r|\n/).map(l => l.replace(/^﻿/, ""));
   // Instrument exports often put a metadata preamble before the table, so search for the header row.
   let hi = -1, delim = ",", firstCells = null;
   for (let i = 0; i < Math.min(lines.length, 500); i++) {
@@ -377,7 +377,10 @@ export function parseResults(input, opts = {}) {
   const numericWells = !rows.slice(1).some(r => wellKey(r.cells[columns.well]));
   const wellLike = r => { const w = (r.cells[columns.well] ?? "").trim(); return !!wellKey(w) || (numericWells && /^\d+$/.test(w)); };
   let last = rows.length - 1;
-  while (last > 0 && !wellLike(rows[last])) last--;
+  // Summary labels are words ("Average", "Slope"); a mistyped well is short and has a digit ("Z9", "A1O").
+  const typoWell = r => { const w = (r.cells[columns.well] ?? "").trim(), c = (r.cells[columns.ct] ?? "").trim();
+    return /^(?=.*\d)[A-Za-z0-9]{1,4}$/.test(w) && c !== "" && (ctNum(c) !== null || isNoAmp(c)); };
+  while (last > 0 && !wellLike(rows[last]) && !typoWell(rows[last])) last--;
   const footer = rows.slice(last + 1);
   if (footer.length) warnings.push(`${footer.length} line(s) after the table (lines ${footer[0].line + offset}–${footer.at(-1).line + offset}) have no well position and were treated as a summary footer, not data.`);
   for (const r of rows.slice(1, last + 1)) {
@@ -976,3 +979,24 @@ export function nextSteps(exp, res) {
     { id: "report", tab: "report", done: reported, text: reported ? "Report downloaded" : "Download your report" },
   ];
 }
+
+// ---------------------------------------------------------------- reading file bytes
+// Instrument PCs often save UTF-16 ("Unicode text") or Windows-1252 text, and people sometimes drop the
+// Excel workbook or the instrument's project file instead of the export. Work out which it is.
+export function decodeBytes(input) {
+  const b = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const dec = (enc, from = 0) => new TextDecoder(enc).decode(b.subarray(from));
+  if (b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4) return { binary: "zip" };      // .xlsx, .eds, .pcrd and other zipped project files
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) return { binary: "ole" }; // old .xls
+  if (b[0] === 0xff && b[1] === 0xfe) return { text: dec("utf-16le", 2), encoding: "UTF-16" };
+  if (b[0] === 0xfe && b[1] === 0xff) return { text: dec("utf-16be", 2), encoding: "UTF-16" };
+  if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return { text: dec("utf-8", 3), encoding: "UTF-8" };
+  const n = Math.min(b.length, 4000); let odd = 0, even = 0, nul = 0;
+  for (let i = 0; i < n; i++) if (b[i] === 0) { nul++; (i % 2 ? odd++ : even++); }
+  if (n >= 8 && odd > n / 4) return { text: dec("utf-16le"), encoding: "UTF-16" };
+  if (n >= 8 && even > n / 4) return { text: dec("utf-16be"), encoding: "UTF-16" };
+  if (nul > 0) return { binary: "unknown" };
+  try { return { text: new TextDecoder("utf-8", { fatal: true }).decode(b), encoding: "UTF-8" }; }
+  catch { return { text: dec("windows-1252"), encoding: "Windows-1252" }; }
+}
+export const BINARY_MESSAGE = "This looks like an Excel workbook or an instrument project file, not an export. In your instrument software, export the results as CSV or text and drop that instead.";

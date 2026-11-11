@@ -59,7 +59,13 @@ const sets = opt("--set", true), out = { report: opt("--report"), json: opt("--j
 if (args.length !== 1 || args[0].startsWith("--")) fail(USAGE);
 const input = args[0];
 
-const read = p => { try { return readFileSync(p, "utf8"); } catch (e) { fail(`Cannot read ${p}: ${e.message}`, 1); } };
+const read = p => {
+  let bytes;
+  try { bytes = readFileSync(p); } catch (e) { fail(`Cannot read ${p}: ${e.message}`, 1); }
+  const d = C.decodeBytes(bytes);
+  if (d.binary) fail(`${p}: ${C.BINARY_MESSAGE}`, 1);
+  return d.text;
+};
 const actor = process.env.USER || process.env.USERNAME || "cli";
 const exp = C.newExperiment({ title: basename(input) }, actor);
 try {
