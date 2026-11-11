@@ -569,12 +569,62 @@ export function newExperiment(fields = {}, actor) {
   logAudit(exp, actor, "experiment.create", `Created experiment ${exp.id} (app ${APP_VERSION})`);
   return exp;
 }
+// Checks every field of a saved or imported experiment and repairs what it can, so damaged storage or a
+// hand-edited run file cannot crash the app later. Throws a ParseError only when nothing usable is left.
+const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
+const asStr = (v, d = "") => (typeof v === "string" ? v : typeof v === "number" && Number.isFinite(v) ? String(v) : d);
+function cleanFile(f, kind) {
+  if (!isObj(f) || typeof f.text !== "string" || !f.text) return null;
+  const out = { name: asStr(f.name) || "file", sha256: asStr(f.sha256), text: f.text, importedAt: asStr(f.importedAt) || new Date().toISOString(),
+    importedBy: asStr(f.importedBy) || "unknown", parserVersion: asStr(f.parserVersion) || PARSER_VERSION };
+  if (kind === "source") { out.format = asStr(f.format) in FORMATS ? f.format : "generic-ct-csv"; out.plateSize = [96, 384].includes(f.plateSize) ? f.plateSize : null; }
+  if (kind === "melt") out.valueType = f.valueType === "fluorescence" ? "fluorescence" : "derivative";
+  return out;
+}
+function cleanValues(v) {
+  const out = { ...DEFAULT_PROFILE.values };
+  if (isObj(v)) for (const f of RULESET_FIELDS) {
+    if (f.type === "bool" && typeof v[f.key] === "boolean") out[f.key] = v[f.key];
+    if (f.type === "number" && typeof v[f.key] === "number" && Number.isFinite(v[f.key]) && v[f.key] >= 0) out[f.key] = v[f.key];
+  }
+  return out;
+}
 export function normalizeExperiment(exp) {
-  exp.source ??= null; exp.amp ??= null; exp.melt ??= null; exp.template ??= null; exp.feedback ??= null;
-  exp.map ||= {}; exp.context ||= {}; exp.controlNA ||= {}; exp.reviews ||= {}; exp.audit ||= [];
-  exp.ruleset ||= rulesetFrom(DEFAULT_PROFILE);
-  exp.ruleset.values = { ...DEFAULT_PROFILE.values, ...exp.ruleset.values };
-  exp.ruleset.base = { ...DEFAULT_PROFILE.values, ...exp.ruleset.base };
+  if (!isObj(exp)) throw new ParseError("This saved run is damaged and can't be opened.");
+  const now = new Date().toISOString();
+  exp.schema = 1; exp.assay = "qPCR";
+  exp.id = asStr(exp.id) || newId();
+  exp.title = asStr(exp.title).slice(0, 300) || "Untitled qPCR run";
+  exp.date = /^\d{4}-\d{2}-\d{2}/.test(asStr(exp.date)) ? asStr(exp.date).slice(0, 10) : now.slice(0, 10);
+  exp.project = asStr(exp.project); exp.operator = asStr(exp.operator);
+  exp.created = asStr(exp.created) || now; exp.updated = asStr(exp.updated) || now;
+  exp.source = cleanFile(exp.source, "source"); exp.amp = cleanFile(exp.amp, "amp"); exp.melt = cleanFile(exp.melt, "melt");
+  exp.template = isObj(exp.template) && Array.isArray(exp.template.wells)
+    ? { name: asStr(exp.template.name) || "plate map", sha256: asStr(exp.template.sha256), importedAt: asStr(exp.template.importedAt) || now, importedBy: asStr(exp.template.importedBy), wells: exp.template.wells.filter(w => typeof w === "string") } : null;
+  exp.feedback = isObj(exp.feedback) && typeof exp.feedback.value === "string" ? { value: exp.feedback.value, by: asStr(exp.feedback.by), at: asStr(exp.feedback.at) || now } : null;
+  const map = {};
+  if (isObj(exp.map)) for (const [id, m] of Object.entries(exp.map)) {
+    if (!isObj(m)) continue;
+    const e = {};
+    for (const k of ["sample", "target", "group", "bio_unit", "quantity"]) if (typeof m[k] === "string") e[k] = m[k];
+    if (ROLES.includes(m.role)) e.role = m.role;
+    if (Object.keys(e).length) map[id] = e;
+  }
+  exp.map = map;
+  exp.context = isObj(exp.context) ? Object.fromEntries(Object.entries(exp.context).filter(([, v]) => typeof v === "string")) : {};
+  exp.controlNA = isObj(exp.controlNA) ? Object.fromEntries(Object.entries(exp.controlNA).filter(([, v]) => isObj(v) && asStr(v.reason))
+    .map(([k, v]) => [k, { reason: asStr(v.reason), by: asStr(v.by) || "unknown", at: asStr(v.at) || now }])) : {};
+  const reviews = {};
+  if (isObj(exp.reviews)) for (const [id, r] of Object.entries(exp.reviews)) {
+    if (!isObj(r)) continue;
+    reviews[id] = { ...(DISPOSITIONS.includes(r.disposition) ? { disposition: r.disposition } : {}), ...(typeof r.note === "string" ? { note: r.note } : {}),
+      by: asStr(r.by) || "unknown", at: asStr(r.at) || now, rule: asStr(r.rule), rule_version: asStr(r.rule_version), title: asStr(r.title), description: asStr(r.description) };
+  }
+  exp.reviews = reviews;
+  exp.audit = Array.isArray(exp.audit) ? exp.audit.filter(isObj).map(a => ({ at: asStr(a.at) || now, actor: asStr(a.actor) || "unknown", action: asStr(a.action) || "note", detail: asStr(a.detail) })) : [];
+  const rs = isObj(exp.ruleset) ? exp.ruleset : {}, pr = isObj(rs.profile) ? rs.profile : {};
+  exp.ruleset = { profile: { id: asStr(pr.id) || DEFAULT_PROFILE.id, name: asStr(pr.name) || DEFAULT_PROFILE.name, version: Number.isFinite(pr.version) ? pr.version : 1 },
+    values: cleanValues(rs.values), base: cleanValues(rs.base) };
   return exp;
 }
 export function fileRecord({ name, text, sha, actor, ...extra }) {
@@ -939,7 +989,7 @@ export function compareRuns(a, ra, b, rb) {
 
 // ---------------------------------------------------------------- packets (FR-21)
 export async function verifyPacket(obj) {
-  if (obj?.format !== "assaylint-packet" || !obj.experiment) throw new ParseError("This file is not an AssayLint experiment packet.");
+  if (obj === null || typeof obj !== "object" || obj.format !== "assaylint-packet" || obj.experiment === null || typeof obj.experiment !== "object") throw new ParseError("This file is not a saved AssayLint run.");
   if (obj.packet_version > PACKET_VERSION) throw new ParseError(`Packet version ${obj.packet_version} is newer than this app supports (${PACKET_VERSION}).`);
   const exp = normalizeExperiment(structuredClone(obj.experiment));
   for (const k of ["source", "amp", "melt"]) if (exp[k]) {

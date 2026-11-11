@@ -22,6 +22,8 @@ jobs:
         with: { node-version: 22 }
       - run: node testdata/fetch-public.mjs || echo "public files unavailable; those tests will be skipped"
       - run: node --test tests/*.test.mjs
+      - name: Random-click stress test
+        run: npm ci --prefix tools/monkey && node tools/monkey/monkey.mjs 1500 1
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: web }

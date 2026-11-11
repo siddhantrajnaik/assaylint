@@ -61,6 +61,22 @@ What this round fixed:
 2. A mistyped well on the very last row (for example `Z9`) was taken for a summary footer and dropped. Footers are now only lines whose first cell is a word, like "Average" or "Slope".
 3. UTF-16 "Unicode text" exports and Windows-1252 files were not decoded properly, and Excel or project files were read as garbage text.
 
+## Do the checks give the right answer? (`tests/rules.test.mjs`)
+
+- **Clean plates:** 100 generated plates with no problems (2 targets, 4 biological samples in triplicate, a 5-point standard curve, NTC, positive and no-RT controls) raise no data flags. Another 100 with realistic amplification and melt curves raise none either; plateau height (0.4–3), efficiency (85–100%), noise, baseline drift and cycle count (35/40/45) all vary.
+- **Planted problems:** each of these is planted in a clean plate, 15–20 times, and must be caught by the right rule on the right well: duplicate well, typo well, missing sample or target, garbled Ct, sample that didn't amplify, one replicate 1.5 cycles off, NTC amplifying early (high) and late (medium), NTCs left off, failed positive control, no-RT amplification, standard without a quantity, empty well with a Ct, one sample in two groups, standard curve efficiency of 71% and 121%, noisy standards, a flat curve with a Ct, a rising curve without one, a Ct 5 cycles off its curve, a missing curve, a second melt peak, a shifted Tm, a missing melt peak and an NTC melt peak.
+- **Thresholds:** replicate spread is flagged at SD 0.35 and not at 0.26 (threshold 0.3); standard curves with slopes of -3.2 to -3.5 are not flagged.
+- **Awkward curves:** 5 cycles only, one point per well, all zeros, negative values, gaps and text, wells not on the plate, mismatched target names and cycles out of order never crash or print "NaN".
+
+## Rough handling (`tests/state.test.mjs` and `tools/monkey`)
+
+- **Damaged saved runs:** 600 runs with random fields deleted or replaced by junk are all repaired on load.
+- **Tampered run files:** 400 edited copies are either refused with a clear message or load and work.
+- **Random plate-map edits and plate-map files:** 500 edits and 300 files never crash the analysis, lose a row or change a raw value.
+- **Monkey test:** the real app runs in a simulated browser while a script makes thousands of random clicks, typed values, selections and file drops (31 real and sample files plus junk), and now and then damages the saved data. A crash, a rejected promise, a blank page or "undefined" on screen counts as a failure. Run it with `cd tools/monkey && npm install && node monkey.mjs 3000 1`.
+
+What this round fixed: a damaged or hand-edited saved run could be accepted and then crash the app later (for example when its history was not a list, or a review entry was empty). Every field is now checked and repaired when a run is loaded, and a damaged entry in the list of runs can no longer stop the app from starting.
+
 ## Still not covered
 
 - Bio-Rad CFX Opus / Maestro 2.x, Roche LightCycler 96, Qiagen Rotor-Gene, Agilent AriaMx and Analytik Jena exports: no public samples found yet.

@@ -26,7 +26,7 @@ function h(tag, attrs, ...kids) {
 const st = { category: "", exp: null, res: null, err: null, tab: "setup", sel: new Set(), selFinding: null, pending: {}, sort: "severity",
   filter: "", hideClosed: false, compareId: "", mapFilter: "all", bulkField: "role", saveError: null, flash: null };
 const after = [];
-const actor = () => S.getSetting("actor") || "local user";
+const actor = () => { const a = S.getSetting("actor"); return typeof a === "string" && a.trim() ? a : "local user"; };
 const fmt = (x, d = 2) => (x == null || !Number.isFinite(x) ? "—" : x.toFixed(d));
 const when = iso => (iso ? iso.slice(0, 16).replace("T", " ") : "");
 let plateHost = null, plate3d = null, webglFailed = false, mapRefresh = null;
@@ -50,7 +50,11 @@ function change(action, detail, fn, { rerender = true } = {}) {
 }
 function openExp(id) {
   const e = S.load(id);
-  if (!e) return;
+  if (!e) { // the saved copy is missing or damaged: drop it from the list rather than leave a dead entry
+    try { S.remove(id); } catch { /* storage unavailable */ }
+    flash("That run couldn't be opened because its saved copy is missing or damaged, so I removed it from the list.", true);
+    st.exp = null; st.res = null; return render();
+  }
   Object.assign(st, { exp: e, sel: new Set(), selFinding: null, pending: {}, compareId: "", tab: e.source ? "findings" : "data" });
   reanalyze(); render(); scrollTo(0, 0);
 }
@@ -96,7 +100,7 @@ function renderSidebar() {
       : h("p", { class: "muted" }, "Runs you check will show up here.")),
     h("div", { class: "side-foot" },
       h("label", { class: "field" }, h("span", null, "Your name for the history"),
-        h("input", { type: "text", value: S.getSetting("actor") || "", placeholder: "local user", onchange: e => { try { S.setSetting("actor", e.target.value.trim()); } catch { /* storage unavailable */ } } })),
+        h("input", { type: "text", value: actor() === "local user" ? "" : actor(), placeholder: "local user", onchange: e => { try { S.setSetting("actor", e.target.value.trim()); } catch { /* storage unavailable */ } } })),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!S.getSetting("allSteps"), onchange: e => { try { S.setSetting("allSteps", e.target.checked); } catch { /* storage unavailable */ } renderMain(); } }), "Show all steps"),
       h("div", { class: "side-links" },
         h("button", { class: "link", type: "button", onclick: goHome }, "Home"),
@@ -230,7 +234,7 @@ async function quickFiles(fileList) {
     flash(msg, true); return render();
   }
   const r = results[0], a = actor();
-  const e = C.newExperiment({ title: r.name.replace(/\.(csv|txt|tsv)$/i, ""), operator: S.getSetting("actor") || "" }, a);
+  const e = C.newExperiment({ title: r.name.replace(/\.(csv|txt|tsv)$/i, ""), operator: actor() === "local user" ? "" : actor() }, a);
   Object.assign(st, { exp: e, pending: {}, sel: new Set(), selFinding: null });
   if (r.needsPlateSize) st.pending.results = { name: r.name, text: r.text, sha: r.sha, error: r.error.message, details: r.error.details || {} };
   else {

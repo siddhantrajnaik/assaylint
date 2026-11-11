@@ -1,0 +1,8 @@
+{
+  "name": "assaylint-monkey",
+  "private": true,
+  "type": "module",
+  "description": "Random-click stress test for the AssayLint web app (runs the real app in jsdom).",
+  "scripts": { "test": "node monkey.mjs 2000 1" },
+  "devDependencies": { "jsdom": "^31.0.0" }
+}
