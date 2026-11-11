@@ -1,6 +1,12 @@
 // Minimal canvas line/scatter plots for curves and standard curves.
 const extent = xs => [Math.min(...xs), Math.max(...xs)];
-const tick = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
+// Round tick values (1, 2, 2.5 or 5 × 10^n), as a person would label an axis.
+function ticks(lo, hi, n = 5) {
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(10));
+  return { out, dp: Math.max(0, -Math.floor(Math.log10(step) + 1e-9) + (step / mag === 2.5 ? 1 : 0)) };
+}
 
 export function plot(cv, { series = [], points = [], line = null, hline = null, xLabel = "", yLabel = "", empty = "No data" }) {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
@@ -18,12 +24,10 @@ export function plot(cv, { series = [], points = [], line = null, hline = null, 
   const L = 50, R = 12, T = 10, B = 36;
   const X = x => L + ((x - x0) / (x1 - x0)) * (w - L - R), Y = y => h - B - ((y - y0) / (y1 - y0)) * (h - T - B);
   g.strokeStyle = "#e6ebe8"; g.fillStyle = "#5b6762"; g.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const yv = y0 + ((y1 - y0) * i) / 4, xv = x0 + ((x1 - x0) * i) / 4;
-    g.beginPath(); g.moveTo(L, Y(yv)); g.lineTo(w - R, Y(yv)); g.stroke();
-    g.textAlign = "right"; g.fillText(tick(yv), L - 6, Y(yv) + 4);
-    g.textAlign = "center"; g.fillText(tick(xv), X(xv), h - B + 14);
-  }
+  const ty = ticks(y0, y1), tx = ticks(x0, x1, 6);
+  for (const yv of ty.out) { g.beginPath(); g.moveTo(L, Y(yv)); g.lineTo(w - R, Y(yv)); g.stroke(); g.textAlign = "right"; g.fillText(yv.toFixed(ty.dp), L - 6, Y(yv) + 4); }
+  g.textAlign = "center";
+  for (const xv of tx.out) g.fillText(xv.toFixed(tx.dp), X(xv), h - B + 14);
   g.fillText(xLabel, (L + w - R) / 2, h - 6);
   g.save(); g.translate(12, (T + h - B) / 2); g.rotate(-Math.PI / 2); g.fillText(yLabel, 0, 0); g.restore();
   for (const s of series) {

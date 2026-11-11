@@ -1,15 +1,22 @@
-// 3D plate view (three.js, vendored in ./vendor). Wells are glossy cylinders coloured by worst finding.
+// 3D plate view (three.js, vendored in ./vendor). Matches the 2D plate map: a matte plate with the A1 corner cut,
+// wells that hold data sit in their openings, and only flagged wells carry colour.
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 
-const COLORS = { high: 0xd14b3f, medium: 0xe09a3a, low: 0xe3cb62, ok: 0x8fc3a4, empty: 0xc9d1cd };
+const COLORS = { high: 0xd14b3f, medium: 0xe09a3a, low: 0xe3cb62, ok: 0xbfc9c4 };
+const TILT = (60 * Math.PI) / 180, VFOV = 26;
 
 function label(text) {
   const c = document.createElement("canvas"); c.width = c.height = 64;
-  const g = c.getContext("2d"); g.fillStyle = "#5b6762"; g.font = '500 32px "IBM Plex Sans", system-ui, sans-serif'; g.textAlign = "center"; g.textBaseline = "middle";
+  const g = c.getContext("2d"); g.fillStyle = "#5b6762"; g.font = '500 30px "IBM Plex Sans", system-ui, sans-serif'; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(text, 32, 34);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
-  s.scale.set(0.6, 0.6, 1); return s;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  s.scale.set(0.55, 0.55, 1); return s;
+}
+function plateShape(w, d, cut) {
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2 + cut, -d / 2); s.lineTo(w / 2, -d / 2); s.lineTo(w / 2, d / 2); s.lineTo(-w / 2, d / 2); s.lineTo(-w / 2, -d / 2 + cut); s.closePath();
+  return s;
 }
 
 export function createPlate(container, onPick) {
@@ -17,52 +24,65 @@ export function createPlate(container, onPick) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   container.replaceChildren(renderer.domElement);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1.6, 0.1, 200);
+  const camera = new THREE.PerspectiveCamera(VFOV, 1.6, 0.1, 200);
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.enablePan = false; controls.maxPolarAngle = Math.PI / 2.2; controls.minDistance = 6; controls.maxDistance = 60;
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 1.6));
-  const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(-6, 14, 8); scene.add(sun);
+  controls.enableDamping = true; controls.enablePan = false; controls.maxPolarAngle = Math.PI / 2.3; controls.minDistance = 5; controls.maxDistance = 70;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8c2bd, 2.2));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1); key.position.set(-5, 12, 6); scene.add(key);
 
   let group = new THREE.Group(); scene.add(group);
-  let wells = new Map(); // key -> mesh
-  let selected = new Set(), hovered = null, need = true;
+  let wells = new Map(), rings = new Map(), plateW = 13, selected = new Set(), hovered = null, need = true;
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
 
+  // Fit the whole plate across the width of the panel.
+  function frame() {
+    const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(VFOV / 2)) * camera.aspect);
+    const dist = ((plateW / 2) * 1.32) / Math.tan(hfov / 2);
+    camera.position.set(0, Math.sin(TILT) * dist, Math.cos(TILT) * dist); controls.target.set(0, 0, 0.3); controls.update();
+  }
   function resize() {
     const { clientWidth: w, clientHeight: h } = container; if (!w || !h) return;
-    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); need = true;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); frame(); need = true;
   }
   new ResizeObserver(resize).observe(container);
 
   function setData({ rows, cols, flags, present }) {
     scene.remove(group); group.traverse(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose?.(); });
-    group = new THREE.Group(); scene.add(group); wells = new Map(); selected.clear();
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(cols + 1, 0.5, rows + 1),
-      new THREE.MeshPhysicalMaterial({ color: 0xf7f8f7, roughness: 0.5, clearcoat: 0.4 }));
-    slab.position.y = -0.25; group.add(slab);
-    const geo = new THREE.CylinderGeometry(0.4, 0.34, 0.5, 32);
+    group = new THREE.Group(); scene.add(group); wells = new Map(); rings = new Map();
+    plateW = cols + 1.4;
+    const depth = rows + 1.4, body = new THREE.ExtrudeGeometry(plateShape(plateW, depth, 1), { depth: 0.45, bevelEnabled: false });
+    body.rotateX(Math.PI / 2); body.translate(0, 0, 0);
+    const slab = new THREE.Mesh(body, new THREE.MeshStandardMaterial({ color: 0xe6ebe8, roughness: 0.9 }));
+    group.add(slab);
+    const hole = new THREE.CircleGeometry(0.42, 40).rotateX(-Math.PI / 2);
+    const holeMat = new THREE.MeshStandardMaterial({ color: 0xd3dad6, roughness: 1 });
+    const cyl = new THREE.CylinderGeometry(0.38, 0.38, 0.18, 40);
+    const ringGeo = new THREE.RingGeometry(0.47, 0.55, 48).rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x0b6b5c });
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const key = String.fromCharCode(65 + r) + (c + 1), has = present.has(key);
-      const state = has ? flags.get(key) || "ok" : "empty";
-      const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: COLORS[state], roughness: 0.35, clearcoat: 0.6, metalness: 0 }));
-      m.position.set(c - (cols - 1) / 2, has ? 0.05 : -0.1, r - (rows - 1) / 2);
-      m.userData = { key, has, baseY: m.position.y };
-      group.add(m); wells.set(key, m);
+      const k = String.fromCharCode(65 + r) + (c + 1), x = c - (cols - 1) / 2, z = r - (rows - 1) / 2;
+      const opening = new THREE.Mesh(hole, holeMat); opening.position.set(x, 0.002, z); group.add(opening);
+      if (!present.has(k)) continue;
+      const m = new THREE.Mesh(cyl, new THREE.MeshStandardMaterial({ color: COLORS[flags.get(k) || "ok"], roughness: 0.7 }));
+      m.position.set(x, 0.09, z); m.userData = { key: k, baseY: 0.09 }; group.add(m); wells.set(k, m);
+      const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(x, 0.004, z); ring.visible = false; group.add(ring); rings.set(k, ring);
     }
-    for (let c = 0; c < cols; c++) { const s = label(String(c + 1)); s.position.set(c - (cols - 1) / 2, 0.1, -(rows + 1) / 2 - 0.2); group.add(s); }
-    for (let r = 0; r < rows; r++) { const s = label(String.fromCharCode(65 + r)); s.position.set(-(cols + 1) / 2 - 0.2, 0.1, r - (rows - 1) / 2); group.add(s); }
-    const d = cols * 1.25 + 4;
-    camera.position.set(0, d * 0.75, d * 0.7); controls.target.set(0, 0, 0); controls.update(); resize(); need = true;
+    for (let c = 0; c < cols; c++) { const s = label(String(c + 1)); s.position.set(c - (cols - 1) / 2, 0.05, -depth / 2 + 0.25); group.add(s); }
+    for (let r = 0; r < rows; r++) { const s = label(String.fromCharCode(65 + r)); s.position.set(-plateW / 2 + 0.3, 0.05, r - (rows - 1) / 2); group.add(s); }
+    resize(); frame(); select([...selected]);
   }
 
-  function select(keys) { selected = new Set(keys); need = true; }
+  function select(keys) {
+    selected = new Set(keys);
+    for (const [k, ring] of rings) ring.visible = selected.has(k);
+    need = true;
+  }
 
   function pick(e) {
     const r = renderer.domElement.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
-    const hit = ray.intersectObjects([...wells.values()], false)[0];
-    return hit && hit.object.userData.has ? hit.object : null;
+    return ray.intersectObjects([...wells.values()], false)[0]?.object || null;
   }
   const el = renderer.domElement; let down = null;
   el.addEventListener("pointerdown", e => (down = [e.clientX, e.clientY]));
@@ -76,9 +96,9 @@ export function createPlate(container, onPick) {
   renderer.setAnimationLoop(() => {
     controls.update();
     for (const m of wells.values()) {
-      const up = selected.has(m.userData.key) ? 0.35 : m === hovered ? 0.18 : 0;
-      const target = m.userData.baseY + up, dy = target - m.position.y;
-      if (Math.abs(dy) > 0.002) { m.position.y += dy * 0.25; need = true; }
+      const up = selected.has(m.userData.key) ? 0.28 : m === hovered ? 0.12 : 0;
+      const dy = m.userData.baseY + up - m.position.y;
+      if (Math.abs(dy) > 0.002) { m.position.y += dy * 0.3; need = true; }
     }
     if (need) { renderer.render(scene, camera); need = false; }
   });
