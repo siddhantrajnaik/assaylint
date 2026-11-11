@@ -573,7 +573,7 @@ function findingDetail(f) {
     h("dl", { class: "qa" },
       h("dt", null, "What was checked"), h("dd", null, C.RULES[f.rule].checks),
       h("dt", null, "What AssayLint saw"), h("dd", null, f.evidence),
-      h("dt", null, "Why it might matter"), h("dd", null, f.why + (f.uncertain ? " The cause is uncertain." : "")),
+      h("dt", null, "Why it might matter"), h("dd", null, f.why),
       h("dt", null, "What to check next"), h("dd", null, f.next_check)),
     h("p", { class: "fd-rule" }, `Rule ${f.rule}, version ${f.rule_version}. Category: ${C.CATEGORY_LABEL[f.category].toLowerCase()}.`),
     h("div", { class: "review" },
@@ -615,9 +615,11 @@ VIEWS.findings = () => {
   const fb = st.exp.feedback?.value;
   return [
     h("section", { class: "sec summary" },
-      h("div", { class: "tally" },
-        [["high", "High"], ["medium", "Medium"], ["low", "Low"], ["info", "Info"]].map(([k, l]) => h("div", { class: "tally-i " + k }, h("span", { class: "tally-n" }, sev[k] || 0), h("span", { class: "tally-l" }, l))),
-        h("div", { class: "tally-i reviewed" }, h("span", { class: "tally-n" }, `${sum.reviewed}/${sum.total}`), h("span", { class: "tally-l" }, "Reviewed"))),
+      h("p", { class: "tally" }, (() => {
+        const parts = [["high", "high"], ["medium", "medium"], ["low", "low"], ["info", "informational"]].filter(([k]) => sev[k]).map(([k, l]) => `${sev[k]} ${l}`);
+        const list = parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0];
+        return parts.length ? `${list} finding${res.findings.length === 1 ? "" : "s"}. You've reviewed ${sum.reviewed} of ${sum.total}.` : "Nothing was flagged.";
+      })()),
       h("details", { class: "scope" }, h("summary", null, `What was checked: ${res.checksRun.length} groups of checks, ${res.notAssessed.length} item${res.notAssessed.length === 1 ? "" : "s"} not assessed`),
         h("div", { class: "scope-cols" },
           h("div", null, h("h3", null, "Checked"), h("ul", null, res.checksRun.map(c => h("li", null, c)))),
@@ -672,7 +674,7 @@ VIEWS.report = () => {
   const base = st.exp.id;
   const frame = h("iframe", { class: "report-frame", sandbox: "allow-same-origin allow-modals", title: "Report preview" });
   frame.srcdoc = R.reportHtml(st.exp, st.res);
-  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: "btn primary", type: "button", onclick: fn }, label));
+  const box = (title, desc, label, fn) => h("div", { class: "inner" }, h("b", null, title), h("small", { class: "muted" }, desc), h("button", { class: title === "Report (HTML)" ? "btn primary" : "btn", type: "button", onclick: fn }, label));
   const log = (what, name) => change("export", `${what}: ${name}`, null, { rerender: false });
   const go = (what, name, text, type) => () => { download(name, text(), type); log(what, name); };
   return [card(h("h2", null, "Export"),

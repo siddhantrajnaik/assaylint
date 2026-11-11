@@ -26,12 +26,11 @@ const kv = pairs => `<dl>${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v 
 
 const CSS = `body{font:14px/1.55 "IBM Plex Sans","Segoe UI",system-ui,sans-serif;color:#17201c;font-variant-numeric:tabular-nums;max-width:1100px;margin:0 auto;padding:24px}
 h1{margin:0 0 4px;font-size:24px}h2{font-size:17px;margin:32px 0 8px;padding-bottom:6px;border-bottom:1px solid #d3dad6}
-.sub{color:#5b6762}.note{background:#e3f0ec;border-left:3px solid #0b6b5c;padding:10px 14px;margin:14px 0}
-.status{display:inline-block;padding:3px 10px;border-radius:4px;font-weight:600;background:#e6ebe8}
-.review_needed{background:#fde2e2;color:#9b1c1f}.findings_present{background:#fff1d6;color:#7a4a00}.no_flags{background:#ddf5e5;color:#145c2c}
+.sub{color:#5b6762}.note{border:1px solid #d3dad6;border-radius:6px;padding:10px 14px;margin:14px 0}
+.status{font-weight:600;color:#5b6762}
+.review_needed{color:#b42318}.findings_present{color:#b25e09}.no_flags{color:#1d6b3a}
 table{border-collapse:collapse;width:100%;font-size:12.5px;margin:6px 0}th,td{border:1px solid #d3dad6;padding:5px 7px;text-align:left;vertical-align:top}
 th{background:#f4f6f5;font-weight:500;color:#5b6762}td.none{color:#5b6762}dl{display:grid;grid-template-columns:260px 1fr;gap:4px 12px;margin:0}dt{color:#5b6762}dd{margin:0;white-space:pre-wrap}
-.counts{display:flex;gap:18px;flex-wrap:wrap}.counts div{border:1px solid #d3dad6;border-radius:6px;padding:8px 14px}.counts b{display:block;font-size:20px}
 ul{margin:4px 0;padding-left:20px}.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;word-break:break-all}
 @media print{body{padding:0}h2{break-after:avoid}tr{break-inside:avoid}}`;
 
@@ -44,7 +43,7 @@ export function reportHtml(exp, res, generatedAt = new Date().toISOString()) {
   const p = res.parsed;
   const finding = f => {
     const r = rv[f.id] || {};
-    return [f.severity, CATEGORY_LABEL[f.category], `${f.rule} v${f.rule_version}`, `${f.title}. ${f.description}${f.uncertain ? " (cause uncertain)" : ""}`,
+    return [f.severity, CATEGORY_LABEL[f.category], `${f.rule} v${f.rule_version}`, `${f.title}. ${f.description}`,
       f.wells.join(", ") || (f.target ? `target ${f.target}` : "run"), f.evidence, f.next_check,
       DISPOSITION_LABEL[r.disposition || "unreviewed"], r.note || "", r.by ? `${r.by}, ${when(r.at)}` : ""];
   };
@@ -61,8 +60,8 @@ export function reportHtml(exp, res, generatedAt = new Date().toISOString()) {
 <div class="note">AssayLint flagged the items below for review. This report is not a certification that the experiment or its conclusions are valid. Items marked “not assessed” were not checked.</div>
 
 <h2>1. Summary</h2>
-<div class="counts"><div><b>${sev.high || 0}</b>High</div><div><b>${sev.medium || 0}</b>Medium</div><div><b>${sev.low || 0}</b>Low</div><div><b>${sev.info || 0}</b>Info</div>
-<div><b>${s.reviewed}/${s.total}</b>Reviewed</div><div><b>${s.open}</b>Open (not accepted, not applicable or resolved)</div></div>
+<p>${(() => { const parts = [["high", "high"], ["medium", "medium"], ["low", "low"], ["info", "informational"]].filter(([k]) => sev[k]).map(([k, l]) => `${sev[k]} ${l}`);
+  return parts.length ? `${parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0]} findings. ${s.reviewed} of ${s.total} reviewed; ${s.open} still open.` : "Nothing was flagged."; })()}</p>
 <p>${Object.entries(s.byCategory || {}).map(([k, n]) => `${esc(CATEGORY_LABEL[k])}: ${n}`).join(" · ") || "No findings."}</p>
 
 <h2>2. Experiment context</h2>
