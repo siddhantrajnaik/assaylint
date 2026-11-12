@@ -84,7 +84,7 @@ function plateArt(rows, cols, lit = {}, r = 4.2) {
 }
 function creditBlock(cls) {
   return h("div", { class: "credit " + cls },
-    h("p", null, "Made by ", h("a", { href: CREDIT.github, class: "link", target: "_blank", rel: "noopener" }, CREDIT.name), `, ${CREDIT.affiliation}.`),
+    h("p", null, `Made by ${CREDIT.name}, ${CREDIT.affiliation}.`),
     h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=AssayLint`, class: "link" }, CREDIT.email), "."),
     CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
 }
@@ -105,15 +105,8 @@ function renderSidebar() {
       h("div", { class: "side-links" },
         h("button", { class: "link", type: "button", onclick: goHome }, "Home"),
         h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
-        h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"),
-        h("a", { href: "#", class: "link", id: "src-link", hidden: true }, "Source code"))),
+        h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"))),
     st.saveError && h("p", { class: "error" }, st.saveError));
-  setSourceLink();
-}
-function setSourceLink() {
-  if (!location.hostname.endsWith("github.io")) return;
-  const user = location.hostname.split(".")[0], repo = location.pathname.split("/")[1], a = $("#src-link");
-  if (a && repo) { a.href = `https://github.com/${user}/${repo}`; a.hidden = false; }
 }
 
 // Four everyday steps; the rest lives under "More" unless "Show all steps" is on.
