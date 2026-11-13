@@ -5,6 +5,7 @@
 // only lists names that look like common reference genes so the user can confirm them.
 import { ctNum, cleanAnalysisSettings, toCsv } from "./core.js";
 import * as S from "./stats.js";
+import { combatRecords } from "./combat.js"; // [combat] plate correction by ComBat (web/combat.js)
 
 export const DEFAULT_SETTINGS = cleanAnalysisSettings({});
 export const MIN_N = 3; // biological replicates per group below which I warn
@@ -80,10 +81,11 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
 // calibration factor is the mean Ct of the calibrator samples (the log of the geometric mean of their quantities);
 // subtracting it per gene and plate is the same, on the log scale, as dividing NRQs by qBase's calibration factor.
 // mode "centre": every Ct of a target on a plate is shifted so the plate's mean for that target matches the
-// overall mean. mode "none": plates are combined as they are.
-export function calibrate(plates, { mode = "calibrator", calibrators = [] } = {}) {
+// overall mean. mode "none": plates are combined as they are. mode "combat": ComBat on ΔCt (web/combat.js).
+export function calibrate(plates, { mode = "calibrator", calibrators = [], combat = {} } = {}) {
   const out = { mode, offsets: [], unconnected: [], warnings: [], applied: false };
   if (plates.length < 2) return { ...out, mode: "single" };
+  if (mode === "combat") return combatRecords(plates, combat); // [combat] combat = { refs, weight, meanOnly }
   const cal = new Set(calibrators);
   if (mode === "calibrator" && !cal.size) {
     out.warnings.push("No calibrator sample was chosen, so the plates were combined without any correction for differences between runs.");
@@ -359,7 +361,10 @@ export function analyzeStudy(runs, study) {
   const label = (r, i) => runs.filter(x => x.exp.title === r.exp.title).length > 1 ? `${r.exp.title} (${i + 1})` : r.exp.title;
   const calibrators = study?.mode === "calibrator" ? study?.calibrators || [] : [];
   const plates = runs.map((r, i) => ({ id: r.exp.id, ...plateRecords(r.res, { ...s, excluded: (study?.excluded?.[r.exp.id]) || [] }, label(r, i), calibrators) }));
-  const cal = calibrate(plates, { mode: study?.mode || "calibrator", calibrators: study?.calibrators || [] });
+  // [combat] ComBat works on ΔCt, so it gets the reference genes and the same efficiency weights compute() uses.
+  const ceff = study?.mode === "combat" ? efficiencies(runs.flatMap(r => r.res?.stdCurves || []), uniq(plates.flatMap(p => p.records.map(r => r.target))), s.efficiency).eff : {};
+  const cal = calibrate(plates, { mode: study?.mode || "calibrator", calibrators: study?.calibrators || [],
+    combat: { refs: s.refs, weight: t => Math.log2(ceff[t]?.E || 2), meanOnly: study?.combatMeanOnly === true } });
   return compute(plates.flatMap(p => p.records), s, { stdCurves: runs.flatMap(r => r.res?.stdCurves || []), plates: plates.map(p => p.plate),
     calibration: cal, warnings: [...plates.flatMap(p => p.warnings), ...cal.warnings] });
 }
@@ -383,7 +388,9 @@ function methodText(a) {
   const refs = a.refs.length > 1 ? `the mean Ct of ${a.refs.join(", ")} (the geometric mean of their quantities)` : a.refs[0];
   const cal = a.calibration;
   const calText = !cal || cal.mode === "single" ? "" : cal.mode === "calibrator" ? ` Plates were combined with inter-run calibration on ${list(uniq(Object.values(cal.basis || {}).flat()))} as in qBase (Hellemans et al. 2007).`
-    : cal.mode === "centre" ? " Plates were combined by centring each target's Ct values per plate (no calibrator)." : " Plates were combined without correction between runs.";
+    : cal.mode === "centre" ? " Plates were combined by centring each target's Ct values per plate (no calibrator)."
+    : cal.mode === "combat" && cal.applied ? ` Plates were combined with ComBat on ΔCt (Johnson et al. 2007; parametric empirical Bayes, ${cal.meanOnly ? "location only" : "location and scale"}, group as covariate).` // [combat]
+    : " Plates were combined without correction between runs.";
   return `Ct values of technical replicates were averaged per biological unit${s.skipOmitted ? ", leaving out wells marked Omit" : ""}. ` +
     `ΔCt = Ct(target) − Ct(reference), with ${refs} as reference. ΔΔCt = ΔCt − mean ΔCt of the control group (${a.control}); fold change = 2^−ΔΔCt` +
     (e ? `, with amplification efficiencies from standard curves (Pfaffl 2001; each Ct multiplied by log2 of its efficiency factor)` : " (Livak & Schmittgen 2001, assuming 100% efficiency)") + "." + calText +

@@ -154,6 +154,43 @@ export function volcano(a) {
   return svg;
 }
 
+// ---------------------------------------------------------------- ComBat before / after
+// Per plate: the distribution of every ΔCt value minus its target's mean over all plates, before and after ComBat.
+// A plate effect shows up as a plate whose box sits off zero or is wider than the rest. Same y axis in both panels.
+export function combatChart(cb) {
+  const plates = cb.plates, pw = Math.max(150, 30 + plates.length * 46), W = 2 * pw + 70, T = 34, B = 206;
+  const notes = ["Box: middle half of the values, line: median, whisker: full range. Dots: one per biological unit and target.",
+    `ComBat${cb.meanOnly ? " (mean-only)" : ""} on ${cb.targets.length} targets, ${cb.samples} samples; each value is ΔCt minus its target's mean over all plates.`]
+    .flatMap(s => wrapWords(s, Math.floor((W - 20) / 5.2)));
+  const H = B + 34 + notes.length * 13;
+  const all = [...cb.before, ...cb.after].map(x => x.value);
+  const span = Math.max(0.5, ...all.map(Math.abs)) * 1.08, step = niceStep(2 * span, 6);
+  const Y = v => B - ((v + span) / (2 * span)) * (B - T);
+  const svg = el("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": FONT, role: "img", "aria-label": "Values per plate before and after ComBat" });
+  svg.append(el("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }), txt(14, (T + B) / 2, "ΔCt − target mean (cycles)", { rotate: -90, size: 10.5 }));
+  const q = (xs, p) => { const s = [...xs].sort((a, b) => a - b), i = (s.length - 1) * p, lo = Math.floor(i); return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo); };
+  [["Before ComBat", cb.before], ["After ComBat", cb.after]].forEach(([title, vals], k) => {
+    const L = 56 + k * (pw + 10), R = L + pw - 16, gw = (R - L) / plates.length;
+    svg.append(txt((L + R) / 2, 18, title, { size: 12, bold: true }), el("line", { x1: L, x2: L, y1: T, y2: B, stroke: COLORS.ink }), el("line", { x1: L, x2: R, y1: B, y2: B, stroke: COLORS.ink }),
+      el("line", { x1: L, x2: R, y1: Y(0), y2: Y(0), stroke: COLORS.mute, "stroke-dasharray": "3 3", "stroke-width": 0.8 }));
+    if (k === 0) for (let v = Math.ceil(-span / step) * step; v <= span; v += step)
+      svg.append(el("line", { x1: L - 4, x2: L, y1: Y(v), y2: Y(v), stroke: COLORS.ink }), txt(L - 7, Y(v) + 3.5, String(+v.toFixed(3)), { anchor: "end", size: 9.5 }));
+    plates.forEach((p, i) => {
+      const v = vals.filter(x => x.plate === p).map(x => x.value), cx = L + gw * (i + 0.5);
+      svg.append(txt(cx, B + 14, clip(p, 10), { size: 9.5 }));
+      if (!v.length) return;
+      const q1 = q(v, 0.25), md = q(v, 0.5), q3 = q(v, 0.75), bw = Math.min(26, gw * 0.6);
+      v.forEach((x, j) => svg.append(el("circle", { cx: cx + ((j * 0.618) % 1 - 0.5) * bw * 0.9, cy: Y(x), r: 1.6, fill: COLORS.bio, "fill-opacity": 0.35 })));
+      svg.append(el("line", { x1: cx, x2: cx, y1: Y(Math.min(...v)), y2: Y(Math.max(...v)), stroke: COLORS.ink, "stroke-width": 1 }),
+        el("rect", { x: cx - bw / 2, y: Y(q3), width: bw, height: Math.max(1, Y(q1) - Y(q3)), fill: "#ffffff", "fill-opacity": 0.6, stroke: COLORS.ink, "stroke-width": 1.2 },
+          el("title", {}, `${p}, ${title.toLowerCase()}: median ${fmt(md)}, middle half ${fmt(q1)} to ${fmt(q3)}, ${v.length} values`)),
+        el("line", { x1: cx - bw / 2, x2: cx + bw / 2, y1: Y(md), y2: Y(md), stroke: COLORS.ink, "stroke-width": 2.2 }));
+    });
+  });
+  notes.forEach((line, k) => svg.append(txt(10, B + 38 + k * 13, line, { anchor: "start", size: 9.5, fill: COLORS.mute })));
+  return svg;
+}
+
 // ---------------------------------------------------------------- downloads
 export function serialize(svg) {
   return '<?xml version="1.0" encoding="UTF-8"?>\n' + new (document.defaultView.XMLSerializer)().serializeToString(svg);
@@ -285,8 +322,10 @@ function resultsBlock(ax, a, base) {
       a.rows.map(r => h("tr", null, h("td", null, r.target), h("td", null, r.group), h("td", null, r.unit), h("td", { class: "num" }, fmt(r.ct)), h("td", { class: "num" }, fmt(r.refCt)),
         h("td", { class: "num" }, fmt(r.dct)), h("td", { class: "num" }, fmt(r.ddct)), h("td", { class: "num" }, fmtFold(r.fold)), h("td", { class: "mono" }, r.tech.map(t => t.ct.toFixed(2)).join(", "))))),
     a.calibration?.offsets?.length > 0 && h("div", null, h("h3", null, "Plate corrections"),
-      tbl(["Plate", "Target", a.calibration.mode === "calibrator" ? "Calibrator mean Ct" : "Plate mean Ct", "Shift applied (cycles)"],
+      tbl(["Plate", "Target", a.calibration.mode === "calibrator" ? "Calibrator mean Ct" : a.calibration.mode === "combat" ? "ComBat plate effect on ΔCt" : "Plate mean Ct", a.calibration.mode === "combat" ? "Mean shift applied (cycles)" : "Shift applied (cycles)"],
         a.calibration.offsets.map(o => h("tr", null, h("td", null, o.plate), h("td", null, o.target), h("td", { class: "num" }, fmt(o.factor)), h("td", { class: "num" }, fmt(-o.shift, 3))))))));
+  if (a.calibration?.combat) out.push(card(h("h2", null, "ComBat: plates before and after"), // [combat]
+    figure(ax, combatChart({ ...a.calibration.combat, meanOnly: a.calibration.meanOnly }), `${base}-combat`, "If the correction worked, every plate's box sits around zero with a similar width after ComBat. Group differences are kept, so boxes need not be identical.")));
   return out;
 }
 
@@ -347,10 +386,15 @@ export function studyView(ax) {
     missing.length > 0 && h("p", { class: "warn" }, `${missing.length} run(s) in this study are no longer saved in this browser and were left out.`),
     h("label", { class: "field" }, h("span", null, "How to line the plates up"),
       h("select", { "aria-label": "Plate correction", onchange: e => save({ mode: e.target.value }) },
-        [["calibrator", "Calibrator sample on every plate (recommended)"], ["centre", "Centre each plate (no calibrator)"], ["none", "No correction"]].map(([v, l]) => h("option", { value: v, selected: sd.mode === v }, l))),
+        [["calibrator", "Calibrator sample on every plate (recommended)"], ["centre", "Centre each plate (no calibrator)"], ["combat", "ComBat (large panels only)"], ["none", "No correction"]].map(([v, l]) => h("option", { value: v, selected: sd.mode === v }, l))),
       h("small", null, sd.mode === "calibrator" ? "The same sample (for example a pooled cDNA) run on every plate. Each plate is shifted so the calibrator agrees, gene by gene, as in qBase."
         : sd.mode === "centre" ? "Only fair when every plate holds a similar mix of groups. If one plate is mostly one group, this hides real differences."
+          : sd.mode === "combat" ? "Estimates each plate's shift (and spread) per target on ΔCt, borrowing strength across all targets, and keeps group differences in the model (Johnson et al. 2007)."
           : "Only if every plate was run and analysed under the same conditions.")),
+    sd.mode === "combat" && h("div", { class: "field" }, // [combat]
+      h("p", { class: "warn" }, "ComBat needs at least 2 samples on every plate (4 or more to rescale a plate), groups spread over the plates, and many targets: it learns how big plate effects are from all targets together, so with fewer than about 20 targets use a calibrator sample instead. It refuses to run when groups and plates are confounded, because it would remove the real group difference."),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: sd.combatMeanOnly === true, onchange: e => save({ combatMeanOnly: e.target.checked }) }),
+        "Mean-only: shift each plate, don't rescale it", h("small", { class: "muted" }, " (better with few samples per plate)"))),
     sd.mode === "calibrator" && h("div", { class: "field" }, h("span", null, "Calibrator sample(s)"),
       shared.length ? h("div", { class: "row wrap" }, shared.map(u => h("label", { class: "check" },
         h("input", { type: "checkbox", checked: sd.calibrators.includes(u.unit), onchange: () => save({ calibrators: sd.calibrators.includes(u.unit) ? sd.calibrators.filter(x => x !== u.unit) : [...sd.calibrators, u.unit] }) }),

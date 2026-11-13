@@ -700,8 +700,9 @@ function setNA(role, target, reason) {
   else if (reason.trim()) change("control.na", `${C.ROLE_LABEL[role]} / ${target} marked not applicable: ${reason.trim()}`, () => (st.exp.controlNA[key] = { reason: reason.trim(), by: actor(), at: new Date().toISOString() }));
   else { flash("Enter a reason before marking a control not applicable.", true); renderMain(); }
 }
-const RULE_GROUPS = [["Replicates", ["sdThreshold"]], ["Controls", ["expectNtc", "expectPositive", "expectNrt", "ntcCtThreshold"]],
-  ["Curves", ["ctTolerance", "meltChecks", "meltTmTolerance", "meltSecondaryRatio"]], ["Standard curve", ["effMin", "effMax", "r2Min", "minStdLevels"]]];
+// Thresholds workstream: sdCtDependent, sdPoissonK, lateCtThreshold, nrtMargin and minStdRange added.
+const RULE_GROUPS = [["Replicates", ["sdThreshold", "sdCtDependent", "sdPoissonK", "lateCtThreshold"]], ["Controls", ["expectNtc", "expectPositive", "expectNrt", "ntcCtThreshold", "nrtMargin"]],
+  ["Curves", ["ctTolerance", "meltChecks", "meltTmTolerance", "meltSecondaryRatio"]], ["Standard curve", ["effMin", "effMax", "r2Min", "minStdLevels", "minStdRange"]]];
 const onoff = v => (v === true ? "on" : v === false ? "off" : String(v));
 VIEWS.context = () => {
   const e = st.exp, rs = e.ruleset, fileInst = Object.entries(st.res?.parsed?.metadata || {}).find(([k]) => /instrument/i.test(k));
@@ -902,7 +903,7 @@ VIEWS.findings = () => {
         h("tbody", null, res.replicateGroups.map(g => h("tr", { class: "click" + (g.over ? " flag" : ""), tabindex: 0, onclick: () => { st.selFinding = null; st.sel = new Set(g.wells.map(C.wellKey).filter(Boolean)); renderMain(); } },
           h("td", null, g.unit), h("td", null, g.group ?? ""), h("td", null, g.target), h("td", null, g.wells.join(", ")), h("td", { class: "mono" }, g.raw_ct.map(x => x ?? "(empty)").join(", ")),
           h("td", { class: "num" }, g.n_numeric === g.n ? g.n : `${g.n_numeric} of ${g.n}`), h("td", { class: "num" }, fmt(g.mean)), h("td", { class: "num" }, fmt(g.sd, 3)),
-          h("td", null, g.sd === null ? "Not assessed" : g.over ? `Above ${st.exp.ruleset.values.sdThreshold}` : "")))))),
+          h("td", null, g.sd === null ? "Not assessed" : g.over ? `Above ${+(g.threshold ?? st.exp.ruleset.values.sdThreshold).toFixed(2)}` : "") /* thresholds workstream: per-group limit */))))),
       h("h3", null, "Biological units per group"),
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
         h("thead", null, h("tr", null, ["Group", "Target", "Biological units", "Units", "Wells"].map(x => h("th", null, x)))),

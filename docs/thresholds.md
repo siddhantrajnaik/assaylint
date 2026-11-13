@@ -10,11 +10,13 @@ I read each paper cited here and checked that it says what I say it says. Where 
 |---|---|---|---|
 | Technical replicate SD | 0.3 cycles | Replicates > 0.5 cycles apart are commonly discarded (rule attributed to Nolan et al. 2006); that range is what 15% pipetting error gives at high copy number. Up to 2 cycles is acceptable for Ct up to 35 [3, 4] | Rule of thumb, consistent with the literature for Ct below about 32 |
 | NTC rated high below Ct | 35 | 10 copies ≈ Ct 35 at 90% efficiency (LLOQ), 3 copies ≈ Ct 37 (LOD) [2, 3]. NTC signal near Ct 40 can be ignored when the lowest unknown is below Ct 35 [1] | Supported |
-| No-RT margin | not a setting (shown in the evidence) | A sample counts as positive only if its Cq is at least 5 cycles before an amplifying negative control [2] | Proposed below |
-| Late Ct / low expression | not a setting | Cq > 40 is suspect [1]; below 10 copies (Ct ≈ 35) results are not quantitative, below 3 copies not even qualitative [2, 3] | Proposed below |
+| Ct-dependent SD threshold | off; when on, 1.5 × the Poisson SD | Below about 100 copies Poisson sampling dominates the spread [2, 3]; a Poisson-based range replaces the 0.5-cycle rule for low input [4] | Model from the literature; the factor 1.5 is my rule of thumb |
+| Late Ct note | mean Ct above 35 | Cq > 40 is suspect [1]; below 10 copies (Ct ≈ 35) results are not quantitative, below 3 copies not even qualitative [2, 3] | Supported |
+| No-RT margin | 5 cycles | A sample counts as positive only if its Cq is at least 5 cycles before an amplifying negative control [2] | Supported |
 | Efficiency range | 90–110% | Slope −3.6 to −3.1 [7]; a good assay reaches ≥ 90% [6] | Supported (published acceptance criterion) |
 | Standard curve R² | ≥ 0.98 | R² ≥ 0.98 for each curve [7]; MIQE asks for R² to be reported, no number [1] | Supported (published acceptance criterion) |
-| Minimum dilution levels | 3 | ≥ 3 orders of magnitude, ideally 5–6 [1]; 4–5 orders with ≥ 3 replicates per point [2]; 3–4 replicates per point [6] | Minimum to fit a line; see proposal |
+| Minimum dilution levels | 3 | ≥ 3 orders of magnitude, ideally 5–6 [1]; 4–5 orders with ≥ 3 replicates per point [2]; 3–4 replicates per point [6] | Minimum to fit a line |
+| Standard curve range | note below 3 log10 units | ≥ 3 orders of magnitude [1]; 4–5 orders [2] | Supported (MIQE 2009 minimum) |
 | Melt Tm tolerance | ±1 °C | Products less than 2 °C apart can be told apart by melt curve [9] | Reasoned from [9] |
 | Secondary melt peak | ≥ 0.3 × main peak | No published ratio. One product can give two peaks [2] | My heuristic |
 | Curve vs reported Ct | 2 cycles | No published value. Cq depends on baseline and threshold [3, 8] | My heuristic |
@@ -53,11 +55,19 @@ Numbers in brackets refer to the reference list at the end.
 - miRNA, especially circulating miRNA: de Ronde et al. [4] use duplicate wells and a Poisson-based acceptable range instead of 0.5 cycles. Use 0.5 or higher here.
 - High-throughput panels (for example 384-well or microfluidic): replicates are often single wells. Spread cannot be assessed per sample; check it on a few replicated samples or reference RNA instead.
 
-**Proposal (not built).** A Ct-dependent threshold: flag when SD exceeds the larger of the set threshold and about 1.5 × the Poisson SD expected at that mean Ct. This would keep 0.3 for mid-range Ct and stop late-Ct groups being flagged for sampling noise.
+## Ct-dependent SD threshold (off by default; factor 1.5)
 
-## Late Ct / low-expression cut-off (no setting yet)
+**What PlateCheck does.** With "Let the SD threshold rise for late Ct" switched on, each replicate group gets its own limit: the larger of the fixed SD threshold and k × the Poisson SD expected at the group's mean Ct (the curve in the table above, k = 1.5 by default). Past about Ct 36.7 (under 3 copies) the limit stays at its 3-copy value, since Ct is no longer quantitative there. It is off by default, so results do not change until you switch it on. The replicate table and the SD-against-Ct graph show the limit used for each group.
 
-**What PlateCheck does now.** Nothing special: a late Ct in a sample is used like any other. Only NTCs have a Ct cut-off.
+With k = 1.5 the limit stays at 0.3 up to about Ct 32.6, then rises: 0.48 at Ct 34, 0.68 at Ct 35, 0.97 at Ct 36 and 1.25 from about Ct 36.7 on.
+
+**Literature.** The model is the Poisson sampling argument above [2, 3]; de Ronde et al. [4] use a Poisson-based acceptable range in place of the 0.5-cycle rule for low-input samples. The factor k is mine: 1.5 leaves room for pipetting on top of sampling noise. For comparison, the 2-cycle range Ruiz-Villalba et al. accept up to Ct 35 [3] is an SD of about 1.0–1.15 for triplicates, so 1.5 × Poisson is the stricter of the two.
+
+**Exceptional data.** Turn it on for miRNA, single-cell and other low-copy work. Leave it off if your targets come up before about Ct 32, where it changes nothing. Raise k to 2–3 if groups sitting just above the curve are still flagged.
+
+## Late Ct note (default: mean Ct above 35)
+
+**What PlateCheck does.** Sample replicate groups whose mean Ct is above this setting get a low-severity note, one per target listing the groups: read them as detected or not detected, or add replicates. Nothing is removed, and the Ct is still used everywhere else. Set 0 to switch the note off.
 
 **Literature.**
 - MIQE (2009): Cq values above 40 are suspect because of the implied low efficiency, but arbitrary cut-offs can be too low (losing valid results) or too high (adding false positives) [1].
@@ -65,7 +75,7 @@ Numbers in brackets refer to the reference list at the end.
 - Ruiz-Villalba et al.: "for inputs below 10 copies the PCR cannot be used for quantitative analysis", and below three copies "even the qualitative (yes/no) conclusion becomes unreliable" [3]. They define the LOQ in practice as the point where technical variation exceeds biological variation, which is what the Review-tab graph compares.
 - Forootan et al. describe how to measure LOD and LOQ with replicate dilution series; under sampling noise alone the 95% LOD is 3 molecules [5].
 
-**Proposal.** Add a "late Ct" setting, default 35, that adds a low-severity note (not a warning) to sample groups whose mean Ct is above it: "below the usual limit of quantification; read as detected/not detected, or add replicates". Users who have measured their own LOQ (as in [5]) would enter that Ct instead. For assays with low efficiency the number should rise (MIQE 2.0: 42 at 70%).
+**Reasoning.** 35 is where a good assay reaches its LLOQ (about 10 copies) [2, 3]. Users who have measured their own LOQ (as in [5]) should enter that Ct instead. For assays with low efficiency the number should rise (MIQE 2.0: 42 at 70%).
 
 **Exceptional data.** For miRNA and single-cell work, many real results lie past Ct 35; set the cut-off from your own dilution series, not from 35.
 
@@ -81,15 +91,15 @@ Numbers in brackets refer to the reference list at the end.
 
 **Proposal (not built).** Rate the NTC by its distance from the latest sample Ct for the same target (high if under 5 cycles), in addition to the fixed Ct.
 
-## No-RT controls (no numeric setting; "Expect a no-RT control" is off by default)
+## No-RT controls and the no-RT margin (default 5 cycles; "Expect a no-RT control" is off by default)
 
-**What PlateCheck does.** Amplification in a no-RT well is flagged (medium) and the evidence gives how many cycles after the earliest sample well it came up.
+**What PlateCheck does.** Amplification in a no-RT well is flagged (medium) as before, and the evidence gives how many cycles after the earliest sample well it came up. On top of that, when the no-RT comes up fewer than 5 cycles after the mean Ct of the samples it controls, a second medium flag says so, with the share of the sample signal genomic DNA could explain. PlateCheck matches a no-RT well to its sample by name ("c1 -RT", "c1 RT-", "c1_noRT", "NRT c1" all go to "c1", as does a biological unit set in the plate map); if no name matches, it uses all sample wells of that target. Set the margin to 0 to switch the second flag off.
 
 **Literature.** MIQE (2009) and the MIQE 2.0 checklist: a no-RT control is essential when RNA is first extracted; once the sample is shown to be DNA-free it is desirable but no longer essential [1, 2]. The MIQE 2.0 text says RT-qPCR assays should include one, and describes correcting for genomic DNA signal with a gDNA assay [2]. The 5-cycle rule for negative controls [2] applies here too: 5 cycles is 2⁵ = 32-fold, so genomic DNA contributes about 3% of the signal; 3.3 cycles would be 10%.
 
-**Proposal.** Add a "no-RT margin" setting, default 5 cycles: high severity when a no-RT comes up less than 5 cycles after the sample it controls, medium otherwise. The number is already in the evidence text.
+**Why medium, not high.** I first proposed rating a no-RT high when it is within 5 cycles. I kept it at medium, the same as the existing no-RT flag, because how much a few percent of genomic DNA matters depends on the fold change being measured, and PlateCheck cannot know that.
 
-**Exceptional data.** Turn "Expect a no-RT control" on for new RNA preps, single-exon or intronless genes, and primers that do not span an exon junction. I have no source on no-RT practice specific to miRNA assays; follow your kit's instructions there.
+**Exceptional data.** Tighten the margin (7–10 cycles) for small fold changes. Turn "Expect a no-RT control" on for new RNA preps, single-exon or intronless genes, and primers that do not span an exon junction. I have no source on no-RT practice specific to miRNA assays; follow your kit's instructions there.
 
 ## PCR efficiency (default 90–110%)
 
@@ -116,7 +126,15 @@ Numbers in brackets refer to the reference list at the end.
 
 **Reasoning.** 3 is the smallest number that can show curvature at all; it is a floor for fitting, not a recommendation.
 
-**Proposal.** Keep 3 as the minimum for fitting, and add a separate low-severity note when the range covered is under 3 log10 units (MIQE 2009). I did not raise this default to 4 or 5, because it would stop PlateCheck from reporting efficiency for curves people do run, and the dilution factor (2-, 4-, 5- or 10-fold) changes how many levels a given range needs.
+I did not raise this default to 4 or 5, because it would stop PlateCheck from reporting efficiency for curves people do run, and the dilution factor (2-, 4-, 5- or 10-fold) changes how many levels a given range needs. The range is checked separately, below.
+
+## Standard curve range (default: note below 3 log10 units)
+
+**What PlateCheck does.** For each fitted curve it takes log10 of the highest quantity minus log10 of the lowest, counting only standards with both a quantity and a Ct. Under the setting, the curve is still fitted and reported, with a low-severity note that efficiency and R² are less certain. Set 0 to switch it off.
+
+**Literature.** MIQE (2009): at least 3 orders of magnitude, ideally 5–6 [1]. MIQE 2.0: 4–5 orders [2].
+
+**Exceptional data.** Raise it to 4 or 5 to follow MIQE 2.0. Lower it or switch it off when a low-abundance target leaves only a few levels above the LOD.
 
 ## Melt Tm tolerance (default ±1 °C from the target's median)
 
@@ -130,6 +148,8 @@ Numbers in brackets refer to the reference list at the end.
 
 **Literature.** I found no paper that sets a height ratio. MIQE 2.0 notes that amplicons with unbalanced GC content can melt in blocks and show several peaks from one product, and that dyes differ in how well they show low-Tm products [2].
 
+**What I searched (November 2026).** PubMed and web searches for a published height or area ratio between a secondary and the main melt peak (terms: melt curve, secondary peak, primer-dimer, peak height ratio, automated classification). I found none in a peer-reviewed methods paper. The qpcR R package (Ritz and Spiess) drops melt peaks below an area cut-off, but that cut-off is an absolute area with a default of 0, not a fraction of the main peak; I checked this in its source code. The ratios I did find were in vendor blogs and patents, which I do not cite. So 0.3 stays a rule of thumb.
+
 **Reasoning.** This is my heuristic: a second peak at 30% of the main one is large enough to contribute to the Ct, while small primer-dimer bumps are below it. Peaks less than 2 °C from the main peak are ignored.
 
 **Exceptional data.** Lower it (0.1–0.2) to catch primer-dimer in late-Ct targets such as miRNA. Raise it for amplicons predicted (for example with uMELT, which MIQE 2.0 mentions) to melt in two domains.
@@ -138,11 +158,23 @@ Numbers in brackets refer to the reference list at the end.
 
 **What PlateCheck does.** It redraws one common threshold on the baseline-subtracted curves, computes the offset between each well's reported Ct and that crossing, and flags wells whose offset differs from the plate median by more than this. Its rise test uses 10 × the baseline SD, the usual instrument default described by Ruiz-Villalba et al. [3].
 
-**Literature.** Baseline estimation errors change the apparent efficiency and so the Cq (Ruijter et al. 2009 [8]); Cq values shift with the threshold setting [3]. There is no published tolerance for this comparison.
+**Literature.** Baseline estimation errors change the apparent efficiency and so the Cq (Ruijter et al. 2009 [8]); Cq values shift with the threshold setting [3]. There is no published tolerance for this comparison. I searched PubMed and the web for a tolerance between a reported Cq and one recalculated from the curves (terms: reported versus recalculated Cq, Cq tolerance, baseline, threshold, outlier well) and found none. Ruiz-Villalba et al. [3] show that Cq variability depends on where the threshold sits in the exponential phase, more so at low input, but give no number in cycles. So 2 cycles stays a rule of thumb.
 
 **Reasoning.** My heuristic, wide enough to ignore normal differences in curve shape and plateau height.
 
 **Exceptional data.** If your instrument uses one threshold and baseline for the whole plate, 1 cycle is enough. For multiplexed or probe assays with low plateaus, keep 2 or more.
+
+## RNA-type notes (no setting)
+
+**What PlateCheck does.** It takes each target's RNA type from the Genes step, or guesses it from the name when you haven't set one (the finding says which), and adds three low-severity notes. Each target is reported by at most one of the two miRNA notes.
+
+- **Target and reference of different RNA types.** With the Analysis step on, a miRNA target normalised to an mRNA reference gene, or an mRNA target normalised to a miRNA or snoRNA/snRNA reference.
+- **miRNA targets without a small-RNA reference.** miRNA targets on the plate, no snoRNA or snRNA target, and no miRNA or small RNA chosen as reference in Analysis. Choosing a stable miRNA or a spike-in such as cel-miR-39 as reference clears it.
+- **lncRNA without a no-RT control.** An lncRNA target with no no-RT well. Not reported when "Expect a no-RT control" is on, because the missing-control check already covers every target, or when the no-RT control is marked not applicable for that target.
+
+**Literature.** Schwarzenbach et al. review miRNA normalisation; they note that reference genes of the same RNA class are preferred, and that RNU6, the most used small-RNA reference, was unstable in several of the studies they review [11]. A miRNA and an mRNA are also usually reverse transcribed differently (stem-loop or poly(A) RT against oligo-dT or random primers). In GENCODE the most common lncRNA transcript has two exons, against four for protein-coding transcripts [12], so lncRNA primers often cannot span an exon junction; MIQE asks for a no-RT control at least for new RNA preps [1, 2].
+
+**Exceptional data.** If your miRNA reference is on another plate, choose it in Analysis when you combine plates. If the type guessed from a name is wrong, correct it in the Genes step.
 
 ## Expected controls
 
@@ -156,14 +188,16 @@ Numbers in brackets refer to the reference list at the end.
 On the Review tab, under the replicate tables:
 
 1. **Histogram of technical SD** for every replicate group with at least two numeric Ct values (samples, standards and positive controls), with the SD threshold as a dashed line.
-2. **Technical SD against mean Ct**, with the threshold and the Poisson curve from the table above. Groups above the threshold but close to the curve are probably low-copy rather than badly pipetted.
+2. **Technical SD against mean Ct**, with the threshold and the Poisson curve from the table above. Groups above the threshold but close to the curve are probably low-copy rather than badly pipetted. With the Ct-dependent SD threshold on, a red line shows the limit actually used.
 3. **Technical vs biological SD per target.** Technical SD is each sample's replicate SD. Biological SD is the SD of the biological units' mean Ct within each experimental group (technical wells averaged first, so each unit counts once). Short bars show pooled values (weighted by degrees of freedom). When the pooled technical SD reaches the biological SD, the assay is at the limit of quantification as Ruiz-Villalba et al. define it [3]: more technical replicates or more template help more than more samples.
 
 Biological SD here still contains a little technical noise (each unit mean comes from a few wells), so it slightly overstates true biological variation.
 
 ## Defaults I changed
 
-None. Each current default is either a published acceptance criterion (efficiency, R²), follows directly from MIQE (NTC at Ct 35, expected controls), or is a restatement of a common rule (SD 0.3 ≈ 0.5-cycle range). The proposals above (late-Ct note, no-RT margin, Ct-dependent SD, dynamic-range note) need new checks in the engine rather than new numbers, so I left them for a decision.
+None. Each existing default is either a published acceptance criterion (efficiency, R²), follows directly from MIQE (NTC at Ct 35, expected controls), or is a restatement of a common rule (SD 0.3 ≈ 0.5-cycle range).
+
+Four checks were added as new settings rather than changes to old ones: the late-Ct note (35), the no-RT margin (5 cycles), the Ct-dependent SD threshold (off, k = 1.5) and the standard-curve range note (3 log10 units). With the defaults, earlier results are unchanged except for these new notes and flags; the Ct-dependent SD changes nothing until it is switched on.
 
 ## References
 
@@ -177,6 +211,8 @@ None. Each current default is either a published acceptance criterion (efficienc
 8. Ruijter JM, Ramakers C, Hoogaars WMH, et al. Amplification efficiency: linking baseline and bias in the analysis of quantitative PCR data. Nucleic Acids Res. 2009;37(6):e45. doi:10.1093/nar/gkp045
 9. Ririe KM, Rasmussen RP, Wittwer CT. Product differentiation by analysis of DNA melting curves during the polymerase chain reaction. Anal Biochem. 1997;245(2):154–160. doi:10.1006/abio.1996.9916
 10. Pfaffl MW. A new mathematical model for relative quantification in real-time RT-PCR. Nucleic Acids Res. 2001;29(9):e45. doi:10.1093/nar/29.9.e45
+11. Schwarzenbach H, da Silva AM, Calin G, Pantel K. Data normalization strategies for microRNA quantification. Clin Chem. 2015;61(11):1333–1342. doi:10.1373/clinchem.2015.239459
+12. Harrow J, Frankish A, Gonzalez JM, et al. GENCODE: the reference human genome annotation for The ENCODE Project. Genome Res. 2012;22(9):1760–1774. doi:10.1101/gr.135350.111
 
 Also mentioned: Nolan T, Hands RE, Bustin SA. Quantification of mRNA using real-time RT-PCR. Nat Protoc. 2006;1(3):1559–1582. doi:10.1038/nprot.2006.236 (cited through [3] and [4]; I could not read the full text). Ståhlberg A, Kubista M. Technical aspects and recommendations for single-cell qPCR. Mol Aspects Med. 2018;59:28–35. doi:10.1016/j.mam.2017.07.004 (abstract only).
 

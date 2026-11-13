@@ -1,6 +1,6 @@
 // Threshold evidence in the app: the "Why this number" notes beside each setting, and the graphs of
 // technical and biological spread on the Review tab. Data functions are pure so they can be tested in Node.
-import { groupBy, median, REFERENCES } from "./core.js";
+import { groupBy, median, REFERENCES, poissonSd, sdLimit } from "./core.js";
 import { plot } from "./charts.js";
 
 // ---------------------------------------------------------------- numbers behind the graphs
@@ -20,7 +20,7 @@ const pooledSd = list => {
 // Technical wells are averaged first, so each unit counts once.
 export function variabilityData(res) {
   const all = res?.replicateGroups || [];
-  const groups = all.filter(g => Number.isFinite(g.sd)).map(g => ({ unit: g.unit, target: g.target, group: g.group ?? null, role: g.role, n: g.n_numeric, mean: g.mean, sd: g.sd }));
+  const groups = all.filter(g => Number.isFinite(g.sd)).map(g => ({ unit: g.unit, target: g.target, group: g.group ?? null, role: g.role, n: g.n_numeric, mean: g.mean, sd: g.sd, over: !!g.over }));
   const samples = all.filter(g => g.role === "sample");
   const perTarget = [...groupBy(samples, g => g.target)].map(([target, tg]) => {
     const tech = tg.filter(g => Number.isFinite(g.sd)).map(g => ({ unit: g.unit, n: g.n_numeric, sd: g.sd }));
@@ -33,13 +33,9 @@ export function variabilityData(res) {
   return { groups, sds: groups.map(g => g.sd), perTarget };
 }
 
-// SD of Ct expected from Poisson sampling alone, for the copy number implied by a Ct. Uses the rule of thumb
-// that about 10 copies give Ct 35 (MIQE 2.0; Ruiz-Villalba et al. 2021). SD(log_E N) ≈ 1 / (√N · ln E).
-// Pipetting and instrument noise come on top of this. Returns null below 3 copies, where Ct is not quantitative.
-export function poissonSd(ct, { copiesAt35 = 10, efficiency = 2 } = {}) {
-  const n = copiesAt35 * efficiency ** (35 - ct);
-  return Number.isFinite(n) && n >= 3 ? 1 / (Math.sqrt(n) * Math.log(efficiency)) : null;
-}
+// poissonSd() (SD of Ct expected from Poisson sampling alone) lives in core.js, because the Ct-dependent
+// SD threshold uses it too. Re-exported here for the graphs and the tests.
+export { poissonSd };
 
 export function histogram(values, { width } = {}) {
   if (!values.length) return { width: 0, bins: [] };
@@ -75,10 +71,14 @@ export function variabilityCard(res, threshold, defer) {
   const d = variabilityData(res);
   if (!d.groups.length) return null;
   const chart = (label, data) => { const cv = h("canvas", { class: "chart", role: "img", "aria-label": label }); defer(() => plot(cv, data)); return cv; };
-  const over = d.sds.filter(s => s > threshold).length, hist = histogram(d.sds);
+  // With the Ct-dependent option on, each group has its own limit (sdLimit in core.js), so the engine's verdict is used.
+  const rules = res.ruleset?.values, ctDep = !!rules?.sdCtDependent;
+  const over = d.groups.filter(g => g.over).length, hist = histogram(d.sds);
   const curve = [];
   const cts = d.groups.map(g => g.mean), lo = Math.min(...cts), hi = Math.max(...cts);
   for (let c = Math.floor(lo); c <= Math.ceil(hi) + 1e-9; c += 0.25) { const s = poissonSd(c); if (s != null) curve.push([c, s]); }
+  const limit = [];
+  if (ctDep) for (let c = Math.floor(lo); c <= Math.ceil(hi) + 1e-9; c += 0.25) limit.push([c, sdLimit(rules, c)]);
   const targets = d.perTarget.filter(t => t.tech.length || t.bio.some(b => b.sd != null));
   const pts = [], seg = [];
   targets.forEach((t, i) => {
@@ -92,9 +92,10 @@ export function variabilityCard(res, threshold, defer) {
     h("h2", null, "Spread of technical and biological replicates"),
     h("p", { class: "lede" }, "Use these before changing the SD threshold: they show whether this plate is unusual or the threshold is simply too tight for how late your targets come up."),
     h("figure", null, chart("Histogram of technical replicate SD", { bars: hist.bins.map(b => ({ x0: b.x0, x1: b.x1, y: b.count })), vline: threshold, xLabel: "Technical SD of Ct (cycles)", yLabel: "Replicate groups" }),
-      h("figcaption", null, `Technical SD of all ${d.sds.length} replicate groups with two or more Ct values; median ${fmt(median(d.sds), 3)} cycles. ${over} ${over === 1 ? "is" : "are"} above the threshold of ${threshold} (dashed line).`)),
-    h("figure", null, chart("Technical SD against mean Ct", { points: d.groups.map(g => ({ x: g.mean, y: g.sd, color: g.sd > threshold ? "#B42318" : TECH })), series: curve.length > 1 ? [{ pts: curve, color: "#5B6762", width: 1.25 }] : [], hline: threshold, xLabel: "Mean Ct of the group", yLabel: "Technical SD (cycles)" }),
-      h("figcaption", null, "Each dot is one replicate group. The grey curve is the SD expected from Poisson sampling alone, taking about 10 copies at Ct 35 and 100% efficiency; pipetting adds to it. Groups above the dashed threshold but near the curve are probably low-copy, not badly pipetted.")),
+      h("figcaption", null, `Technical SD of all ${d.sds.length} replicate groups with two or more Ct values; median ${fmt(median(d.sds), 3)} cycles. ${over} ${over === 1 ? "is" : "are"} ${ctDep ? `flagged. The dashed line is the fixed threshold of ${threshold}; on this run the limit rises for late Ct.` : `above the threshold of ${threshold} (dashed line).`}`)),
+    h("figure", null, chart("Technical SD against mean Ct", { points: d.groups.map(g => ({ x: g.mean, y: g.sd, color: g.over ? "#B42318" : TECH })), series: [...(curve.length > 1 ? [{ pts: curve, color: "#5B6762", width: 1.25 }] : []), ...(limit.length > 1 ? [{ pts: limit, color: "#B42318", width: 1.25 }] : [])], hline: threshold, xLabel: "Mean Ct of the group", yLabel: "Technical SD (cycles)" }),
+      h("figcaption", null, "Each dot is one replicate group. The grey curve is the SD expected from Poisson sampling alone, taking about 10 copies at Ct 35 and 100% efficiency; pipetting adds to it. Groups above the dashed threshold but near the curve are probably low-copy, not badly pipetted.",
+        ctDep ? ` The red line is the limit used on this run: the larger of ${threshold} and ${rules.sdPoissonK} × the grey curve.` : " If that describes most of your flagged groups, the Ct-dependent SD option under Context & rules lets the threshold follow the curve.")),
     targets.length > 0 && h("figure", null, chart("Technical and biological SD per target", { points: pts, series: seg, hline: threshold, xTicks: targets.map((t, i) => ({ x: i, label: t.target })), yLabel: "SD of Ct (cycles)" }),
       h("figcaption", null, h("span", { style: `color:${TECH};font-weight:600` }, "Teal"), ": technical SD of each sample's replicates. ",
         h("span", { style: `color:${BIO};font-weight:600` }, "Orange"), ": biological SD, the SD of the biological units' mean Ct within each group. Short bars are pooled values; dashed line is the SD threshold.")),
