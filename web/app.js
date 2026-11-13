@@ -95,8 +95,10 @@ function renderSidebar() {
     h("button", { class: "brand", type: "button", onclick: goHome, title: "Home" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "PlateCheck")),
     h("button", { class: "btn primary", type: "button", onclick: goHome }, "Check a new run"),
     h("h2", { class: "side-h" }, "Your runs"),
-    h("nav", { class: "explist", "aria-label": "Your runs" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
-      h("span", { class: "exp-title" }, x.title), h("span", { class: "exp-meta" }, h("span", { class: "status " + x.status }, x.label), h("span", null, x.date))))
+    h("nav", { class: "explist", "aria-label": "Your runs" }, list.length ? list.map(x => h("div", { class: "exprow" + (st.exp?.id === x.id ? " on" : "") },
+      h("button", { type: "button", class: "expitem", "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
+        h("span", { class: "exp-title" }, x.title), h("span", { class: "exp-meta" }, h("span", { class: "status " + x.status }, x.label), h("span", null, x.date))),
+      h("button", { type: "button", class: "exp-del", title: `Delete ${x.title}`, "aria-label": `Delete ${x.title}`, onclick: () => deleteRun(x.id, x.title) }, "×")))
       : h("p", { class: "muted" }, "Runs you check will show up here.")),
     h("div", { class: "side-foot" },
       h("label", { class: "field" }, h("span", null, "Your name for the history"),
@@ -271,12 +273,20 @@ async function loadDemo() {
   Object.assign(st, { exp: e, tab: "findings", sel: new Set(), selFinding: null, pending: {} });
   reanalyze(); persist(); render(); scrollTo(0, 0);
 }
-function deleteExp() {
-  const e = st.exp;
-  if (!confirm(`Delete “${e.title}” (${e.id}) from this browser?\n\nThis removes its imported files, plate map, context, review notes and audit history. It cannot be undone. Export the packet first if you want a copy.`)) return;
-  S.remove(e.id);
-  st.exp = null; st.res = null; render();
+// Deletes a saved run after a warning. Used by the × in the run list and by Setup.
+function deleteRun(id, title) {
+  if (!confirm(`Delete “${title}”?
+
+This permanently removes the run from this browser: its imported files, plate labels, method details, your review decisions and notes, and its history. It can't be undone.
+
+If you might need it later, cancel and download the run first (Report, then Other formats, then Whole run).`)) return;
+  try { S.remove(id); } catch { flash("Couldn't delete the run: this browser's storage isn't available.", true); return render(); }
+  if (st.exp?.id === id) { st.exp = null; st.res = null; st.pending = {}; st.sel = new Set(); st.selFinding = null; }
+  if (st.quick?.id === id) st.quick = null;
+  flash(`Deleted “${title}”.`);
+  render();
 }
+function deleteExp() { deleteRun(st.exp.id, st.exp.title); }
 async function importPacket(file) {
   if (!file) return;
   try {
