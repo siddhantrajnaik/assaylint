@@ -689,6 +689,16 @@ function cleanValues(v) {
   }
   return out;
 }
+// Analysis module settings (see web/analysis.js and docs/analysis.md). null means the analysis was never switched on.
+export function cleanAnalysisSettings(a) {
+  if (!isObj(a)) return null;
+  const names = v => (Array.isArray(v) ? [...new Set(v.filter(x => typeof x === "string" && x.trim()).map(x => x.slice(0, 200)))].slice(0, 100) : []);
+  const shift = a.refMaxShift;
+  return { on: a.on === true, refs: names(a.refs), control: asStr(a.control).slice(0, 200), efficiency: a.efficiency === true,
+    error: a.error === "sem" ? "sem" : "sd", correction: a.correction === "bonferroni" ? "bonferroni" : "bh", skipOmitted: a.skipOmitted !== false,
+    excluded: names(a.excluded), scale: a.scale === "linear" ? "linear" : "log2",
+    refMaxShift: typeof shift === "number" && Number.isFinite(shift) && shift > 0 && shift <= 10 ? shift : 0.5 };
+}
 export function normalizeExperiment(exp) {
   if (!isObj(exp)) throw new ParseError("This saved run is damaged and can't be opened.");
   const now = new Date().toISOString();
@@ -725,6 +735,7 @@ export function normalizeExperiment(exp) {
   const rs = isObj(exp.ruleset) ? exp.ruleset : {}, pr = isObj(rs.profile) ? rs.profile : {};
   exp.ruleset = { profile: { id: asStr(pr.id) || DEFAULT_PROFILE.id, name: asStr(pr.name) || DEFAULT_PROFILE.name, version: Number.isFinite(pr.version) ? pr.version : 1 },
     values: cleanValues(rs.values), base: cleanValues(rs.base) };
+  exp.analysis = cleanAnalysisSettings(exp.analysis); // analysis module settings
   return exp;
 }
 export function fileRecord({ name, text, sha, actor, ...extra }) {

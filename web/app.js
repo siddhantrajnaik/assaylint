@@ -8,6 +8,7 @@ import { CREDIT } from "./credit.js";
 import { readWorkbook } from "./excel.js";
 import { evidenceNote, variabilityCard } from "./ui-variability.js"; // thresholds workstream
 import { assayView } from "./ui-assays.js"; // assay types (ChIP, MSRE, 3C…): workstream 4
+import { analysisView, studyView } from "./ui-analysis.js"; // analysis module (workstream 2)
 
 const $ = s => document.querySelector(s);
 // File contents are untrusted: the DOM is built with text nodes only (no innerHTML).
@@ -102,12 +103,15 @@ function creditBlock(cls) {
     h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=PlateCheck`, class: "link" }, CREDIT.email), "."),
     CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
 }
-function goHome() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null }); render(); scrollTo(0, 0); }
+function goHome() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null, view: null }); render(); scrollTo(0, 0); }
+// Analysis module: "Combine plates" opens the study view in place of the home page.
+function goStudy() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null, view: "study" }); render(); scrollTo(0, 0); }
 function renderSidebar() {
   const list = S.index();
   put($("#side"),
     h("button", { class: "brand", type: "button", onclick: goHome, title: "Home" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "PlateCheck")),
     h("button", { class: "btn primary", type: "button", onclick: goHome }, "Check a new run"),
+    h("button", { class: "btn", type: "button", onclick: goStudy }, "Combine plates"), // analysis module
     h("h2", { class: "side-h" }, "Your runs"),
     h("nav", { class: "explist", "aria-label": "Your runs" }, list.length ? list.map(x => h("div", { class: "exprow" + (st.exp?.id === x.id ? " on" : "") },
       h("button", { type: "button", class: "expitem", "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
@@ -127,8 +131,8 @@ function renderSidebar() {
 
 // Four everyday steps; the rest lives under "More" unless "Show all steps" is on.
 const TABS = [["setup", "Setup", 1], ["data", "Data", 2], ["map", "Plate map", 3], ["context", "Context & rules", 4],
-  ["findings", "Findings", 5], ["report", "Report & export", 6], ["assay", "Assay calculations", null], ["compare", "Compare runs", null]]; // "assay": workstream 4
-const SIMPLE_TABS = [["data", "Upload"], ["map", "Plate"], ["findings", "Review"], ["report", "Report"]];
+  ["findings", "Findings", 5], ["analysis", "Analysis", 6], ["report", "Report & export", 7], ["assay", "Assay calculations", null], ["compare", "Compare runs", null]]; // "analysis": analysis module; "assay": workstream 4
+const SIMPLE_TABS = [["data", "Upload"], ["map", "Plate"], ["findings", "Review"], ["analysis", "Analysis"], ["report", "Report"]];
 const MORE_TABS = [["context", "Method details and thresholds"], ["assay", "Assay calculations (ChIP, MSRE, 3C…)"], ["compare", "Compare with another run"], ["setup", "Rename or delete this run"]]; // "assay": workstream 4
 const tabLabel = k => (S.getSetting("allSteps") ? TABS : [...SIMPLE_TABS, ...MORE_TABS]).find(t => t[0] === k)[1];
 function goTab(k) { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); }
@@ -165,7 +169,7 @@ function renderMain() {
   const y = scrollY, m = $("#main");
   const flashEl = st.flash && h("p", { class: "flash" + (st.flash.bad ? " bad" : ""), role: "status" }, st.flash.msg);
   st.flash = null;
-  if (!st.exp) { put(m, flashEl, home()); return; }
+  if (!st.exp) { put(m, flashEl, st.view === "study" ? studyView(AX()) : home()); return; } // study view: analysis module
   const e = st.exp, sum = st.res?.summary;
   put(m,
     h("header", { class: "exp-head" },
@@ -907,6 +911,10 @@ VIEWS.findings = () => {
       h("div", { class: "seg", role: "group", "aria-label": "Usefulness" }, ["Yes", "Partly", "No"].map(v => h("button", { type: "button", class: fb === v ? "on" : "", "aria-pressed": String(fb === v),
         onclick: () => change("feedback", `Usefulness: ${v}`, () => (st.exp.feedback = { value: v, by: actor(), at: new Date().toISOString() })) }, v))))];
 };
+
+// ---------------------------------------------------------------- Analysis (workstream 2; the views are in ui-analysis.js)
+const AX = () => ({ h, card, download, change, renderMain, st, flash, S, C, openExp, goTab });
+VIEWS.analysis = () => analysisView(AX());
 
 // ---------------------------------------------------------------- 6 · Report & export (FR-19..FR-21)
 VIEWS.report = () => {
