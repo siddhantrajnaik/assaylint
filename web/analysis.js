@@ -168,6 +168,8 @@ export const TESTS = {
     help: "The rank version of the paired t-test: same Pair labels, no normal distribution assumed. With 5 pairs or fewer it can never give p < 0.05." },
   tukey: { label: "One-way ANOVA + Tukey", short: "Tukey HSD", stat: "q", withinTarget: true,
     help: "Three or more groups, every group against every other. p values are already adjusted for all those pairs." },
+  gameshowell: { label: "One-way ANOVA (Welch) + Games–Howell", short: "Games–Howell", stat: "q", withinTarget: true, welchOmnibus: true,
+    help: "Three or more groups whose spreads differ. Every group against every other without assuming equal variances; p values are already adjusted for all those pairs." },
   dunnett: { label: "One-way ANOVA + Dunnett vs control", short: "Dunnett", stat: "t", withinTarget: true,
     help: "Three or more groups, each against the control only. More power than Tukey when the control is all you compare with." },
   mannwhitney: { label: "Mann–Whitney (non-parametric)", short: "Mann–Whitney U", stat: "U", rank: true,
@@ -215,9 +217,19 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
     for (const pr of r.pairs) {
       // a pair with the control is listed as "group vs control", so its fold change matches the main table
       const flip = byGroup[pr.i].g === control, a = byGroup[flip ? pr.j : pr.i].g, b = byGroup[flip ? pr.i : pr.j].g, diff = flip ? -pr.diff : pr.diff;
-      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: r.df, p: pr.p });
+      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: r.df, p: pr.p, test: "tukey" });
       const other = a === control ? b : b === control ? a : null;
       if (other !== null) set(other, { stat: pr.q, statName: "q", df: r.df, p: pr.p });
+    }
+  }
+  else if (s.test === "gameshowell") {
+    const r = S.gamesHowell(byGroup.map(x => x.v));
+    all(r);
+    for (const pr of r.pairs) {
+      const flip = byGroup[pr.i].g === control, a = byGroup[flip ? pr.j : pr.i].g, b = byGroup[flip ? pr.i : pr.j].g, diff = flip ? -pr.diff : pr.diff;
+      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: pr.df, p: pr.p, test: "gameshowell", note: pr.reason || "" });
+      const other = a === control ? b : b === control ? a : null;
+      if (other !== null) set(other, { stat: pr.q, statName: "q", df: pr.df, p: pr.p, testNote: pr.reason || "" });
     }
   }
   else if (s.test === "dunnett") {
@@ -322,8 +334,8 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     }
     testTarget(s, t, byGroup, control, rowOf, base, pairNotes);
     if (byGroup.length > 2 && !TESTS[s.test].rank) {
-      const a = S.anova(byGroup.map(x => x.v));
-      base.anova.push({ target: t, F: a.F, df1: a.df1, df2: a.df2, p: a.p, groups: byGroup.length, note: a.reason || "" });
+      const welchF = !!TESTS[s.test].welchOmnibus, a = (welchF ? S.welchAnova : S.anova)(byGroup.map(x => x.v));
+      base.anova.push({ target: t, F: a.F, df1: a.df1, df2: a.df2, p: a.p, groups: byGroup.length, note: a.reason || "", welch: welchF });
     }
     if (byGroup.length > 2 && TESTS[s.test].rank) {
       const k = S.kruskal(byGroup.map(x => x.v));
@@ -413,6 +425,7 @@ function testMethod(a) {
     paired: "each group was compared with the control by a paired t-test, two-sided: each unit was matched with the control unit that has the same pair label, and the differences in ΔCt were tested against zero",
     wilcoxon: "each group was compared with the control by the Wilcoxon signed-rank test (Wilcoxon 1945), two-sided: each unit was matched with the control unit that has the same pair label, pairs with a difference of exactly zero were dropped (Wilcoxon's rule, SciPy's default), and p is exact (from all 2^n sign patterns) up to 13 pairs or without ties up to 50, otherwise from the normal approximation with the tie correction",
     tukey: "one-way ANOVA per target, then Tukey's honestly significant difference test for every pair of groups (Tukey 1949; Tukey–Kramer form for unequal n), which adjusts p for all pairs within the target",
+    gameshowell: "Welch's one-way ANOVA per target, which doesn't assume equal variances (Welch 1951), then the Games–Howell test for every pair of groups (Games & Howell 1976): Welch's standard error and df for each pair, with p from the studentized range, adjusted for all pairs within the target",
     dunnett: "one-way ANOVA per target, then Dunnett's test of each group against the control (Dunnett 1955), two-sided, which adjusts p for the comparisons within the target",
     mannwhitney: "each group was compared with the control by the Mann–Whitney U test (Mann & Whitney 1947), two-sided: exact p when there are no ties and a group has 8 or fewer units, otherwise the normal approximation with tie and continuity corrections",
     kruskal: `Kruskal–Wallis test per target with the tie correction (Kruskal & Wallis 1952), then Dunn's test of each group against the control (Dunn 1964), with p adjusted within the target by ${CORR[s.correction]}`,
@@ -427,6 +440,7 @@ function correctionText(a) {
   return nt > 1 ? ` Because ${TESTS[s.test].short} already adjusts within a target, p values were then adjusted only across the ${nt} targets, separately for each comparison, with Benjamini–Hochberg and Bonferroni; graphs show ${CORR[s.correction]}.`
     : ` With one target there is nothing more to adjust, so the graphs show the ${TESTS[s.test].short} p.`;
 }
+export const fmtDf = x => (x === null || x === undefined || !Number.isFinite(x) ? "—" : Number.isInteger(x) ? String(x) : x.toFixed(1));
 const n4 = x => (x === null || x === undefined || !Number.isFinite(x) ? "" : String(+x.toFixed(6)));
 export function resultsCsv(a) {
   const head = ["target", "group", "is_control", "n_biological", "mean_dCt", "sd_dCt", "sem_dCt", "mean_ddCt", "fold_change", "fold_low", "fold_high",
@@ -434,8 +448,9 @@ export function resultsCsv(a) {
   const rows = (a.summary || []).map(r => [r.target, r.group, r.isControl ? "yes" : "no", r.n, n4(r.meanDct), n4(r.sdDct), n4(r.semDct), n4(r.meanDdct), n4(r.fold),
     n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? ""]);
   const units = (a.rows || []).map(r => [r.target, r.group, r.unit, r.plates.join(" | "), n4(r.ct), n4(r.refCt), n4(r.dct), n4(r.ddct), n4(r.fold), r.tech.map(t => n4(t.ct)).join(" ")]);
-  const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", "tukey_q", "df", "p_tukey"],
-    ...a.pairwise.map(x => [x.target, x.a, x.b, n4(x.fold), n4(x.q), x.df, x.p ?? ""])] : [];
+  const gh = a.settings?.test === "gameshowell";
+  const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", gh ? "games_howell_q" : "tukey_q", "df", gh ? "p_games_howell" : "p_tukey"],
+    ...a.pairwise.map(x => [x.target, x.a, x.b, n4(x.fold), n4(x.q), n4(x.df), x.p ?? ""])] : [];
   return toCsv([head, ...rows, ...pw, [], ["target", "group", "biological_unit", "plates", "mean_ct", "reference_level", "dCt", "ddCt", "fold_change", "technical_ct"], ...units]);
 }
 
@@ -451,8 +466,8 @@ export function analysisReportHtml(exp, res, esc) {
 <p>${esc(a.method)}</p>
 <p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Test: ${esc(a.test.short)}${a.test.withinTarget ? " (p already adjusted for the comparisons within each target)" : ""}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
 <table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>± ${a.settings.error === "sem" ? "SEM" : "SD"}</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
-${a.pairwise.length ? `<p class="sub small">Tukey HSD, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.pairwise.length ? `<p class="sub small">${esc(a.test.short)}, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
-${a.anova.length ? `<p class="sub small">One-way ANOVA: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${x.df2}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.anova.length ? `<p class="sub small">${a.anova[0].welch ? "Welch's one-way ANOVA" : "One-way ANOVA"}: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${fmtDf(x.df2)}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.warnings.length ? `<p><b>Notes on the analysis</b></p><ul>${a.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
 }

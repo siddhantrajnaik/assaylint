@@ -445,3 +445,17 @@ test("Wilcoxon signed-rank uses the pair labels like the paired t-test", () => {
   assert.ok(none.warnings.some(w => /Wilcoxon signed-rank test needs a pair label/.test(w)));
   assert.equal(C.cleanAnalysisSettings(setFor("wilcoxon")).test, "wilcoxon");
 });
+
+test("Welch ANOVA + Games–Howell gives the stats.js values and lists every pair", () => {
+  const { exp, res } = threeRun();
+  const c = groupDct("c"), da = groupDct("a"), db = groupDct("b");
+  const a = A.analyzeRun(exp, res, setFor("gameshowell")), ref = S.gamesHowell([c, da, db]);
+  near(a.summary.find(x => x.group === "drugA").p, ref.pairs.find(p => p.i === 0 && p.j === 1).p, 1e-12, "Games–Howell vs control");
+  assert.equal(a.pairwise.length, 3);
+  assert.equal(a.anova[0].welch, true);
+  near(a.anova[0].p, S.welchAnova([c, da, db]).p, 1e-12, "Welch ANOVA");
+  assert.match(a.method, /Games & Howell 1976/); assert.match(a.method, /Welch 1951/);
+  assert.match(A.resultsCsv(a), /games_howell_q/);
+  exp.analysis = C.cleanAnalysisSettings(setFor("gameshowell"));
+  assert.match(R.reportHtml(exp, res), /Games–Howell, every pair of groups/);
+});
