@@ -42,7 +42,7 @@ export async function excelSheets(bytes) {
   const X = await load();
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let wb;
-  try { wb = X.read(b, { type: "array", cellFormula: false, cellHTML: false, cellStyles: false }); } catch { return null; }
+  try { wb = X.read(b, { type: "array", cellNF: true, cellFormula: false, cellHTML: false, cellStyles: false }); } catch { return null; }
   if (!wb?.SheetNames?.length || !wb.Sheets) return null;
   const sheets = wb.SheetNames.map(sheet => ({ sheet, text: sheetText(X, wb.Sheets[sheet]) })).filter(s => s.text.trim());
   return sheets.length ? sheets : null;

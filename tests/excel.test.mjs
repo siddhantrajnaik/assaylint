@@ -94,7 +94,8 @@ test("title rows, commas and quotes in cells, formulas, dates and errors are han
   assert.equal(p.rows[0].ct, "25.5");
   assert.equal(p.rows[2].ct, "26.25", "the saved result of a formula is used");
   assert.match(wb.best.results.text, /#DIV\/0!/, "Excel errors stay visible instead of turning into numbers");
-  assert.doesNotMatch(wb.best.results.text.split("\n")[1], /^Run date\t4\d{4}$/, "dates are not shown as serial numbers");
+  assert.doesNotMatch(wb.best.results.text.split("\n")[1], /^Run date\t4\d{4}/, "dates are not shown as serial numbers, whatever the time zone");
+  assert.match(wb.best.results.text.split("\n")[1], /^Run date\t2\/14\/25$/);
 });
 
 test("files that are zipped but not workbooks, and empty workbooks, are refused", async () => {
