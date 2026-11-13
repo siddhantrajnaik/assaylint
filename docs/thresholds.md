@@ -148,6 +148,8 @@ I did not raise this default to 4 or 5, because it would stop PlateCheck from re
 
 **Literature.** I found no paper that sets a height ratio. MIQE 2.0 notes that amplicons with unbalanced GC content can melt in blocks and show several peaks from one product, and that dyes differ in how well they show low-Tm products [2].
 
+**What I searched (November 2026).** PubMed and web searches for a published height or area ratio between a secondary and the main melt peak (terms: melt curve, secondary peak, primer-dimer, peak height ratio, automated classification). I found none in a peer-reviewed methods paper. The qpcR R package (Ritz and Spiess) drops melt peaks below an area cut-off, but that cut-off is an absolute area with a default of 0, not a fraction of the main peak; I checked this in its source code. The ratios I did find were in vendor blogs and patents, which I do not cite. So 0.3 stays a rule of thumb.
+
 **Reasoning.** This is my heuristic: a second peak at 30% of the main one is large enough to contribute to the Ct, while small primer-dimer bumps are below it. Peaks less than 2 °C from the main peak are ignored.
 
 **Exceptional data.** Lower it (0.1–0.2) to catch primer-dimer in late-Ct targets such as miRNA. Raise it for amplicons predicted (for example with uMELT, which MIQE 2.0 mentions) to melt in two domains.
@@ -156,7 +158,7 @@ I did not raise this default to 4 or 5, because it would stop PlateCheck from re
 
 **What PlateCheck does.** It redraws one common threshold on the baseline-subtracted curves, computes the offset between each well's reported Ct and that crossing, and flags wells whose offset differs from the plate median by more than this. Its rise test uses 10 × the baseline SD, the usual instrument default described by Ruiz-Villalba et al. [3].
 
-**Literature.** Baseline estimation errors change the apparent efficiency and so the Cq (Ruijter et al. 2009 [8]); Cq values shift with the threshold setting [3]. There is no published tolerance for this comparison.
+**Literature.** Baseline estimation errors change the apparent efficiency and so the Cq (Ruijter et al. 2009 [8]); Cq values shift with the threshold setting [3]. There is no published tolerance for this comparison. I searched PubMed and the web for a tolerance between a reported Cq and one recalculated from the curves (terms: reported versus recalculated Cq, Cq tolerance, baseline, threshold, outlier well) and found none. Ruiz-Villalba et al. [3] show that Cq variability depends on where the threshold sits in the exponential phase, more so at low input, but give no number in cycles. So 2 cycles stays a rule of thumb.
 
 **Reasoning.** My heuristic, wide enough to ignore normal differences in curve shape and plateau height.
 
