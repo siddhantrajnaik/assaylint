@@ -188,6 +188,9 @@ function home() {
         h("p", { class: "lede" }, "PlateCheck reads the export from your qPCR machine and catches the boring mistakes before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control."),
         CREDIT.bio && h("p", { class: "lede" }, CREDIT.bio),
         bigDrop(),
+        // On shared hosts like web.iitd.ac.in every user's pages share one address, so their pages could read runs saved here.
+        /(^|\.)web\.iitd\.ac\.in$/.test(location.hostname) && h("p", { class: "fine shared-note" },
+          "Note: this copy runs on web.iitd.ac.in, which many users share. Runs you save here can be read by other pages on web.iitd.ac.in that you open in this browser. For unpublished data, use ", h("a", { class: "link", href: "https://siddhantrajnaik.github.io/platecheck/" }, "the main copy"), " or download and delete runs when you're done."),
         h("div", { class: "home-alt" },
           h("button", { class: "link", type: "button", onclick: loadDemo }, "No file handy? Try it with a sample run"),
           h("label", { class: "link" }, "Open a run you saved earlier", h("input", { type: "file", accept: ".json,application/json", hidden: true, onchange: e => importPacket(e.target.files[0]) })))),
