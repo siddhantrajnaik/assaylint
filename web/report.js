@@ -4,6 +4,7 @@ import {
   FORMATS, FIELD_LABEL, CONTEXT_FIELDS, RULESET_FIELDS, rulesetId, rulesetChanges, toCsv,
 } from "./core.js";
 import { CREDIT } from "./credit.js";
+import { analysisReportHtml } from "./analysis.js"; // analysis module
 
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const when = iso => (iso ? iso.slice(0, 16).replace("T", " ") + " UTC" : "");
@@ -108,6 +109,8 @@ ${Object.keys(exp.controlNA || {}).length ? `<p><b>Controls marked not applicabl
 <h2>Technical replicates</h2>
 ${table(["Biological unit", "Group", "Target", "Wells", "Ct/Cq as exported", "Mean", "SD"], res.replicateGroups.map(g => [g.unit, g.group, g.target, g.wells.join(", "), g.raw_ct.map(x => x ?? "(empty)").join(", "), num(g.mean), num(g.sd, 3)]))}
 <p class="sub small">Wells sharing a biological unit and target. They are technical repeats, not separate biological samples. Biological units per group: ${esc(res.bioSummary.map(b => `${b.group || "no group"} / ${b.target}: ${b.units.length}`).join("; ") || "none")}.</p>
+
+${analysisReportHtml(exp, res, esc) /* analysis module: empty unless switched on */}
 
 ${res.stdCurves.length ? `<h2>Standard curves</h2>${table(["Target", "Efficiency", "R²", "Slope", "Intercept", "Levels"], res.stdCurves.map(c => [c.target, num(c.efficiency, 1) + "%", num(c.r2, 4), num(c.slope, 3), num(c.intercept), c.levels]))}` : ""}
 
