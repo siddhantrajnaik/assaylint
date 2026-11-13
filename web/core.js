@@ -372,10 +372,10 @@ export function sdLimit(values, meanCt) {
   if (!values.sdCtDependent || !Number.isFinite(meanCt)) return values.sdThreshold;
   return Math.max(values.sdThreshold, values.sdPoissonK * (poissonSd(meanCt) ?? POISSON_SD_3_COPIES));
 }
-// "c1 -RT", "c1_noRT", "NRT c1" → "c1": the sample a no-RT well was made from, as far as the name says.
-function nrtBaseName(s) {
+// "c1 -RT", "c1 RT-", "c1_noRT", "NRT c1" → "c1": the sample a no-RT well was made from, as far as the name says.
+export function nrtBaseName(s) {
   return String(s ?? "").toLowerCase()
-    .replace(/(?:(?<![a-z0-9])(?:no[\s_-]?rt|nrt|minus[\s_-]?rt|rt[\s_-]?minus|nac)|[-−–]\s?rt)(?![a-z0-9])(?:[\s_-]*(?:control|ctrl)(?![a-z0-9]))?/g, " ")
+    .replace(/(?:(?<![a-z0-9])(?:no[\s_-]?rt|nrt|minus[\s_-]?rt|rt[\s_-]?(?:minus|neg(?:ative)?)|nac)(?![a-z0-9])|[-−–]\s?rt(?![a-z0-9])|(?<![a-z0-9])rt[-−–](?![a-z0-9]))(?:[\s_-]*(?:control|ctrl)(?![a-z0-9]))?/g, " ")
     .replace(/^[\s_()[\]:,-]+|[\s_()[\]:,-]+$/g, "").replace(/\s+/g, " ");
 }
 const fmtRaw = v => (v == null ? "(empty)" : `'${v}'`);
@@ -993,7 +993,7 @@ export function analyze(exp) {
           next_check: "Assess possible genomic DNA contribution, for example DNase treatment or intron-spanning primers." });
         // Margin to the samples this no-RT controls: the sample it was made from if the names say so, otherwise the whole target.
         const samples = active.filter(x => x.target === t && x.role === "sample" && ctNum(x.ct, x.dc) !== null);
-        const names = new Set([nrtBaseName(r.sample), r.bioSource === "file" || r.bioSource === "user" ? String(r.bio_unit).toLowerCase() : ""].filter(Boolean));
+        const names = new Set([nrtBaseName(r.sample), (r.bioSource === "file" || r.bioSource === "user") && r.bio_unit ? String(r.bio_unit).toLowerCase() : ""].filter(Boolean));
         const own = samples.filter(x => names.has(String(x.sample ?? "").toLowerCase()) || names.has(String(x.bio_unit ?? "").toLowerCase()));
         const used = own.length ? own : samples;
         if (v.nrtMargin > 0 && used.length) {
