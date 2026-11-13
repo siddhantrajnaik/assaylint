@@ -339,7 +339,9 @@ dialog form { margin-top: 16px; }
 .more-menu { position: absolute; right: 0; top: 100%; z-index: 10; min-width: 270px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 12px 30px rgba(23, 32, 28, .14); padding: 6px; display: grid; }
 .more-menu button { text-align: left; border: 0; background: none; padding: 9px 12px; border-radius: var(--r); cursor: pointer; }
 .more-menu button:hover, .more-menu button.on { background: #F4F6F5; }
-.steps { overflow: visible; }
+.steps { overflow: visible; flex-wrap: wrap; } /* visible for the More menu; wrap so a long step list never runs off the page */
+.tabs-main { flex-wrap: wrap; }
+@media (max-width: 700px) { .more-menu { left: 0; right: auto; min-width: 0; width: max-content; max-width: calc(100vw - 28px); } .more { margin-left: 0; } }
 
 /* what's next */
 .nextbar { padding: 12px 40px; border-bottom: 1px solid var(--rule-soft); background: #F8FAF9; }
