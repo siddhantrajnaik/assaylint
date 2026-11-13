@@ -1,0 +1,73 @@
+* Block Type = 96-Well Block (0.2mL)
+* Chemistry = SYBR_GREEN
+* Experiment Name = 2026-10-03 MSRE MGMT RASSF1A
+* Instrument Name = QS3-bench1
+* Instrument Type = QuantStudio™ 3 System
+* Passive Reference = ROX
+* Quantification Cycle Method = Ct
+
+[Results]
+Well	Well Position	Omit	Sample Name	Target Name	Task	Reporter	Quencher	Cт	Cт Mean	Cт SD	Quantity	Amp Status	Comments
+1	A1	false	Normal-1 mock	MGMT-prom	UNKNOWN	SYBR	None	24.012				Amp	
+2	A2	false	Normal-1 mock	MGMT-prom	UNKNOWN	SYBR	None	23.996				Amp	
+3	A3	false	Normal-1 HpaII	MGMT-prom	UNKNOWN	SYBR	None	28.605				Amp	
+4	A4	false	Normal-1 HpaII	MGMT-prom	UNKNOWN	SYBR	None	28.676				Amp	
+5	A5	false	Normal-1 mock	RASSF1A	UNKNOWN	SYBR	None	24.364				Amp	
+6	A6	false	Normal-1 mock	RASSF1A	UNKNOWN	SYBR	None	24.354				Amp	
+7	A7	false	Normal-1 HpaII	RASSF1A	UNKNOWN	SYBR	None	28.419				Amp	
+8	A8	false	Normal-1 HpaII	RASSF1A	UNKNOWN	SYBR	None	28.390				Amp	
+9	A9	false	Normal-1 mock	noSite-ctrl	UNKNOWN	SYBR	None	23.008				Amp	
+10	A10	false	Normal-1 mock	noSite-ctrl	UNKNOWN	SYBR	None	22.978				Amp	
+11	A11	false	Normal-1 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.149				Amp	
+12	A12	false	Normal-1 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.064				Amp	
+13	B1	false	Normal-2 mock	MGMT-prom	UNKNOWN	SYBR	None	23.966				Amp	
+14	B2	false	Normal-2 mock	MGMT-prom	UNKNOWN	SYBR	None	23.954				Amp	
+15	B3	false	Normal-2 HpaII	MGMT-prom	UNKNOWN	SYBR	None	28.402				Amp	
+16	B4	false	Normal-2 HpaII	MGMT-prom	UNKNOWN	SYBR	None	28.378				Amp	
+17	B5	false	Normal-2 mock	RASSF1A	UNKNOWN	SYBR	None	24.382				Amp	
+18	B6	false	Normal-2 mock	RASSF1A	UNKNOWN	SYBR	None	24.423				Amp	
+19	B7	false	Normal-2 HpaII	RASSF1A	UNKNOWN	SYBR	None	Undetermined				No Amp	
+20	B8	false	Normal-2 HpaII	RASSF1A	UNKNOWN	SYBR	None	Undetermined				No Amp	
+21	B9	false	Normal-2 mock	noSite-ctrl	UNKNOWN	SYBR	None	23.001				Amp	
+22	B10	false	Normal-2 mock	noSite-ctrl	UNKNOWN	SYBR	None	22.970				Amp	
+23	B11	false	Normal-2 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.104				Amp	
+24	B12	false	Normal-2 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.070				Amp	
+25	C1	false	Tumour-1 mock	MGMT-prom	UNKNOWN	SYBR	None	24.012				Amp	
+26	C2	false	Tumour-1 mock	MGMT-prom	UNKNOWN	SYBR	None	23.988				Amp	
+27	C3	false	Tumour-1 HpaII	MGMT-prom	UNKNOWN	SYBR	None	24.515				Amp	
+28	C4	false	Tumour-1 HpaII	MGMT-prom	UNKNOWN	SYBR	None	24.507				Amp	
+29	C5	false	Tumour-1 mock	RASSF1A	UNKNOWN	SYBR	None	24.420				Amp	
+30	C6	false	Tumour-1 mock	RASSF1A	UNKNOWN	SYBR	None	24.448				Amp	
+31	C7	false	Tumour-1 HpaII	RASSF1A	UNKNOWN	SYBR	None	23.753				Amp	
+32	C8	false	Tumour-1 HpaII	RASSF1A	UNKNOWN	SYBR	None	23.776				Amp	
+33	C9	false	Tumour-1 mock	noSite-ctrl	UNKNOWN	SYBR	None	22.987				Amp	
+34	C10	false	Tumour-1 mock	noSite-ctrl	UNKNOWN	SYBR	None	23.030				Amp	
+35	C11	false	Tumour-1 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.084				Amp	
+36	C12	false	Tumour-1 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.082				Amp	
+37	D1	false	Tumour-2 mock	MGMT-prom	UNKNOWN	SYBR	None	24.048				Amp	
+38	D2	false	Tumour-2 mock	MGMT-prom	UNKNOWN	SYBR	None	24.005				Amp	
+39	D3	false	Tumour-2 HpaII	MGMT-prom	UNKNOWN	SYBR	None	25.320				Amp	
+40	D4	false	Tumour-2 HpaII	MGMT-prom	UNKNOWN	SYBR	None	25.334				Amp	
+41	D5	false	Tumour-2 mock	RASSF1A	UNKNOWN	SYBR	None	Undetermined				No Amp	
+42	D6	false	Tumour-2 mock	RASSF1A	UNKNOWN	SYBR	None	Undetermined				No Amp	
+43	D7	false	Tumour-2 HpaII	RASSF1A	UNKNOWN	SYBR	None	25.253				Amp	
+44	D8	false	Tumour-2 HpaII	RASSF1A	UNKNOWN	SYBR	None	25.315				Amp	
+45	D9	false	Tumour-2 mock	noSite-ctrl	UNKNOWN	SYBR	None	22.988				Amp	
+46	D10	false	Tumour-2 mock	noSite-ctrl	UNKNOWN	SYBR	None	22.966				Amp	
+47	D11	false	Tumour-2 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.089				Amp	
+48	D12	false	Tumour-2 HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.140				Amp	
+49	E1	false	SssI-DNA mock	MGMT-prom	UNKNOWN	SYBR	None	23.999				Amp	
+50	E2	false	SssI-DNA mock	MGMT-prom	UNKNOWN	SYBR	None	24.046				Amp	
+51	E3	false	SssI-DNA HpaII	MGMT-prom	UNKNOWN	SYBR	None	24.161				Amp	
+52	E4	false	SssI-DNA HpaII	MGMT-prom	UNKNOWN	SYBR	None	24.191				Amp	
+53	E5	false	SssI-DNA mock	RASSF1A	UNKNOWN	SYBR	None	24.373				Amp	
+54	E6	false	SssI-DNA mock	RASSF1A	UNKNOWN	SYBR	None	24.411				Amp	
+55	E7	false	SssI-DNA HpaII	RASSF1A	UNKNOWN	SYBR	None	24.595				Amp	
+56	E8	false	SssI-DNA HpaII	RASSF1A	UNKNOWN	SYBR	None	24.561				Amp	
+57	E9	false	SssI-DNA mock	noSite-ctrl	UNKNOWN	SYBR	None	23.018				Amp	
+58	E10	false	SssI-DNA mock	noSite-ctrl	UNKNOWN	SYBR	None	22.983				Amp	
+59	E11	false	SssI-DNA HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.074				Amp	
+60	E12	false	SssI-DNA HpaII	noSite-ctrl	UNKNOWN	SYBR	None	23.102				Amp	
+61	F1	false	NTC	MGMT-prom	NTC	SYBR	None	Undetermined				No Amp	
+62	F2	false	NTC	RASSF1A	NTC	SYBR	None	Undetermined				No Amp	
+63	F3	false	NTC	noSite-ctrl	NTC	SYBR	None	Undetermined				No Amp	
