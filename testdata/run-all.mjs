@@ -1,4 +1,4 @@
-// Runs every file under testdata/ through AssayLint and prints a per-file summary.
+// Runs every file under testdata/ through PlateCheck and prints a per-file summary.
 // Usage: node testdata/run-all.mjs [--detail]
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";

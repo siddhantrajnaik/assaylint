@@ -48,10 +48,10 @@ Import template: `well,sample,target,ct,role,group,bio_unit,quantity` (downloada
 
 | Export | Contents |
 |---|---|
-| `<id>.report.html` | Human-readable report, readable without AssayLint. Can be printed to PDF. |
+| `<id>.report.html` | Human-readable report, readable without PlateCheck. Can be printed to PDF. |
 | `<id>.wells.csv` | One row per source data row: source line, raw and normalised well, effective labels, role and its source, raw Ct/Cq, and the file's original label values. |
 | `<id>.findings.csv` | One row per finding: ID, rule, rule version, category, severity, description, wells, source lines, evidence, next check, disposition, note, reviewer. |
 | `<id>.results.json` | `format: "assaylint-results"`: experiment context, file metadata and checksums, rule set, checks performed and not assessed, summary, findings, replicate groups, controls, standard curves, reviews and wells. |
-| `<id>.assaylint-packet.json` | `format: "assaylint-packet"`, `packet_version: 1`: the complete experiment, including original files and audit history, plus the analysis. Importing verifies each embedded file's SHA-256. |
+| `<id>.platecheck.json` | `format: "assaylint-packet"`, `packet_version: 1`: the complete experiment, including original files and audit history, plus the analysis. Importing verifies each embedded file's SHA-256. |
 
 Finding IDs are `<rule>:<key>` and stay stable across re-analysis of the same input, so reviews remain attached. Reviews of findings that no longer appear (for example after a plate-map correction) are kept and listed separately in the report.

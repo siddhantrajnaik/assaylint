@@ -1,8 +1,8 @@
-// AssayLint core: parsers, rules, analysis and run comparison.
+// PlateCheck core: parsers, rules, analysis and run comparison.
 // Pure functions with no DOM access; shared by the web app, the Node CLI (cli.mjs) and the tests.
 // Raw input is never modified: parsed values keep their original strings and the source text is stored verbatim.
 
-export const TOOL = "AssayLint";
+export const TOOL = "PlateCheck";
 export const APP_VERSION = "0.3.0";
 export const PARSER_VERSION = "0.4.0";
 export const PACKET_VERSION = 1;
@@ -90,7 +90,7 @@ export const RULES = {
     why: "A unit labelled in two groups usually indicates a labelling error that would mix conditions." },
   replicate_structure_inferred: { group: "Replicates", category: "missing_context", severity: "low", title: "Biological units not labelled",
     checks: "Biological units (independent samples) are labelled separately from technical replicate wells.",
-    why: "AssayLint assumed each sample name is one biological unit. Technical wells are never counted as independent biological observations." },
+    why: "PlateCheck assumed each sample name is one biological unit. Technical wells are never counted as independent biological observations." },
   insufficient_replicates: { group: "Replicates", category: "not_assessed", severity: "low", title: "Replicate spread not assessed",
     checks: "Each technical replicate group has at least two numeric Ct/Cq values.",
     why: "With fewer than two values, dispersion cannot be estimated." },
@@ -141,7 +141,7 @@ export const RULES = {
     why: "The instrument's threshold or baseline settings may have missed real amplification, or the rise is an artefact." },
   amp_ct_inconsistent: { group: "Amplification", category: "review_warning", severity: "low", title: "Ct/Cq inconsistent with the curve",
     checks: "The offset between the reported Ct/Cq and the curve's crossing of a common threshold matches the rest of the plate.",
-    why: "A well-specific offset can indicate per-well baseline settings or an unusual curve shape. AssayLint's threshold is a heuristic." },
+    why: "A well-specific offset can indicate per-well baseline settings or an unusual curve shape. PlateCheck's threshold is a heuristic." },
   melt_no_peak: { group: "Melt curve", category: "review_warning", severity: "low", title: "No clear melt peak",
     checks: "Amplified wells show a melt peak of comparable size to the rest of the target.",
     why: "A Ct without a melt product can indicate a non-specific or artefactual signal." },
@@ -177,7 +177,7 @@ export const RULESET_FIELDS = [
   { key: "minStdLevels", label: "Minimum dilution levels for a standard curve", type: "number", step: 1 },
 ];
 export const DEFAULT_PROFILE = {
-  id: "assaylint-default", name: "AssayLint defaults", version: 1,
+  id: "assaylint-default", name: "PlateCheck defaults", version: 1,
   values: { sdThreshold: 0.3, ntcCtThreshold: 35, expectNtc: true, expectPositive: false, expectNrt: false,
     ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3,
     effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3 },
@@ -421,7 +421,7 @@ export function parseResults(input, opts = {}) {
   }
   if (!("target" in columns)) warnings.push("No target column was found. Assign targets in the plate map.");
   if (!("sample" in columns)) warnings.push("No sample column was found. Assign samples in the plate map.");
-  if (out.some(r => r.omit)) warnings.push(`${out.filter(r => r.omit).length} well(s) are marked Omit in the instrument software. AssayLint keeps and checks them, and flags them for review.`);
+  if (out.some(r => r.omit)) warnings.push(`${out.filter(r => r.omit).length} well(s) are marked Omit in the instrument software. PlateCheck keeps and checks them, and flags them for review.`);
   const unmapped = [...new Set(out.filter(r => r.roleRaw && !r.role).map(r => r.roleRaw))];
   if (unmapped.length) warnings.push(`Role values not mapped automatically: ${unmapped.join(", ")}. Assign these roles in the plate map.`);
   if (malformed.length) warnings.push(`${malformed.length} row(s) could not be parsed and will be excluded from checks and reported.`);
@@ -703,11 +703,11 @@ export function analyze(exp) {
       evidence: `source lines ${ln(rs).join(", ")}; raw Ct ${rs.map(r => fmtRaw(r.ct)).join(", ")}`,
       next_check: "Confirm the plate map; one well should hold one reaction per target. Neither value was dropped." });
   for (const r of rows) if (r.fileRoleUnmapped && r.roleSource !== "user")
-    add("unmapped_role", r.line, { ...at(r), description: `Well ${name(r)} has role '${r.roleRaw}' in the file, which AssayLint does not map automatically.`,
+    add("unmapped_role", r.line, { ...at(r), description: `Well ${name(r)} has role '${r.roleRaw}' in the file, which PlateCheck does not map automatically.`,
       evidence: `source line ${r.line}; currently treated as '${r.role}'`, next_check: "Assign the intended role (for example NTC or no-RT) in the plate map." });
   for (const r of rows.filter(r => r.omit))
     add("instrument_omit", r.line, { ...at(r), description: `Well ${name(r)} is marked Omit in the instrument export.`,
-      evidence: `source line ${r.line}; raw Ct ${fmtRaw(r.ct)}`, next_check: "Record why it was omitted. AssayLint still includes it in every check; set the role to Empty if it should be left out of replicate and control checks." });
+      evidence: `source line ${r.line}; raw Ct ${fmtRaw(r.ct)}`, next_check: "Record why it was omitted. PlateCheck still includes it in every check; set the role to Empty if it should be left out of replicate and control checks." });
   for (const r of active) {
     const needsSample = ["sample", "positive", "nrt"].includes(r.role);
     if (!r.target || (needsSample && !r.sample))
@@ -880,7 +880,7 @@ export function analyze(exp) {
         evidence: `${curve}; rise needs > ${Math.max(10 * s.sd, 0.05 * gmax).toFixed(3)} (10 × baseline SD or 5% of the largest rise on the plate)`,
         next_check: "Inspect the raw curve and the instrument's baseline and threshold settings for this well." });
       else if (isNoAmp(r.ct) && s.rises) add("amp_rise_without_ct", r.line, { ...at(r), description: `Well ${name(r)} has no Ct/Cq (${fmtRaw(r.ct)}) but its curve rises.`,
-        evidence: `${curve}; curve crosses AssayLint's threshold at cycle ${f2(s.est)}`, next_check: "Check the instrument's threshold and baseline for this well and target." });
+        evidence: `${curve}; curve crosses PlateCheck's threshold at cycle ${f2(s.est)}`, next_check: "Check the instrument's threshold and baseline for this well and target." });
       else if (c !== null && s.est !== null) diffs.push([r, c - s.est, s.est]);
     }
     if (missing.length) add("amp_curve_missing", "all", { wells: wl(missing), lines: ln(missing),
@@ -898,7 +898,7 @@ export function analyze(exp) {
 
   // Melt curves (FR-12): only when configured for the assay
   if (!exp.melt) res.notAssessed.push("Melt curves: no melt data was provided.");
-  else if (!v.meltChecks) res.notAssessed.push("Melt curves: data was provided, but melt-curve checks are not enabled for this assay (Context & rules). AssayLint does not assume melt analysis applies.");
+  else if (!v.meltChecks) res.notAssessed.push("Melt curves: data was provided, but melt-curve checks are not enabled for this assay (Context & rules). PlateCheck does not assume melt analysis applies.");
   else {
     const mp = parseCurves(exp.melt.text, "melt"), isDer = exp.melt.valueType !== "fluorescence", ms = {};
     for (const [k, pts] of Object.entries(mp.series)) ms[k] = meltStats(pts, isDer);
@@ -989,7 +989,7 @@ export function compareRuns(a, ra, b, rb) {
 
 // ---------------------------------------------------------------- packets (FR-21)
 export async function verifyPacket(obj) {
-  if (obj === null || typeof obj !== "object" || obj.format !== "assaylint-packet" || obj.experiment === null || typeof obj.experiment !== "object") throw new ParseError("This file is not a saved AssayLint run.");
+  if (obj === null || typeof obj !== "object" || obj.format !== "assaylint-packet" || obj.experiment === null || typeof obj.experiment !== "object") throw new ParseError("This file is not a saved PlateCheck run.");
   if (obj.packet_version > PACKET_VERSION) throw new ParseError(`Packet version ${obj.packet_version} is newer than this app supports (${PACKET_VERSION}).`);
   const exp = normalizeExperiment(structuredClone(obj.experiment));
   for (const k of ["source", "amp", "melt"]) if (exp[k]) {

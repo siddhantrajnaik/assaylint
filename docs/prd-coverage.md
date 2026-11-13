@@ -1,4 +1,4 @@
-# PRD coverage (AssayLint 0.3.0)
+# PRD coverage (PlateCheck 0.3.0)
 
 Status of each requirement in [prd.md](prd.md). “Built” means implemented and exercised by tests or a browser check; it does not mean scientifically validated.
 

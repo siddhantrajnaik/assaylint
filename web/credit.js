@@ -1,4 +1,4 @@
-// Who made AssayLint and how to reach them. Shown in the sidebar, on the welcome screen and in every report.
+// Who made PlateCheck and how to reach them. Shown in the sidebar, on the welcome screen and in every report.
 export const CREDIT = {
   name: "Siddhant Raj Naik",
   affiliation: "PhD, KSBS, IIT Delhi",

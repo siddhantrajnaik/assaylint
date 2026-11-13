@@ -1,8 +1,8 @@
-# Sample data to try AssayLint
+# Sample data to try PlateCheck
 
-These files are made up but laid out exactly like real instrument exports. Each one has a few problems planted in it so you can see what AssayLint catches.
+These files are made up but laid out exactly like real instrument exports. Each one has a few problems planted in it so you can see what PlateCheck catches.
 
-Open https://siddhantrajnaik.github.io/assaylint/ and drop the files for one run onto the home page, all at once. It works out which file is which and takes you straight to the review.
+Open https://siddhantrajnaik.github.io/platecheck/ and drop the files for one run onto the home page, all at once. It works out which file is which and takes you straight to the review.
 
 ## 1. Bio-Rad CFX96, SYBR Green (start here)
 
@@ -31,4 +31,4 @@ Drop `3 Simple hand-made CSV - results.csv` on its own.
 What's planted:
 - A typo in a well name (A1O instead of A04)
 - A missing Ct ("N/A")
-- A blank line and an "Average" row, which AssayLint handles without losing data
+- A blank line and an "Average" row, which PlateCheck handles without losing data

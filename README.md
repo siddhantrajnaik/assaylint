@@ -1,10 +1,10 @@
-# AssayLint
+# PlateCheck
 
 **Check your qPCR run before you trust the numbers.**
 
-Live: https://siddhantrajnaik.github.io/assaylint/
+Live: https://siddhantrajnaik.github.io/platecheck/
 
-I made AssayLint to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control, a standard curve that's off. You upload the export from your instrument and it shows you what looks off, with the exact values behind each flag.
+I made PlateCheck to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control, a standard curve that's off. You upload the export from your instrument and it shows you what looks off, with the exact values behind each flag.
 
 It runs in your browser. Your files never get uploaded anywhere, and there's no account to make.
 

@@ -1,4 +1,4 @@
-// AssayLint web app. All processing and storage happen in this browser tab.
+// PlateCheck web app. All processing and storage happen in this browser tab.
 import * as C from "./core.js";
 import * as R from "./report.js";
 import * as S from "./store.js";
@@ -85,14 +85,14 @@ function plateArt(rows, cols, lit = {}, r = 4.2) {
 function creditBlock(cls) {
   return h("div", { class: "credit " + cls },
     h("p", null, `Made by ${CREDIT.name}, ${CREDIT.affiliation}.`),
-    h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=AssayLint`, class: "link" }, CREDIT.email), "."),
+    h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=PlateCheck`, class: "link" }, CREDIT.email), "."),
     CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
 }
 function goHome() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null }); render(); scrollTo(0, 0); }
 function renderSidebar() {
   const list = S.index();
   put($("#side"),
-    h("button", { class: "brand", type: "button", onclick: goHome, title: "Home" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "AssayLint")),
+    h("button", { class: "brand", type: "button", onclick: goHome, title: "Home" }, plateArt(2, 3, { A1: "--accent", A2: "--accent", B1: "--accent", B2: "--w-high" }, 4.4), h("span", { class: "wordmark" }, "PlateCheck")),
     h("button", { class: "btn primary", type: "button", onclick: goHome }, "Check a new run"),
     h("h2", { class: "side-h" }, "Your runs"),
     h("nav", { class: "explist", "aria-label": "Your runs" }, list.length ? list.map(x => h("button", { type: "button", class: "expitem" + (st.exp?.id === x.id ? " on" : ""), "aria-current": st.exp?.id === x.id ? "true" : null, onclick: () => openExp(x.id) },
@@ -104,7 +104,7 @@ function renderSidebar() {
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!S.getSetting("allSteps"), onchange: e => { try { S.setSetting("allSteps", e.target.checked); } catch { /* storage unavailable */ } renderMain(); } }), "Show all steps"),
       h("div", { class: "side-links" },
         h("button", { class: "link", type: "button", onclick: goHome }, "Home"),
-        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `AssayLint currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
+        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `PlateCheck currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
         h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"))),
     st.saveError && h("p", { class: "error" }, st.saveError));
 }
@@ -183,7 +183,7 @@ function home() {
     h("section", { class: "home-hero" },
       h("div", { class: "home-text" },
         h("h1", null, "Check your qPCR run before you trust the numbers"),
-        h("p", { class: "lede" }, `Hi, I'm ${CREDIT.name} (${CREDIT.affiliation}). I made AssayLint to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control.`),
+        h("p", { class: "lede" }, `Hi, I'm ${CREDIT.name} (${CREDIT.affiliation}). I made PlateCheck to catch the boring mistakes in a qPCR run before you analyse it: a mislabelled well, an NTC that came up, replicates that don't agree, a missing control.`),
         CREDIT.bio && h("p", { class: "lede" }, CREDIT.bio),
         bigDrop(),
         h("div", { class: "home-alt" },
@@ -260,7 +260,7 @@ function quickNote() {
 // ---------------------------------------------------------------- experiment lifecycle (FR-1, FR-23)
 async function loadDemo() {
   const f = demoFiles(), a = actor();
-  const e = C.newExperiment({ title: DEMO_TITLE, operator: "Demo user", project: "AssayLint demo" }, a);
+  const e = C.newExperiment({ title: DEMO_TITLE, operator: "Demo user", project: "PlateCheck demo" }, a);
   e.source = C.fileRecord({ name: "demo_results.csv", text: f.results, sha: await C.sha256(f.results), actor: a, format: C.parseResults(f.results).format });
   e.amp = C.fileRecord({ name: "demo_amplification.csv", text: f.amp, sha: await C.sha256(f.amp), actor: a });
   e.melt = C.fileRecord({ name: "demo_melt_derivative.csv", text: f.melt, sha: await C.sha256(f.melt), actor: a, valueType: "derivative" });
@@ -372,8 +372,8 @@ function preview(kind, p) {
     p.details.needsPlateSize && h("div", { class: "row" }, h("b", null, "Plate layout:"),
       [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "btn primary", type: "button", onclick: () => stageText(kind, p.name, p.text, n) }, `${n}-well (row by row)`)),
       h("small", { class: "muted" }, "Pick the plate your instrument used. The preview will show the resulting positions so you can check them.")),
-    kind === "results" && !p.details.needsPlateSize && h("p", null, "AssayLint needs a well column (for example “Well” or “Well Position”) and a Ct/Cq column. If your export differs, copy the data into the import template."),
-    h("div", { class: "row" }, kind === "results" && !p.details.needsPlateSize && h("button", { class: "btn primary", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
+    kind === "results" && !p.details.needsPlateSize && h("p", null, "PlateCheck needs a well column (for example “Well” or “Well Position”) and a Ct/Cq column. If your export differs, copy the data into the import template."),
+    h("div", { class: "row" }, kind === "results" && !p.details.needsPlateSize && h("button", { class: "btn primary", type: "button", onclick: () => download("platecheck-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
   const r = p.parsed, confirmBtn = h("button", { class: "btn primary", type: "button", onclick: () => confirmImport(kind) }, "Confirm import");
   if (kind !== "results") {
     const used = new Set((st.res?.rows || []).map(x => x.key).filter(Boolean));
@@ -386,8 +386,8 @@ function preview(kind, p) {
         r.malformed ? ["Values not parsed", `${r.malformed} (empty or non-numeric; excluded)`] : null]),
       kind === "melt" && field("These values are", h("select", { onchange: ev => (p.valueType = ev.target.value) },
         h("option", { value: "derivative", selected: p.valueType === "derivative" }, "Derivative (−dF/dT)"),
-        h("option", { value: "fluorescence", selected: p.valueType === "fluorescence" }, "Raw fluorescence (AssayLint computes −dF/dT)")),
-        `Detected: ${r.guessedValueType}. Please confirm; AssayLint cannot always tell from the numbers.`),
+        h("option", { value: "fluorescence", selected: p.valueType === "fluorescence" }, "Raw fluorescence (PlateCheck computes −dF/dT)")),
+        `Detected: ${r.guessedValueType}. Please confirm; PlateCheck cannot always tell from the numbers.`),
       h("div", { class: "row" }, confirmBtn, cancel));
   }
   const keys = r.rows.map(x => x.key).filter(Boolean);
@@ -435,7 +435,7 @@ VIEWS.data = () => {
   return [...cards, card(h("h2", null, "Which files work"),
     h("p", null, "Results exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT and LightCycler 480, or any CSV with a well column and a Ct or Cq column. Curve files can have one row per reading or one column per well."),
     h("p", { class: "fine" }, "I've tested it on real exports from QuantStudio, Bio-Rad CFX and ABI 7500/7900HT machines, plus LightCycler 480 and European-format files. Other machines may lay things out differently, so look at the preview before you confirm. Excel and raw run files (.eds, .pcrd) won't open; export CSV or text instead. If your file doesn't work, email it to me and I'll add support."),
-    h("button", { class: "btn", type: "button", onclick: () => download("assaylint-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
+    h("button", { class: "btn", type: "button", onclick: () => download("platecheck-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
 };
 
 // ---------------------------------------------------------------- 3 · Plate map (FR-4, FR-5)
@@ -764,7 +764,7 @@ function curvesBlock() {
   const parts = [h("h3", null, "Curves"), h("p", { class: "fine" }, keys.length ? `Highlighted: ${keys.join(", ")}.` : "Pick a flag or a well to highlight its curves.")];
   if (res.amp) parts.push(h("figure", null, chart({ series: seriesFor(Object.entries(res.amp.series), (pts, k) => pts.map(([x, y]) => [x, y - res.amp.stats[k].mean])),
     hline: res.amp.threshold || null, xLabel: "Cycle", yLabel: "ΔF", empty: "No curves" }, "Amplification curves"),
-    h("figcaption", null, `Amplification, baseline-subtracted. Dashed line: AssayLint's common threshold (${fmt(res.amp.threshold, 3)}), used only to compare wells.`)));
+    h("figcaption", null, `Amplification, baseline-subtracted. Dashed line: PlateCheck's common threshold (${fmt(res.amp.threshold, 3)}), used only to compare wells.`)));
   if (res.melt) parts.push(h("figure", null, chart({ series: seriesFor(Object.entries(res.melt.stats), s => s.curve), xLabel: "Temperature (°C)", yLabel: "−dF/dT", empty: "No curves" }, "Melt curves"),
     h("figcaption", null, "Melt curves, first derivative.")));
   else if (st.exp.melt) parts.push(h("p", { class: "fine" }, "Melt data is imported, but melt checks are off for this assay. Turn them on under Context & rules."));
@@ -866,7 +866,7 @@ VIEWS.report = () => {
           box("Well data (CSV)", "Every well with its labels and the values exactly as exported.", "Download CSV", go("Well data", `${base}-wells.csv`, () => R.wellsCsv(st.res), "text/csv")),
           box("Flags (CSV)", "One row per flag with the evidence and your decision.", "Download CSV", go("Findings", `${base}-flags.csv`, () => R.findingsCsv(st.exp, st.res), "text/csv")),
           box("Results (JSON)", "Everything above in one structured file, for scripts.", "Download JSON", go("Structured results", `${base}-results.json`, () => R.structuredJson(st.exp, st.res), "application/json")),
-          box("Whole run (packet)", "The run with its original files and history. Open it here again later with “Open a run you saved earlier”.", "Download packet", go("Experiment packet", `${base}.assaylint-packet.json`, () => R.packetJson(st.exp, st.res), "application/json"))))),
+          box("Whole run (packet)", "The run with its original files and history. Open it here again later with “Open a run you saved earlier”.", "Download packet", go("Experiment packet", `${base}.platecheck.json`, () => R.packetJson(st.exp, st.res), "application/json"))))),
     card(h("h2", null, "Preview"), frame)];
 };
 

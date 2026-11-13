@@ -1,8 +1,8 @@
 {
-  "name": "assaylint-monkey",
+  "name": "platecheck-monkey",
   "private": true,
   "type": "module",
-  "description": "Random-click stress test for the AssayLint web app (runs the real app in jsdom).",
+  "description": "Random-click stress test for the PlateCheck web app (runs the real app in jsdom).",
   "scripts": { "test": "node monkey.mjs 2000 1" },
   "devDependencies": { "jsdom": "^31.0.0" }
 }

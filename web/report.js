@@ -10,7 +10,7 @@ const when = iso => (iso ? iso.slice(0, 16).replace("T", " ") + " UTC" : "");
 const num = (x, d = 2) => (x == null || !Number.isFinite(x) ? "—" : x.toFixed(d));
 
 export const LIMITATIONS = [
-  "AssayLint points out things worth a second look. It can't tell you whether the experiment or its conclusions are right.",
+  "PlateCheck points out things worth a second look. It can't tell you whether the experiment or its conclusions are right.",
   "Only the checks under “What was checked” ran. Anything under “Not checked” wasn't looked at, so don't read it as a pass.",
   "The thresholds are common rules of thumb that haven't been reviewed by a qPCR expert yet.",
   "Possible causes are suggestions. Contamination or the reason a reaction failed can't be worked out from the data files alone.",
@@ -76,7 +76,7 @@ ${decision(f)}
 <h1>${esc(exp.title)}</h1>
 <div class="meta"><span>qPCR run review</span><span>ID <b class="mono">${esc(exp.id)}</b></span><span>Run date <b>${esc(exp.date)}</b></span>${exp.operator ? `<span>Operator <b>${esc(exp.operator)}</b></span>` : ""}<span>Report made <b>${esc(when(generatedAt))}</b></span></div>
 <p><span class="status ${esc(s.status)}">${esc(s.label)}.</span> ${counts.length ? `${esc(sentence(counts))} findings; ${s.reviewed} of ${s.total} reviewed, ${s.open} still open.` : "Nothing was flagged by the checks that ran."}</p>
-<p class="sub">These are things AssayLint thought worth a second look. It doesn't certify the experiment or its conclusions, and anything listed under “not checked” below wasn't looked at.</p>
+<p class="sub">These are things PlateCheck thought worth a second look. It doesn't certify the experiment or its conclusions, and anything listed under “not checked” below wasn't looked at.</p>
 
 <h2>Findings</h2>
 ${main.length ? main.map(finding).join("") : `<p>None.</p>`}
@@ -123,7 +123,7 @@ ${table(["When", "Who", "What"], exp.audit.map(a => [when(a.at), a.actor, a.deta
 <h2>Limits of this report</h2>
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
 ${exp.feedback ? `<p class="sub">Asked whether this review was useful: ${esc(exp.feedback.value.toLowerCase())}.</p>` : ""}
-<footer>Made with AssayLint ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.</footer>
+<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.</footer>
 </body></html>`;
 }
 
