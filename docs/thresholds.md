@@ -164,6 +164,18 @@ I did not raise this default to 4 or 5, because it would stop PlateCheck from re
 
 **Exceptional data.** If your instrument uses one threshold and baseline for the whole plate, 1 cycle is enough. For multiplexed or probe assays with low plateaus, keep 2 or more.
 
+## RNA-type notes (no setting)
+
+**What PlateCheck does.** It takes each target's RNA type from the Genes step, or guesses it from the name when you haven't set one (the finding says which), and adds three low-severity notes. Each target is reported by at most one of the two miRNA notes.
+
+- **Target and reference of different RNA types.** With the Analysis step on, a miRNA target normalised to an mRNA reference gene, or an mRNA target normalised to a miRNA or snoRNA/snRNA reference.
+- **miRNA targets without a small-RNA reference.** miRNA targets on the plate, no snoRNA or snRNA target, and no miRNA or small RNA chosen as reference in Analysis. Choosing a stable miRNA or a spike-in such as cel-miR-39 as reference clears it.
+- **lncRNA without a no-RT control.** An lncRNA target with no no-RT well. Not reported when "Expect a no-RT control" is on, because the missing-control check already covers every target, or when the no-RT control is marked not applicable for that target.
+
+**Literature.** Schwarzenbach et al. review miRNA normalisation; they note that reference genes of the same RNA class are preferred, and that small RNAs such as RNU6 share size and stability with miRNAs while differing in how they are made, so RNU6 itself is often unstable [11]. A miRNA and an mRNA are also usually reverse transcribed differently (stem-loop or poly(A) RT against oligo-dT or random primers). In GENCODE the most common lncRNA transcript has two exons, against four for protein-coding transcripts [12], so lncRNA primers often cannot span an exon junction; MIQE asks for a no-RT control at least for new RNA preps [1, 2].
+
+**Exceptional data.** If your miRNA reference is on another plate, choose it in Analysis when you combine plates. If the type guessed from a name is wrong, correct it in the Genes step.
+
 ## Expected controls
 
 - **NTC (on by default):** MIQE (2009) asks for NTCs on every plate or batch [1].
@@ -199,6 +211,8 @@ Four checks were added as new settings rather than changes to old ones: the late
 8. Ruijter JM, Ramakers C, Hoogaars WMH, et al. Amplification efficiency: linking baseline and bias in the analysis of quantitative PCR data. Nucleic Acids Res. 2009;37(6):e45. doi:10.1093/nar/gkp045
 9. Ririe KM, Rasmussen RP, Wittwer CT. Product differentiation by analysis of DNA melting curves during the polymerase chain reaction. Anal Biochem. 1997;245(2):154–160. doi:10.1006/abio.1996.9916
 10. Pfaffl MW. A new mathematical model for relative quantification in real-time RT-PCR. Nucleic Acids Res. 2001;29(9):e45. doi:10.1093/nar/29.9.e45
+11. Schwarzenbach H, da Silva AM, Calin G, Pantel K. Data normalization strategies for microRNA quantification. Clin Chem. 2015;61(11):1333–1342. doi:10.1373/clinchem.2015.239459
+12. Harrow J, Frankish A, Gonzalez JM, et al. GENCODE: the reference human genome annotation for The ENCODE Project. Genome Res. 2012;22(9):1760–1774. doi:10.1101/gr.135350.111
 
 Also mentioned: Nolan T, Hands RE, Bustin SA. Quantification of mRNA using real-time RT-PCR. Nat Protoc. 2006;1(3):1559–1582. doi:10.1038/nprot.2006.236 (cited through [3] and [4]; I could not read the full text). Ståhlberg A, Kubista M. Technical aspects and recommendations for single-cell qPCR. Mol Aspects Med. 2018;59:28–35. doi:10.1016/j.mam.2017.07.004 (abstract only).
 

@@ -1,7 +1,7 @@
 // PlateCheck core: parsers, rules, analysis and run comparison.
 // Pure functions with no DOM access; shared by the web app, the Node CLI (cli.mjs) and the tests.
 // Raw input is never modified: parsed values keep their original strings and the source text is stored verbatim.
-import { cleanTargets } from "./genes.js"; // genes and RNA types per target
+import { cleanTargets, targetTable } from "./genes.js"; // genes and RNA types per target
 
 export const TOOL = "PlateCheck";
 export const APP_VERSION = "0.3.0";
@@ -164,6 +164,15 @@ export const RULES = {
   ntc_melt_peak: { group: "Melt curve", category: "review_warning", severity: "medium", title: "NTC has a melt peak",
     checks: "No-template controls have no melt peak comparable to the target product.",
     why: "A Tm near the product suggests template contamination; a lower Tm is often primer-dimer. The cause is not certain." },
+  rna_type_reference_mismatch: { group: "RNA type", category: "review_warning", severity: "low", title: "Target and reference are different kinds of RNA",
+    checks: "In the Analysis step, miRNA targets are not normalised to an mRNA reference gene, and mRNA targets not to a miRNA or snoRNA/snRNA reference. RNA types come from the Genes step, or are guessed from the target name.",
+    why: "A miRNA and an mRNA are usually reverse transcribed in different ways (stem-loop or poly(A) RT against oligo-dT or random primers), so a ΔCt between them also carries the difference between those reactions. References of the same RNA class are preferred." },
+  mirna_no_small_rna_reference: { group: "RNA type", category: "missing_context", severity: "low", title: "miRNA targets without a small-RNA reference",
+    checks: "When the plate has miRNA targets, it also has a small-RNA reference (a snoRNA or snRNA such as U6, RNU44 or RNU48), or a miRNA or spike-in is chosen as reference in the Analysis step.",
+    why: "miRNAs are best normalised to small RNAs that go through the same RT and behave alike in extraction. Without one on the plate, the usual references cannot be applied to these targets." },
+  lncrna_no_nrt: { group: "RNA type", category: "missing_context", severity: "low", title: "lncRNA target without a no-RT control",
+    checks: "Each lncRNA target has at least one no-RT well, unless no-RT controls are already expected for every target or marked not applicable.",
+    why: "Many lncRNAs have one or two exons, so primers often cannot span an exon junction, and genomic DNA is then amplified like the RNA. A no-RT control is the way to see whether it was." },
   missing_metadata: { group: "Method metadata", category: "missing_context", severity: "low", title: "Method detail not provided",
     checks: "Key method context (protocol, assay details, efficiency evidence, analysis method, instrument) is recorded.",
     why: "Missing context is reported as not provided, not as a failed assay. It makes later review and reporting harder." },
@@ -224,6 +233,10 @@ export const REFERENCES = {
     text: "Ruijter JM, Ramakers C, Hoogaars WMH, et al. Amplification efficiency: linking baseline and bias in the analysis of quantitative PCR data. Nucleic Acids Res. 2009;37(6):e45." },
   ririe1997: { short: "Ririe et al. 1997", doi: "10.1006/abio.1996.9916",
     text: "Ririe KM, Rasmussen RP, Wittwer CT. Product differentiation by analysis of DNA melting curves during the polymerase chain reaction. Anal Biochem. 1997;245(2):154–160." },
+  schwarzenbach2015: { short: "Schwarzenbach et al. 2015", doi: "10.1373/clinchem.2015.239459",
+    text: "Schwarzenbach H, da Silva AM, Calin G, Pantel K. Data normalization strategies for microRNA quantification. Clin Chem. 2015;61(11):1333–1342." },
+  harrow2012: { short: "Harrow et al. 2012 (GENCODE)", doi: "10.1101/gr.135350.111",
+    text: "Harrow J, Frankish A, Gonzalez JM, et al. GENCODE: the reference human genome annotation for The ENCODE Project. Genome Res. 2012;22(9):1760–1774." },
 };
 const THRESHOLD_EVIDENCE = {
   sdThreshold: { refs: ["deronde2017", "ruizvillalba2021", "miqe2025"],
@@ -286,6 +299,9 @@ const RULE_EVIDENCE = {
   late_ct: THRESHOLD_EVIDENCE.lateCtThreshold,
   nrt_margin: THRESHOLD_EVIDENCE.nrtMargin,
   std_curve_range: THRESHOLD_EVIDENCE.minStdRange,
+  rna_type_reference_mismatch: { refs: ["schwarzenbach2015"], evidence: "Schwarzenbach et al. (2015) review miRNA normalisation and note that reference genes of the same RNA class are preferred." },
+  mirna_no_small_rna_reference: { refs: ["schwarzenbach2015"], evidence: "Small RNAs (snoRNAs, snRNAs, stable miRNAs, spike-ins) are the references used for miRNAs; Schwarzenbach et al. (2015) compare them." },
+  lncrna_no_nrt: { refs: ["harrow2012", "miqe2009", "miqe2025"], evidence: "In GENCODE the most common lncRNA transcript has two exons, against four for protein-coding ones (Harrow et al. 2012). MIQE asks for a no-RT control, at least for new RNA preps." },
   missing_ct: { refs: ["miqe2025", "forootan2017"], evidence: "Below 3 copies per well Poisson sampling means some replicates get no template at all." },
   replicate_dispersion: THRESHOLD_EVIDENCE.sdThreshold,
   ntc_amplification: THRESHOLD_EVIDENCE.ntcCtThreshold,
@@ -1010,6 +1026,42 @@ export function analyze(exp) {
   if (active.length && !active.some(r => ["ntc", "positive", "nrt", "standard"].includes(r.role)))
     add("no_control_roles", "all", { description: "No well has an NTC, positive, no-RT or standard role.",
       evidence: "all used wells are samples", next_check: "Assign control roles in the plate map if the plate contains controls." });
+
+  // RNA type (exp.targets, web/genes.js): the type set in the Genes step, otherwise the guess from the name.
+  // Low-severity notes only, and each target is reported by at most one of the two miRNA notes.
+  const tt = new Map(targetTable(exp, active).map(x => [x.name, x]));
+  const typeOf = t => tt.get(t)?.type, typed = ts => ts.map(t => `${t} (${typeOf(t)}, ${tt.get(t)?.saved?.type ? "set in Genes" : "guessed from the name"})`).join(", ");
+  const sampleTargets = [...new Set(active.filter(r => r.role === "sample" && r.target).map(r => r.target))];
+  const sampleWells = ts => active.filter(r => r.role === "sample" && ts.includes(r.target));
+  const aRefs = exp.analysis?.on ? (exp.analysis.refs || []).filter(t => tt.has(t)) : [];
+  const SMALL = ["miRNA", "sncRNA"];
+  const mirs = sampleTargets.filter(t => typeOf(t) === "miRNA" && !aRefs.includes(t));
+  res.checksRun.push("RNA type: miRNA and mRNA targets against the type of reference chosen in Analysis, miRNA targets against small-RNA references on the plate, lncRNA targets against no-RT controls");
+  const mismatched = [];
+  if (aRefs.length) {
+    if (aRefs.some(r => typeOf(r) === "mRNA")) mismatched.push(...mirs);
+    if (aRefs.some(r => SMALL.includes(typeOf(r)))) mismatched.push(...sampleTargets.filter(t => typeOf(t) === "mRNA" && !aRefs.includes(t)));
+    if (mismatched.length) { const ws = sampleWells(mismatched);
+      add("rna_type_reference_mismatch", "analysis", { wells: wl(ws), lines: ln(ws), target: mismatched.length === 1 ? mismatched[0] : null,
+        description: `${mismatched.length} target(s) are normalised in the Analysis step to a reference of a different RNA type.`,
+        evidence: `targets: ${typed(mismatched)}; reference(s): ${typed(aRefs)}`,
+        next_check: "Normalise miRNAs to small-RNA references (U6, RNU44, RNU48, a stable miRNA or a spike-in) and mRNAs to mRNA reference genes, or correct the RNA type in the Genes step if it is wrong." }); }
+  }
+  const smallOnPlate = aRefs.some(r => SMALL.includes(typeOf(r))) || [...tt.values()].some(x => x.type === "sncRNA");
+  const lonelyMirs = mirs.filter(t => !mismatched.includes(t));
+  if (lonelyMirs.length && !smallOnPlate) { const ws = sampleWells(lonelyMirs);
+    add("mirna_no_small_rna_reference", "plate", { wells: wl(ws), lines: ln(ws), target: lonelyMirs.length === 1 ? lonelyMirs[0] : null,
+      description: `${lonelyMirs.length} miRNA target(s) and no small-RNA reference on this plate.`,
+      evidence: `miRNA targets: ${typed(lonelyMirs)}; no target is a snoRNA or snRNA, and no miRNA or small RNA is chosen as reference in Analysis`,
+      next_check: "If the reference is on another plate, or you normalise to a stable miRNA or a spike-in such as cel-miR-39, choose it as reference in the Analysis step. Otherwise add a small-RNA reference that goes through the same RT." }); }
+  if (!v.expectNrt) { // with no-RT expected for every target, missing_control already reports this
+    const lnc = sampleTargets.filter(t => typeOf(t) === "lncRNA" && !exp.controlNA?.[`nrt|${t}`] && !active.some(r => r.role === "nrt" && r.target === t));
+    if (lnc.length) { const ws = sampleWells(lnc);
+      add("lncrna_no_nrt", "plate", { wells: wl(ws), lines: ln(ws), target: lnc.length === 1 ? lnc[0] : null,
+        description: `${lnc.length} lncRNA target(s) have no no-RT control on this plate.`,
+        evidence: `lncRNA targets without a no-RT well: ${typed(lnc)}`,
+        next_check: "Add a no-RT control for these assays, or, if the RNA was DNase-treated and the primers span an exon junction, mark the no-RT control not applicable for the target." }); }
+  }
 
   // Standard curves (FR-12)
   const stdRows = active.filter(r => r.role === "standard");

@@ -60,4 +60,4 @@ The panel shows short notes for the RNA types in your run. In brief:
 - The alias list covers common reference genes and lab nicknames, not every name in use. The database lookup catches many more (it searches aliases too).
 - A mature miRNA's gene symbol names one locus; the qPCR assay can't tell loci apart when they give the same mature sequence.
 - Species other than human, mouse and rat aren't looked up.
-- The RNA type isn't used by the checks yet; it is recorded and reported so a reader knows what was measured.
+- The RNA type is used by three low-severity checks (a miRNA normalised to an mRNA reference or the other way round, miRNAs with no small-RNA reference on the plate, lncRNAs with no no-RT control). Where you haven't set a type, they use the guess from the name, and the finding says so. See [rules.md](rules.md) and [thresholds.md](thresholds.md#rna-type-notes).
