@@ -4,15 +4,18 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import * as C from "./web/core.js";
 import * as R from "./web/report.js";
+import { readWorkbook } from "./web/excel.js";
 import { demoFiles } from "./web/demo.js";
 
 const USAGE = `PlateCheck ${C.APP_VERSION}
 Usage:
-  node cli.mjs <results.csv> [options]
+  node cli.mjs <results.csv|.txt|.xlsx|.xls> [options]
+    (an Excel workbook can hold the results, amplification and melt sheets together; they are picked up by themselves)
     --amp <file>            amplification curves
     --melt <file>           melt curves (enables melt checks)
     --melt-values <type>    derivative | fluorescence (default: detected)
     --map <file>            plate-map template to apply
+    --sheet <name>          take the results from this sheet of an Excel workbook
     --plate-size <96|384>   plate layout for files that number wells 1..N without positions
     --expect <list>         controls expected per target, e.g. ntc,positive,nrt (default: ntc)
     --set key=value         override a rule-set value, e.g. --set sdThreshold=0.5 (repeatable)
@@ -53,29 +56,40 @@ if (args[0] === "--write-demo") {
   process.exit(0);
 }
 
-const plateSize = Number(opt("--plate-size")) || undefined;
+const plateSize = Number(opt("--plate-size")) || undefined, sheetName = opt("--sheet");
 const ampPath = opt("--amp"), meltPath = opt("--melt"), meltValues = opt("--melt-values"), mapPath = opt("--map"), expect = opt("--expect");
 const sets = opt("--set", true), out = { report: opt("--report"), json: opt("--json"), wells: opt("--wells"), packet: opt("--packet") };
 if (args.length !== 1 || args[0].startsWith("--")) fail(USAGE);
 const input = args[0];
 
-const read = p => {
+// Returns { name, text, workbook?, book? } for a text file or for one sheet of an Excel workbook.
+const read = async (p, kind) => {
   let bytes;
   try { bytes = readFileSync(p); } catch (e) { fail(`Cannot read ${p}: ${e.message}`, 1); }
   const d = C.decodeBytes(bytes);
-  if (d.binary) fail(`${p}: ${C.BINARY_MESSAGE}`, 1);
-  return d.text;
+  if (!d.binary) return { name: basename(p), text: d.text };
+  const book = d.binary === "unknown" ? null : await readWorkbook(basename(p), bytes);
+  if (!book) fail(`${p}: ${C.BINARY_MESSAGE}`, 1);
+  const s = kind === "results" && sheetName ? book.all.find(x => x.sheet === sheetName) : book.best[kind] || book.all[0];
+  if (!s) fail(`${p}: no sheet called '${sheetName}'. Sheets: ${book.all.map(x => x.sheet).join(", ")}`, 2);
+  console.log(`Reading sheet '${s.sheet}' of ${basename(p)}`);
+  return { name: s.name, text: s.text, workbook: s.workbook, book };
 };
 const actor = process.env.USER || process.env.USERNAME || "cli";
 const exp = C.newExperiment({ title: basename(input) }, actor);
 try {
-  const text = read(input), parsed = C.parseResults(text, { plateSize });
-  exp.source = C.fileRecord({ name: basename(input), text, sha: await C.sha256(text), actor, format: parsed.format, plateSize: plateSize || null });
+  const src = await read(input, "results"), text = src.text, parsed = C.parseResults(text, { plateSize });
+  const wb = f => (f.workbook ? { workbook: f.workbook } : {});
+  exp.source = C.fileRecord({ name: src.name, text, sha: await C.sha256(text), actor, format: parsed.format, plateSize: plateSize || null, ...wb(src) });
   for (const w of parsed.warnings) console.log(`Note: ${w}`);
-  if (ampPath) { const t = read(ampPath); C.parseCurves(t, "amp"); exp.amp = C.fileRecord({ name: basename(ampPath), text: t, sha: await C.sha256(t), actor }); }
-  if (meltPath) {
-    const t = read(meltPath), m = C.parseCurves(t, "melt");
-    exp.melt = C.fileRecord({ name: basename(meltPath), text: t, sha: await C.sha256(t), actor, valueType: meltValues || m.guessedValueType });
+  // Curves come from --amp/--melt, or else from the same workbook when it has those sheets.
+  const curve = async (path, kind) => (path ? read(path, kind) : src.book?.best[kind] ? { name: src.book.best[kind].name, text: src.book.best[kind].text, workbook: src.book.best[kind].workbook } : null);
+  const amp = await curve(ampPath, "amp");
+  if (amp) { C.parseCurves(amp.text, "amp"); exp.amp = C.fileRecord({ name: amp.name, text: amp.text, sha: await C.sha256(amp.text), actor, ...wb(amp) }); }
+  const melt = await curve(meltPath, "melt");
+  if (melt) {
+    const m = C.parseCurves(melt.text, "melt");
+    exp.melt = C.fileRecord({ name: melt.name, text: melt.text, sha: await C.sha256(melt.text), actor, valueType: meltValues || m.guessedValueType, ...wb(melt) });
     exp.ruleset.values.meltChecks = true;
   }
 } catch (e) {
@@ -89,7 +103,7 @@ for (const kv of sets) {
   exp.ruleset.values[k] = f.type === "bool" ? v === "true" : Number(v);
 }
 if (mapPath) {
-  const t = read(mapPath), rows = C.effectiveRows(exp, C.parseResults(exp.source.text, { plateSize }));
+  const t = (await read(mapPath, "map")).text, rows = C.effectiveRows(exp, C.parseResults(exp.source.text, { plateSize }));
   try {
     const r = C.applyTemplate(exp, rows, C.parseTemplate(t), { name: basename(mapPath), sha256: await C.sha256(t), importedAt: new Date().toISOString(), importedBy: actor });
     console.log(`Plate map ${basename(mapPath)}: ${r.changes.length} change(s)` + (r.issues.length ? `; not applied: ${r.issues.join("; ")}` : ""));

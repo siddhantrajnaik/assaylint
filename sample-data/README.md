@@ -32,3 +32,7 @@ What's planted:
 - A typo in a well name (A1O instead of A04)
 - A missing Ct ("N/A")
 - A blank line and an "Average" row, which PlateCheck handles without losing data
+
+## 4. QuantStudio Excel export (one .xlsx file)
+
+Drop `4 QuantStudio Excel export.xlsx` on its own. It's run 2 saved the way QuantStudio's "Export to Excel" does it: one workbook with Sample Setup, Amplification Data and Results sheets, each with the run details on top. PlateCheck picks the Results and Amplification Data sheets itself, and you get the same flags as run 2.

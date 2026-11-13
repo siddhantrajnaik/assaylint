@@ -20,7 +20,7 @@ It won't tell you your experiment is right. It points out things worth a second 
 
 Method details, thresholds, comparing two runs and renaming or deleting a run are under **More**. Tick "Show all steps" in the sidebar if you prefer the full step-by-step view.
 
-It reads exports from QuantStudio, Bio-Rad CFX, ABI 7500/7900HT and LightCycler 480, or a plain CSV with well and Ct/Cq columns. Besides the report, you can download the well data and flags as CSV, everything as JSON, or the whole run as one file you can open again later.
+It reads exports from QuantStudio, Bio-Rad CFX, ABI 7500/7900HT and LightCycler 480, saved as Excel (.xlsx, .xls), CSV or text, or any sheet with well and Ct/Cq columns. Besides the report, you can download the well data and flags as CSV, everything as JSON, or the whole run as one file you can open again later.
 
 ## Run it yourself
 
@@ -46,7 +46,7 @@ node --test tests/*.test.mjs
 ## Things to know
 
 - I've tested it on 12 real exports from public datasets plus realistic files I generated ([testdata/README.md](testdata/README.md)). Machines I haven't seen yet may lay files out differently. If yours doesn't open, email it to me and I'll add support.
-- Excel files and raw run files (`.eds`, `.pcrd`) don't open. Export CSV or text from your instrument software.
+- Excel files open directly. PlateCheck reads every sheet and picks the results, amplification and melt sheets itself; numbers are read as stored, not as rounded on screen. Raw run files (`.eds`, `.pcrd`) don't open, so export Excel, CSV or text from your instrument software.
 - The default thresholds are common rules of thumb, not reviewed standards. Change them to match your lab.
 - Data is saved in your browser only. Download the experiment packet if you want a backup. More in [PRIVACY.md](PRIVACY.md).
 
@@ -60,4 +60,4 @@ Questions, bugs, or a file it can't read: **siddhantrajnaik2001@gmail.com**
 
 LinkedIn: [siddhant-raj-naik](https://www.linkedin.com/in/siddhant-raj-naik-22065b205)
 
-Built with three.js (MIT) and IBM Plex fonts (SIL OFL).
+Built with three.js (MIT), SheetJS for reading Excel files (Apache-2.0, `web/vendor/xlsx-LICENSE`) and IBM Plex fonts (SIL OFL).

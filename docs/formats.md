@@ -2,8 +2,16 @@
 
 ## Inputs
 
+### Excel workbooks
+`.xlsx`, `.xls` (Excel 97 and later) and `.ods` files are read in the browser with SheetJS (`web/vendor/xlsx.mjs`, Apache-2.0), which is loaded only when a workbook is dropped. Each sheet is turned into tab-separated text and then read exactly like a text export, so everything below applies to sheets too.
+
+- Every non-empty sheet is checked. The best sheet for each kind is picked: results (a sheet named like `Results` wins), amplification (`Amplification…`) and melt (`Melt…`). One QuantStudio workbook can therefore give the results and both curve files at once. In the Data tab preview you can switch to another sheet.
+- Numbers are taken as stored in the file, with every digit, not as Excel shows them on screen. Date cells keep their displayed form; formula cells use the value Excel saved; errors such as `#DIV/0!` stay as text and are flagged like any other non-numeric Ct.
+- The imported file is recorded as `<workbook> [<sheet>]` with the workbook name, sheet name and the SHA-256 of the workbook itself; the checksum stored with the run is of the sheet text that was read. *Download sheet as text* gives back exactly that text.
+- Instrument project files (`.eds`, `.pcrd`) are also zip files but are not workbooks, and are refused with a message.
+
 ### Results file (required)
-Comma, tab or semicolon separated text. Column names are matched case-insensitively.
+Comma, tab or semicolon separated text, or a sheet of an Excel workbook. Column names are matched case-insensitively. The delimiter is taken from the first line that has one; on a tie, tab wins.
 
 | Field | Accepted column names | Required |
 |---|---|---|
@@ -37,6 +45,7 @@ Safe failure: if the well or Ct/Cq column is missing, the plate size for numeric
 Import template: `well,sample,target,ct,role,group,bio_unit,quantity` (downloadable from the Data tab).
 
 ### Amplification and melt curves (optional)
+- The header row can sit below a block of run details (as in QuantStudio Excel exports); the first row with a `Cycle` or `Temperature` column is used.
 - **Long layout**: columns for well, optional target, `Cycle` (or `Temperature`), and a value (`Delta Rn`, `ΔRn`, `RFU`, `Fluorescence`, `Rn`, `Value`; for melt also `Derivative`, `-dF/dT`, `-d(RFU)/dT`, `-Rn'`).
 - **Wide layout**: a `Cycle` or `Temperature` column plus one column per well (`A1`, `A01`, …), as in CFX amplification and melt exports.
 - Melt values can be derivative or raw fluorescence; the user confirms which at import.

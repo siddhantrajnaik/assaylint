@@ -60,6 +60,9 @@ p { margin: 0 0 .75rem; } ul, ol { margin: 0; }
 .btn:hover { border-color: #AEB9B4; background: #F7F9F8; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { background: #095A4D; }
+.sheet-pick { align-items: center; gap: 6px; margin: 8px 0; }
+.sheet-pick .btn { min-height: 28px; padding: 3px 10px; font-size: .85rem; }
+.sheet-pick .btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .btn.danger { color: var(--high); border-color: #E7B8B3; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn input[type=file] { display: none; }

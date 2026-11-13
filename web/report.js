@@ -95,7 +95,7 @@ ${info.length ? `<p><b>Other notes</b></p><ul>${info.map(f => `<li>${esc(f.descr
 ${kv([["Title", exp.title], ["Project", exp.project], ["Operator", exp.operator], ["Run date", exp.date], ...CONTEXT_FIELDS.map(f => [f.label, exp.context?.[f.key]])])}
 
 <h2>Files</h2>
-${files.map(([k, f]) => `<div class="file"><h3>${esc(k)}: ${esc(f.name)}</h3>${kv([["Imported", `${when(f.importedAt)} by ${f.importedBy}`], ["SHA-256 checksum", null], f.valueType && ["Melt values", f.valueType], f.plateSize && ["Plate layout", `${f.plateSize}-well`]]).replace("<dd>Not recorded</dd>", `<dd class="mono">${esc(f.sha256)}</dd>`)}</div>`).join("")}
+${files.map(([k, f]) => `<div class="file"><h3>${esc(k)}: ${esc(f.name)}</h3>${kv([["Imported", `${when(f.importedAt)} by ${f.importedBy}`], f.workbook && ["From Excel file", `${f.workbook.name}, sheet “${f.workbook.sheet}”`], ["SHA-256 checksum", null], f.valueType && ["Melt values", f.valueType], f.plateSize && ["Plate layout", `${f.plateSize}-well`]]).replace("<dd>Not recorded</dd>", `<dd class="mono">${esc(f.sha256)}</dd>`)}</div>`).join("")}
 ${p ? kv([["Layout recognised", FORMATS[p.format]], ["Columns read", Object.entries(p.columns).map(([k, v]) => `${FIELD_LABEL[k]} from “${v}”`).join(", ")],
   p.unrecognized.length && ["Columns ignored", p.unrecognized.join(", ")], ["Rows read", String(p.rows.length)], p.malformed.length && ["Rows that couldn't be read", p.malformed.map(m => `line ${m.line}`).join(", ")],
   p.warnings.length && ["Notes from reading the file", p.warnings.join(" ")], ["Reader version", PARSER_VERSION]]) : "<p>No results file imported.</p>"}

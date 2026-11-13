@@ -36,7 +36,7 @@ export const STATUS_LABEL = {
 export const FORMATS = {
   "generic-ct-csv": "Generic Ct/Cq table (comma, tab or semicolon separated)",
   "biorad-cfx-cq": "Bio-Rad CFX “Quantification Cq Results” export",
-  "thermo-quantstudio": "Thermo Fisher QuantStudio results export (text or CSV, with instrument preamble)",
+  "thermo-quantstudio": "Thermo Fisher QuantStudio results export (text, CSV or Excel, with instrument preamble)",
   "abi-sds": "Applied Biosystems SDS export (7000/7300/7500/7900HT, SDS 1.x/2.x)",
 };
 export const IMPORT_TEMPLATE =
@@ -278,10 +278,13 @@ export function normalizeRole(raw) {
 }
 
 // ---------------------------------------------------------------- delimited text
+// Looks at the first line that has a delimiter in it (a title line on its own says nothing). On a tie, tab wins:
+// tab-separated text often has commas inside cells, but CSV files almost never contain tabs.
 function detectDelimiter(text) {
-  const first = text.split(/\r?\n/).find(l => l.trim() !== "") || "";
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+  const first = lines.find(l => /[,\t;]/.test(l)) || lines[0] || "";
   const count = ch => first.split(ch).length - 1;
-  return [",", "\t", ";"].map(d => [d, count(d)]).sort((a, b) => b[1] - a[1])[0][0];
+  return ["\t", ",", ";"].map(d => [d, count(d)]).sort((a, b) => b[1] - a[1])[0][0];
 }
 export function splitDelimited(text, delim = detectDelimiter(text)) {
   const rows = []; let row = [], cell = "", q = false, line = 1, start = 1;
@@ -437,7 +440,10 @@ const Y_ALIASES = {
 };
 export function parseCurves(input, kind) {
   const text = String(input ?? "").replace(/^﻿/, "");
-  const delim = detectDelimiter(text), dc = delim === ";", rows = splitDelimited(text, delim);
+  const delim = detectDelimiter(text), dc = delim === ";", all = splitDelimited(text, delim);
+  // The header is the first row with a cycle or temperature column. QuantStudio puts a block of run details above it.
+  const hi = all.slice(0, 500).findIndex(r => r.cells.some(c => X_ALIASES[kind].includes(normHeader(c.trim()))));
+  const rows = hi > 0 ? all.slice(hi) : all;
   if (rows.length < 2) throw new ParseError("The curve file has no data rows.");
   const hdr = rows[0].cells.map(s => s.trim()), norm = hdr.map(normHeader);
   const find = list => { for (const a of list) { const i = norm.indexOf(a); if (i >= 0) return i; } return -1; };
@@ -579,6 +585,7 @@ function cleanFile(f, kind) {
     importedBy: asStr(f.importedBy) || "unknown", parserVersion: asStr(f.parserVersion) || PARSER_VERSION };
   if (kind === "source") { out.format = asStr(f.format) in FORMATS ? f.format : "generic-ct-csv"; out.plateSize = [96, 384].includes(f.plateSize) ? f.plateSize : null; }
   if (kind === "melt") out.valueType = f.valueType === "fluorescence" ? "fluorescence" : "derivative";
+  if (isObj(f.workbook) && asStr(f.workbook.name)) out.workbook = { name: asStr(f.workbook.name), sheet: asStr(f.workbook.sheet), sha256: asStr(f.workbook.sha256) };
   return out;
 }
 function cleanValues(v) {
@@ -1049,4 +1056,4 @@ export function decodeBytes(input) {
   try { return { text: new TextDecoder("utf-8", { fatal: true }).decode(b), encoding: "UTF-8" }; }
   catch { return { text: dec("windows-1252"), encoding: "Windows-1252" }; }
 }
-export const BINARY_MESSAGE = "This looks like an Excel workbook or an instrument project file, not an export. In your instrument software, export the results as CSV or text and drop that instead.";
+export const BINARY_MESSAGE = "This looks like an instrument project file (such as .eds or .pcrd), not an export, so I can't read it. In your instrument software, export the results as Excel, CSV or text and drop that instead.";

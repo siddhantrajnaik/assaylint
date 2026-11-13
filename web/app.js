@@ -5,6 +5,7 @@ import * as S from "./store.js";
 import { demoFiles, DEMO_CONTEXT, DEMO_TITLE } from "./demo.js";
 import { plot } from "./charts.js";
 import { CREDIT } from "./credit.js";
+import { readWorkbook } from "./excel.js";
 
 const $ = s => document.querySelector(s);
 // File contents are untrusted: the DOM is built with text nodes only (no innerHTML).
@@ -61,6 +62,16 @@ function openExp(id) {
 function flash(msg, bad = false) { st.flash = { msg, bad }; }
 // Reads a dropped file as text, coping with UTF-16 and Windows-1252; returns { binary } for workbooks and project files.
 async function readText(file) { return C.decodeBytes(await file.arrayBuffer()); }
+// Reads a dropped file of any kind we take. Text gives { text }; an Excel workbook gives { workbook }
+// with its sheets already sorted into results, amplification and melt; anything else gives { binary }.
+async function readAny(file) {
+  const buf = await file.arrayBuffer(), d = C.decodeBytes(buf);
+  if (!d.binary || d.binary === "unknown") return d;
+  const workbook = await readWorkbook(file.name, buf).catch(() => null);
+  return workbook ? { workbook } : d;
+}
+const ACCEPT = ".csv,.txt,.tsv,.xlsx,.xls,.ods,text/csv,text/plain,text/tab-separated-values";
+const noExt = n => n.replace(/\.(csv|txt|tsv|xlsx|xls|ods)$/i, "");
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = h("a", { href: url, download: name }); document.body.append(a); a.click(); a.remove();
@@ -175,8 +186,8 @@ function bigDrop() {
   const z = h("div", { class: "home-drop", ondragover: ev => { ev.preventDefault(); z.classList.add("over"); }, ondragleave: () => z.classList.remove("over"),
     ondrop: ev => { ev.preventDefault(); z.classList.remove("over"); quickFiles(ev.dataTransfer.files); } },
     h("p", { class: "hd-title" }, "Drop your instrument export here"),
-    h("p", { class: "hd-sub" }, "The results file with your Ct or Cq values. Add the amplification and melt curve files too if you have them."),
-    h("label", { class: "btn primary" }, "Choose files", h("input", { type: "file", multiple: true, accept: ".csv,.txt,.tsv,text/csv,text/plain", onchange: ev => quickFiles(ev.target.files) })));
+    h("p", { class: "hd-sub" }, "Excel, CSV or text. The results file with your Ct or Cq values. Add the amplification and melt curve files too if you have them."),
+    h("label", { class: "btn primary" }, "Choose files", h("input", { type: "file", multiple: true, accept: ACCEPT, onchange: ev => quickFiles(ev.target.files) })));
   return z;
 }
 function home() {
@@ -226,13 +237,21 @@ async function quickFiles(fileList) {
   if (!files.length) return;
   const tooBig = files.find(f => f.size > 25e6);
   if (tooBig) { flash(`${tooBig.name} is larger than 25 MB, so I didn't read it.`, true); return render(); }
-  const decoded = await Promise.all(files.map(async f => ({ file: f, ...(await readText(f)) })));
+  const decoded = await Promise.all(files.map(async f => ({ file: f, ...(await readAny(f)) })));
   const packet = decoded.find(d => d.text && /^\s*\{/.test(d.text) && /"assaylint-packet"/.test(d.text.slice(0, 400)));
   if (packet) return importPacket(packet.file);
   const binary = decoded.filter(d => d.binary);
   if (binary.length && binary.length === decoded.length) { flash(`${binary.map(d => d.file.name).join(", ")}: ${C.BINARY_MESSAGE}`, true); return render(); }
-  const items = await Promise.all(decoded.filter(d => d.text != null).map(async d => ({ name: d.file.name, text: d.text, encoding: d.encoding, sha: await C.sha256(d.text), ...C.detectFileKind(d.text) })));
-  const results = items.filter(i => i.kind === "results"), unread = [...items.filter(i => !i.kind), ...binary.map(d => ({ name: d.file.name }))];
+  const items = [], emptyBooks = [];
+  for (const d of decoded) {
+    if (d.text != null) items.push({ name: d.file.name, text: d.text, encoding: d.encoding, ...C.detectFileKind(d.text) });
+    else if (d.workbook) {
+      const picked = Object.values(d.workbook.best);
+      if (picked.length) items.push(...picked); else emptyBooks.push({ name: d.file.name });
+    }
+  }
+  for (const i of items) i.sha = await C.sha256(i.text);
+  const results = items.filter(i => i.kind === "results"), unread = [...items.filter(i => !i.kind), ...emptyBooks, ...binary.map(d => ({ name: d.file.name }))];
   if (results.length !== 1) {
     const msg = results.length > 1 ? `I got ${results.length} results files (${results.map(r => r.name).join(", ")}). Drop one run at a time.`
       : unread.length ? `I couldn't read ${unread.map(u => u.name).join(", ")}. A results file needs a well column (like A1) and a Ct or Cq column. If yours has both, email it to ${CREDIT.email} and I'll add support for it.`
@@ -240,20 +259,23 @@ async function quickFiles(fileList) {
     flash(msg, true); return render();
   }
   const r = results[0], a = actor();
-  const e = C.newExperiment({ title: r.name.replace(/\.(csv|txt|tsv)$/i, ""), operator: actor() === "local user" ? "" : actor() }, a);
+  const e = C.newExperiment({ title: noExt(r.workbook?.name || r.name), operator: actor() === "local user" ? "" : actor() }, a);
   Object.assign(st, { exp: e, pending: {}, sel: new Set(), selFinding: null });
-  if (r.needsPlateSize) st.pending.results = { name: r.name, text: r.text, sha: r.sha, error: r.error.message, details: r.error.details || {} };
+  const book = i => (i.workbook ? { workbook: i.workbook } : {});
+  if (r.needsPlateSize) st.pending.results = { name: r.name, text: r.text, sha: r.sha, ...book(r), error: r.error.message, details: r.error.details || {} };
   else {
-    e.source = C.fileRecord({ name: r.name, text: r.text, sha: r.sha, actor: a, format: r.parsed.format });
+    e.source = C.fileRecord({ name: r.name, text: r.text, sha: r.sha, actor: a, format: r.parsed.format, ...book(r) });
     C.logAudit(e, a, "file.import", `Results: ${r.name} (sha256 ${r.sha.slice(0, 12)}…; ${C.FORMATS[r.parsed.format]}, ${r.parsed.rows.length} rows)`);
   }
   for (const c of items.filter(i => i.kind === "amp" || i.kind === "melt")) {
     if (e[c.kind]) continue;
-    e[c.kind] = C.fileRecord({ name: c.name, text: c.text, sha: c.sha, actor: a, ...(c.kind === "melt" ? { valueType: c.parsed.guessedValueType } : {}) });
+    e[c.kind] = C.fileRecord({ name: c.name, text: c.text, sha: c.sha, actor: a, ...book(c), ...(c.kind === "melt" ? { valueType: c.parsed.guessedValueType } : {}) });
     C.logAudit(e, a, "file.import", `${c.kind === "amp" ? "Amplification curves" : "Melt curves"}: ${c.name} (sha256 ${c.sha.slice(0, 12)}…)`);
     if (c.kind === "melt") { e.ruleset.values.meltChecks = true; C.logAudit(e, a, "ruleset.edit", "Melt-curve checks turned on because a melt file was added"); }
   }
-  st.quick = { id: e.id, files: [r, ...items.filter(i => i.kind === "amp" || i.kind === "melt")].map(i => i.name), skipped: unread.map(u => u.name),
+  // How each file is named in the note: a sheet of the same workbook is just "sheet “Amplification Data”".
+  const label = i => (!i.workbook ? i.name : i !== r && i.workbook.name === r.workbook?.name ? `sheet “${i.workbook.sheet}”` : `${i.workbook.name}, sheet “${i.workbook.sheet}”`);
+  st.quick = { id: e.id, files: [r, ...items.filter(i => i.kind === "amp" || i.kind === "melt")].map(label), skipped: unread.map(u => u.name),
     rows: r.parsed?.rows.length, format: r.parsed && C.FORMATS[r.parsed.format], melt: e.melt?.valueType };
   st.tab = r.needsPlateSize ? "data" : "findings";
   reanalyze(); persist(); render(); scrollTo(0, 0);
@@ -349,21 +371,33 @@ const KIND = {
 async function stage(kind, file) {
   if (!file) return;
   if (file.size > 25e6) { flash(`${file.name} is larger than 25 MB and was not read.`, true); renderMain(); return; }
-  const d = await readText(file);
+  const d = await readAny(file);
   if (d.binary) { flash(`${file.name}: ${C.BINARY_MESSAGE}`, true); renderMain(); return; }
+  if (d.workbook) {
+    const s = d.workbook.best[kind] || d.workbook.all[0];
+    return stageText(kind, s.name, s.text, undefined, { workbook: s.workbook, sheets: d.workbook.all.length > 1 ? d.workbook.all : null });
+  }
   stageText(kind, file.name, d.text);
 }
-async function stageText(kind, name, text, plateSize) {
-  const sha = await C.sha256(text);
+// extra is { workbook, sheets } when the text came from one sheet of an Excel file.
+async function stageText(kind, name, text, plateSize, extra = {}) {
+  const sha = await C.sha256(text), base = { name, text, sha, plateSize, workbook: extra.workbook, sheets: extra.sheets };
   try {
     const parsed = kind === "results" ? C.parseResults(text, { plateSize }) : C.parseCurves(text, kind);
-    st.pending[kind] = { name, text, sha, parsed, valueType: parsed.guessedValueType, plateSize };
-  } catch (err) { st.pending[kind] = { name, text, sha, error: err.message, details: err.details || {} }; }
+    st.pending[kind] = { ...base, parsed, valueType: parsed.guessedValueType };
+  } catch (err) { st.pending[kind] = { ...base, error: err.message, details: err.details || {} }; }
   renderMain();
+}
+// Lets the user switch to another sheet when a workbook has more than one.
+function sheetPicker(kind, p) {
+  if (!p.sheets) return null;
+  return h("div", { class: "row sheet-pick" }, h("span", null, "Sheet:"),
+    p.sheets.map(s => h("button", { class: "btn" + (s.sheet === p.workbook?.sheet ? " on" : ""), type: "button", "aria-pressed": String(s.sheet === p.workbook?.sheet),
+      onclick: () => stageText(kind, s.name, s.text, undefined, { workbook: s.workbook, sheets: p.sheets }) }, s.sheet)));
 }
 function confirmImport(kind) {
   const p = st.pending[kind], k = KIND[kind], e = st.exp;
-  const rec = C.fileRecord({ name: p.name, text: p.text, sha: p.sha, actor: actor(), ...(kind === "results" ? { format: p.parsed.format, plateSize: p.plateSize || null } : {}), ...(kind === "melt" ? { valueType: p.valueType } : {}) });
+  const rec = C.fileRecord({ name: p.name, text: p.text, sha: p.sha, actor: actor(), ...(p.workbook ? { workbook: p.workbook } : {}), ...(kind === "results" ? { format: p.parsed.format, plateSize: p.plateSize || null } : {}), ...(kind === "melt" ? { valueType: p.valueType } : {}) });
   const old = e[k.slot], clearMap = kind === "results" && old && Object.keys(e.map).length > 0;
   if (clearMap && !confirm("Replacing the results file clears plate-map edits, which are tied to rows of the previous file. Review notes are kept. Continue?")) return;
   delete st.pending[kind];
@@ -380,18 +414,18 @@ function dropzone(kind, label) {
   const z = h("div", { class: "drop", ondragover: ev => { ev.preventDefault(); z.classList.add("over"); }, ondragleave: () => z.classList.remove("over"),
     ondrop: ev => { ev.preventDefault(); z.classList.remove("over"); stage(kind, ev.dataTransfer.files[0]); } },
     h("strong", null, "Drop a file here, or"),
-    h("label", { class: "btn primary" }, label, h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values", onchange: ev => stage(kind, ev.target.files[0]) })));
+    h("label", { class: "btn primary" }, label, h("input", { type: "file", accept: ACCEPT, onchange: ev => stage(kind, ev.target.files[0]) })));
   return z;
 }
 const kv = pairs => h("dl", { class: "kv" }, pairs.filter(Boolean).flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v === "" || v == null ? "—" : v)]));
 function preview(kind, p) {
   const cancel = h("button", { class: "btn", type: "button", onclick: () => { delete st.pending[kind]; renderMain(); } }, p.error ? "Dismiss" : "Cancel");
   if (p.error) return h("div", { class: "preview bad" },
-    h("b", null, `Could not import ${p.name}. No checks were run.`), h("p", null, p.error),
+    h("b", null, `Could not import ${p.name}. No checks were run.`), sheetPicker(kind, p), h("p", null, p.error),
     p.details.headers?.length > 0 && h("p", { class: "muted" }, "Columns found: " + p.details.headers.join(", ")),
     p.details.recognized && Object.keys(p.details.recognized).length > 0 && h("p", { class: "muted" }, "Recognised: " + Object.entries(p.details.recognized).map(([k, v]) => `${C.FIELD_LABEL[k]} ← “${v}”`).join(", ")),
     p.details.needsPlateSize && h("div", { class: "row" }, h("b", null, "Plate layout:"),
-      [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "btn primary", type: "button", onclick: () => stageText(kind, p.name, p.text, n) }, `${n}-well (row by row)`)),
+      [96, 384].filter(n => n >= p.details.maxWell).map(n => h("button", { class: "btn primary", type: "button", onclick: () => stageText(kind, p.name, p.text, n, { workbook: p.workbook, sheets: p.sheets }) }, `${n}-well (row by row)`)),
       h("small", { class: "muted" }, "Pick the plate your instrument used. The preview will show the resulting positions so you can check them.")),
     kind === "results" && !p.details.needsPlateSize && h("p", null, "PlateCheck needs a well column (for example “Well” or “Well Position”) and a Ct/Cq column. If your export differs, copy the data into the import template."),
     h("div", { class: "row" }, kind === "results" && !p.details.needsPlateSize && h("button", { class: "btn primary", type: "button", onclick: () => download("platecheck-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"), cancel));
@@ -399,7 +433,7 @@ function preview(kind, p) {
   if (kind !== "results") {
     const used = new Set((st.res?.rows || []).map(x => x.key).filter(Boolean));
     const covered = [...used].filter(k => r.wells.includes(k)).length;
-    return h("div", { class: "preview" }, h("b", null, `Preview of ${p.name}`),
+    return h("div", { class: "preview" }, h("b", null, `Preview of ${p.name}`), sheetPicker(kind, p),
       kv([["Layout", r.layout === "long" ? "One row per well and " + (kind === "amp" ? "cycle" : "temperature") : "One column per well"],
         ["X column", r.xName], ["Value column", r.layout === "long" ? r.yName : "(well columns)"], ["Curves", String(Object.keys(r.series).length)], ["Data points", String(r.points)],
         ["Wells", r.wells.slice(0, 40).join(", ") + (r.wells.length > 40 ? ` … (${r.wells.length})` : "")],
@@ -414,7 +448,7 @@ function preview(kind, p) {
   const keys = r.rows.map(x => x.key).filter(Boolean);
   const roles = C.groupBy(r.rows.filter(x => x.role), x => x.role);
   const inferredNtc = r.rows.filter(x => !x.role && x.sample && /^(ntc|no[\s_-]?template([\s_-]?control)?|water|h2o|blank)$/i.test(x.sample)).length;
-  return h("div", { class: "preview" }, h("b", null, `Preview of ${p.name}. Check it before importing.`),
+  return h("div", { class: "preview" }, h("b", null, `Preview of ${p.name}. Check it before importing.`), sheetPicker(kind, p),
     kv([["Detected format", r.formatLabel], ["Columns used", Object.entries(r.columns).map(([k, v]) => `${C.FIELD_LABEL[k]} ← “${v}”`).join(", ")],
       ["Columns not used", r.unrecognized.join(", ")], ["Rows parsed", String(r.rows.length)],
       ["Distinct wells", `${new Set(keys).size}` + (r.rows.length - keys.length ? `; ${r.rows.length - keys.length} row(s) with an invalid position` : "")],
@@ -438,7 +472,7 @@ VIEWS.data = () => {
     const cur = st.exp[k.slot], p = st.pending[kind];
     return card(h("h2", null, k.title), h("p", { class: "muted", style: "margin-top:-.4rem" }, k.sub),
       cur && h("div", { class: "filemeta" }, h("b", null, cur.name),
-        kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], cur.format && ["Layout", C.FORMATS[cur.format]],
+        kv([["Imported", `${when(cur.importedAt)} by ${cur.importedBy}`], cur.workbook && ["From", `${cur.workbook.name}, sheet “${cur.workbook.sheet}”`], cur.format && ["Layout", C.FORMATS[cur.format]],
           cur.plateSize && ["Plate", `${cur.plateSize}-well`], cur.valueType && ["Melt values", cur.valueType],
           ["Checksum", h("span", { class: "mono", title: "SHA-256 of the file as imported" }, cur.sha256)]]),
         kind === "results" && st.res?.parsed && h("details", { class: "what-read", open: st.quick?.id === st.exp.id }, h("summary", null, "What was read from this file"),
@@ -448,14 +482,15 @@ VIEWS.data = () => {
             ["Targets", [...new Set(st.res.rows.map(r => r.target).filter(Boolean))].join(", ") || "none named"],
             st.res.parsed.warnings.length && ["Notes", st.res.parsed.warnings.join(" ")]])),
         !p && h("div", { class: "row" },
-          h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
-          h("label", { class: "btn" }, "Replace", h("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain", onchange: ev => stage(kind, ev.target.files[0]) })),
+          cur.workbook ? h("button", { class: "btn", type: "button", title: "The sheet exactly as PlateCheck read it, as tab-separated text", onclick: () => download(`${noExt(cur.workbook.name)} - ${cur.workbook.sheet}.txt`, cur.text, "text/plain") }, "Download sheet as text")
+            : h("button", { class: "btn", type: "button", onclick: () => download(cur.name, cur.text, "text/plain") }, "Download original"),
+          h("label", { class: "btn" }, "Replace", h("input", { type: "file", accept: ACCEPT, onchange: ev => stage(kind, ev.target.files[0]) })),
           kind !== "results" && h("button", { class: "btn", type: "button", onclick: () => removeFile(kind) }, "Remove"))),
       p ? preview(kind, p) : cur ? null : (kind === "results" || st.exp.source) ? dropzone(kind, "Choose file") : h("p", { class: "fine" }, "Add the results file first."));
   });
   return [...cards, card(h("h2", null, "Which files work"),
-    h("p", null, "Results exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT and LightCycler 480, or any CSV with a well column and a Ct or Cq column. Curve files can have one row per reading or one column per well."),
-    h("p", { class: "fine" }, "I've tested it on real exports from QuantStudio, Bio-Rad CFX and ABI 7500/7900HT machines, plus LightCycler 480 and European-format files. Other machines may lay things out differently, so look at the preview before you confirm. Excel and raw run files (.eds, .pcrd) won't open; export CSV or text instead. If your file doesn't work, email it to me and I'll add support."),
+    h("p", null, "Results exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT and LightCycler 480 (Excel, CSV or text), or any sheet with a well column and a Ct or Cq column. Curve files can have one row per reading or one column per well."),
+    h("p", { class: "fine" }, "I've tested it on real exports from QuantStudio, Bio-Rad CFX and ABI 7500/7900HT machines, plus LightCycler 480 and European-format files. Other machines may lay things out differently, so look at the preview before you confirm. Excel files (.xlsx, .xls) work too: I read every sheet, pick the results, amplification and melt sheets, and you can switch sheets in the preview. Raw run files (.eds, .pcrd) won't open; export Excel, CSV or text instead. If your file doesn't work, email it to me and I'll add support."),
     h("button", { class: "btn", type: "button", onclick: () => download("platecheck-import-template.csv", C.IMPORT_TEMPLATE, "text/csv") }, "Download import template"))];
 };
 
@@ -545,7 +580,9 @@ VIEWS.map = () => {
   };
   const importTpl = async file => {
     if (!file) return;
-    const d = await readText(file), text = d.text;
+    const d = await readAny(file);
+    let text = d.text;
+    if (d.workbook) text = (d.workbook.all.find(s => { try { C.parseTemplate(s.text); return true; } catch { return false; } }) || d.workbook.all[0]).text;
     if (!text) { flash(`${file.name}: ${C.BINARY_MESSAGE}`, true); renderMain(); return; }
     try {
       const tpl = C.parseTemplate(text), sha = await C.sha256(text);
@@ -606,7 +643,7 @@ VIEWS.map = () => {
         h("button", { class: "btn", type: "button", disabled: !st.sel.size, onclick: resetSel }, "Revert selected to file values"),
         h("button", { class: "btn", type: "button", onclick: () => { st.sel = new Set(present); renderMain(); } }, "Select all")),
       h("div", { class: "row", style: "margin:12px 0" },
-        h("label", { class: "btn" }, "Import plate-map file", h("input", { type: "file", accept: ".csv,.txt,.tsv", onchange: ev => importTpl(ev.target.files[0]) })),
+        h("label", { class: "btn" }, "Import plate-map file", h("input", { type: "file", accept: ACCEPT, onchange: ev => importTpl(ev.target.files[0]) })),
         h("button", { class: "btn", type: "button", onclick: () => download(`${st.exp.id}.platemap.csv`, C.mapTemplateCsv(st.res.rows), "text/csv") }, "Download plate map"),
         h("label", { class: "check" }, h("input", { type: "checkbox", checked: st.mapFilter === "selected", onchange: ev => { st.mapFilter = ev.target.checked ? "selected" : "all"; renderMain(); } }), "Only selected wells")),
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" },

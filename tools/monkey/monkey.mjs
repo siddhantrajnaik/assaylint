@@ -55,7 +55,7 @@ await tick(20);
 // Files to drop: real fixtures, sample data, and junk.
 const read = p => readFileSync(join(ROOT, p));
 const fixtures = [];
-for (const dir of ["sample-data", "testdata/realistic", "examples"]) for (const n of readdirSync(join(ROOT, dir))) if (/\.(csv|txt)$/.test(n)) fixtures.push([n, read(join(dir, n))]);
+for (const dir of ["sample-data", "testdata/realistic", "examples"]) for (const n of readdirSync(join(ROOT, dir))) if (/\.(csv|txt|xlsx)$/.test(n)) fixtures.push([n, read(join(dir, n))]);
 try { for (const d of readdirSync(join(ROOT, "testdata/public"))) for (const n of readdirSync(join(ROOT, "testdata/public", d))) fixtures.push([n, read(join("testdata/public", d, n))]); } catch { /* not downloaded */ }
 const junk = [["empty.csv", ""], ["notes.txt", "hello world"], ["book.xlsx", new Uint8Array([0x50, 0x4b, 3, 4, 1, 2, 3])], ["x.json", "{\"a\":1}"], ["half.csv", "Well,Ct\nA1"],
   ["weird.csv", "Well,Sample,Target,Ct\nA1,<img src=x onerror=1>,T,20\nA1,,,\n,,,\nZZ,s,T,abc\n"]];
