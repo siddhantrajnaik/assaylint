@@ -36,3 +36,30 @@ What's planted:
 ## 4. QuantStudio Excel export (one .xlsx file)
 
 Drop `4 QuantStudio Excel export.xlsx` on its own. It's run 2 saved the way QuantStudio's "Export to Excel" does it: one workbook with Sample Setup, Amplification Data and Results sheets, each with the run details on top. PlateCheck picks the Results and Amplification Data sheets itself, and you get the same flags as run 2.
+
+## 5 and 6. Assay calculations: ChIP-qPCR and MSRE-qPCR
+
+These two runs are for the assay calculations (More, then Assay calculations). Drop one file, open that page, pick the experiment type and click "Fill in … wells from sample names". The run checks on the Review page work on them as usual.
+
+### 5. ChIP-qPCR, % input and IgG (Bio-Rad CFX96 layout)
+
+`5 ChIP-qPCR percent input - results.csv`: H3K27ac ChIP from WT and KO chromatin at the MYC promoter, a MYC enhancer and a gene desert (GAPDH-desert), with IP, 1% input and IgG wells in triplicate. The chromatin is in the Biological Set Name column, which PlateCheck uses as the set. Choose ChIP-qPCR, leave the input at 1% and set the negative region to GAPDH-desert.
+
+What's planted:
+- In KO at the MYC enhancer the IgG comes up earlier than the IP
+- The KO input wells for GAPDH-desert were never loaded, so there's no % input there
+- One WT IP replicate at the enhancer is 0.9 cycles off
+- The MYC promoter NTC comes up at Ct 34.1 (a normal Review flag)
+
+You should see about 4% input and 64-fold over IgG at the WT promoter.
+
+### 6. MSRE-qPCR methylation (QuantStudio 3 text layout)
+
+`6 MSRE-qPCR methylation - results.txt`: two normal and two tumour DNAs plus M.SssI-methylated DNA (SssI-DNA), each mock-digested and digested with HpaII, at the MGMT promoter, RASSF1A and a region without an HpaII site (noSite-ctrl). Choose MSRE-qPCR, set the region with no cut site to noSite-ctrl and the fully methylated set to SssI-DNA.
+
+What's planted:
+- The Tumour-2 mock digest for RASSF1A failed
+- Tumour-1 RASSF1A comes out above 100%, because its digested wells came up earlier than the mock
+- Normal-2 RASSF1A was cut completely (its digested wells are Undetermined)
+
+The MGMT promoter comes out at about 75% methylated in Tumour-1 and about 5% in the normals.

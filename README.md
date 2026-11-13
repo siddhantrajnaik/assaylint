@@ -50,7 +50,7 @@ node --test tests/*.test.mjs
 - Each default threshold has a stated reason and source ([docs/thresholds.md](docs/thresholds.md)). Some are published acceptance criteria, some are my own rules of thumb. Change them to match your lab.
 - Data is saved in your browser only. Download the experiment packet if you want a backup. More in [PRIVACY.md](PRIVACY.md).
 
-More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
+More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/assays.md](docs/assays.md) (ChIP, MSRE, 3C and other assay calculations), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
 
 ## Who made this
 
