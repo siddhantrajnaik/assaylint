@@ -6,6 +6,7 @@ import {
 import { CREDIT } from "./credit.js";
 import { analysisReportHtml } from "./analysis.js"; // analysis module
 import { assayReportHtml } from "./assays.js"; // assay types: workstream 4
+import { targetsReportHtml } from "./genes.js"; // genes and RNA types per target
 
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const when = iso => (iso ? iso.slice(0, 16).replace("T", " ") + " UTC" : "");
@@ -95,6 +96,7 @@ ${info.length ? `<p><b>Other notes</b></p><ul>${info.map(f => `<li>${esc(f.descr
 
 <h2>Experiment</h2>
 ${kv([["Title", exp.title], ["Project", exp.project], ["Operator", exp.operator], ["Run date", exp.date], ...CONTEXT_FIELDS.map(f => [f.label, exp.context?.[f.key]])])}
+${targetsReportHtml(exp, res, { esc, table })}
 
 <h2>Files</h2>
 ${files.map(([k, f]) => `<div class="file"><h3>${esc(k)}: ${esc(f.name)}</h3>${kv([["Imported", `${when(f.importedAt)} by ${f.importedBy}`], f.workbook && ["From Excel file", `${f.workbook.name}, sheet “${f.workbook.sheet}”`], ["SHA-256 checksum", null], f.valueType && ["Melt values", f.valueType], f.plateSize && ["Plate layout", `${f.plateSize}-well`]]).replace("<dd>Not recorded</dd>", `<dd class="mono">${esc(f.sha256)}</dd>`)}</div>`).join("")}
@@ -155,7 +157,7 @@ function analysisJson(res) {
 export function structuredJson(exp, res) {
   const files = Object.fromEntries(["source", "amp", "melt"].filter(k => exp[k]).map(k => { const { text, ...meta } = exp[k]; return [k, meta]; }));
   return JSON.stringify({ format: "assaylint-results", tool: TOOL, app_version: APP_VERSION, parser_version: PARSER_VERSION, exported_at: new Date().toISOString(),
-    experiment: { id: exp.id, title: exp.title, assay: exp.assay, date: exp.date, project: exp.project, operator: exp.operator, context: exp.context, files },
+    experiment: { id: exp.id, title: exp.title, assay: exp.assay, date: exp.date, project: exp.project, operator: exp.operator, context: exp.context, targets: exp.targets, files },
     analysis: analysisJson(res), reviews: exp.reviews, wells: res.rows }, null, 2);
 }
 export function packetJson(exp, res) {
