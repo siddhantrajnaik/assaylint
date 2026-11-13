@@ -479,3 +479,24 @@ test("95% confidence intervals: group mean (t, n − 1 df) and difference from t
   exp.analysis = C.cleanAnalysisSettings({ ...setFor("welch"), error: "ci" });
   assert.match(R.reportHtml(exp, res), /95% CI vs control \(Welch\)/);
 });
+
+test("paired tests also give the fold change from the within-pair differences", () => {
+  // b3 has no partner, so the paired fold change for drugB uses b1 and b2 only and differs from the group mean.
+  const { exp, res } = threeRun(["Pair"], r => [{ ...PAIRS, b3: "" }[r[1]] || ""]);
+  for (const test of ["paired", "wilcoxon"]) {
+    const a = A.analyzeRun(exp, res, setFor(test)), rB = a.summary.find(x => x.group === "drugB");
+    const d = [dctOf("b1") - dctOf("c1"), dctOf("b2") - dctOf("c2")];
+    near(rB.pairedDdct, S.mean(d), 1e-12, `${test}: mean paired ΔΔCt`);
+    near(rB.pairedFold, 2 ** -S.mean(d), 1e-12, `${test}: fold from pairs`);
+    const ci = S.meanCi(d);
+    near(rB.pairedFoldCiLow, 2 ** -ci.high, 1e-12, "paired CI low");
+    assert.ok(Math.abs(rB.pairedFold - rB.fold) > 1e-6, "differs from the group mean when a unit is unpaired");
+    const rA = a.summary.find(x => x.group === "drugA");
+    near(rA.pairedFold, rA.fold, 1e-12, "every unit paired: the two agree");
+    assert.match(A.resultsCsv(a), /paired_fold_change/);
+    exp.analysis = C.cleanAnalysisSettings(setFor(test));
+    assert.match(R.reportHtml(exp, res), /Fold change from the pairs/);
+  }
+  const w = A.analyzeRun(exp, res, setFor("welch"));
+  assert.equal(w.summary.find(x => x.group === "drugB").pairedFold, undefined, "only for paired tests");
+});
