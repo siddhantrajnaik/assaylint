@@ -326,8 +326,16 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     const rowOf = new Map();
     for (const { g, v } of byGroup) {
       const m = mean(v) - cm, sdv = S.sd(v), semv = S.sem(v), err = s.error === "sem" ? semv : sdv;
+      // 95% CIs: of the group's mean ΔΔCt (t with n − 1 df), and of its difference from the control (Welch df).
+      // Both are worked out on the ΔΔCt scale and transformed back, so low and high swap places.
+      const ci = S.meanCi(v), dci = g === control ? null : S.welchCi(v, ctrl);
+      const ciLow = ci.low === null ? null : 2 ** -(ci.high - cm), ciHigh = ci.low === null ? null : 2 ** -(ci.low - cm);
+      const lo = s.error === "ci" ? ciLow : err === null ? null : 2 ** -(m + err), hi = s.error === "ci" ? ciHigh : err === null ? null : 2 ** -(m - err);
       const row = { target: t, group: g, isControl: g === control, n: v.length, meanDct: mean(v), sdDct: sdv, semDct: semv, meanDdct: m,
-        fold: 2 ** -m, foldLow: err === null ? null : 2 ** -(m + err), foldHigh: err === null ? null : 2 ** -(m - err), log2fc: -m,
+        fold: 2 ** -m, foldLow: lo, foldHigh: hi, log2fc: -m,
+        ddctCiLow: ci.low === null ? null : ci.low - cm, ddctCiHigh: ci.low === null ? null : ci.high - cm, foldCiLow: ciLow, foldCiHigh: ciHigh,
+        diffCiLow: dci?.low ?? null, diffCiHigh: dci?.high ?? null, diffCiDf: dci?.df ?? null,
+        foldDiffCiLow: dci?.high == null ? null : 2 ** -dci.high, foldDiffCiHigh: dci?.low == null ? null : 2 ** -dci.low,
         test: g === control ? null : TESTS[s.test].short, stat: null, statName: null, t: null, df: null, p: null, pBH: null, pBonferroni: null, pAdj: null, testNote: "" };
       if (g !== control) { comps.push(row); rowOf.set(g, row); }
       base.summary.push(row);
@@ -404,6 +412,7 @@ export function fmtP(p) {
 }
 export const stars = p => (p === null || !Number.isFinite(p) ? "" : p < 0.001 ? "***" : p < 0.01 ? "**" : p < ALPHA ? "*" : "ns");
 const CORR = { bh: "Benjamini–Hochberg", bonferroni: "Bonferroni" };
+export const ERR = { sd: "SD", sem: "SEM", ci: "95% CI" };
 function methodText(a) {
   const s = a.settings, e = s.efficiency;
   const refs = a.refs.length > 1 ? `the mean Ct of ${a.refs.join(", ")} (the geometric mean of their quantities)` : a.refs[0];
@@ -415,7 +424,8 @@ function methodText(a) {
   return `Ct values of technical replicates were averaged per biological unit${s.skipOmitted ? ", leaving out wells marked Omit" : ""}. ` +
     `ΔCt = Ct(target) − Ct(reference), with ${refs} as reference. ΔΔCt = ΔCt − mean ΔCt of the control group (${a.control}); fold change = 2^−ΔΔCt` +
     (e ? `, with amplification efficiencies from standard curves (Pfaffl 2001; each Ct multiplied by log2 of its efficiency factor)` : " (Livak & Schmittgen 2001, assuming 100% efficiency)") + "." + calText +
-    ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${s.error === "sem" ? "SEM" : "SD"} of ΔΔCt.`;
+    ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${ERR[s.error]} of ΔΔCt.` +
+    " 95% confidence intervals: for each group's mean ΔΔCt from the t distribution with n − 1 df, and for its difference from the control with Welch's standard error and df; both transformed back to fold change.";
 }
 function testMethod(a) {
   const s = a.settings, omni = a.anova?.length ? "; one-way ANOVA across all groups for targets with more than two groups" : a.kruskal?.length ? "; Kruskal–Wallis across all groups for targets with more than two groups" : "";
@@ -444,9 +454,10 @@ export const fmtDf = x => (x === null || x === undefined || !Number.isFinite(x) 
 const n4 = x => (x === null || x === undefined || !Number.isFinite(x) ? "" : String(+x.toFixed(6)));
 export function resultsCsv(a) {
   const head = ["target", "group", "is_control", "n_biological", "mean_dCt", "sd_dCt", "sem_dCt", "mean_ddCt", "fold_change", "fold_low", "fold_high",
-    "test", "statistic", "statistic_value", "df", "p", "p_bh", "p_bonferroni"];
+    "test", "statistic", "statistic_value", "df", "p", "p_bh", "p_bonferroni", "fold_ci95_low", "fold_ci95_high", "fold_vs_control_ci95_low", "fold_vs_control_ci95_high", "ci_vs_control_df"];
   const rows = (a.summary || []).map(r => [r.target, r.group, r.isControl ? "yes" : "no", r.n, n4(r.meanDct), n4(r.sdDct), n4(r.semDct), n4(r.meanDdct), n4(r.fold),
-    n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? ""]);
+    n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? "",
+    n4(r.foldCiLow), n4(r.foldCiHigh), n4(r.foldDiffCiLow), n4(r.foldDiffCiHigh), n4(r.diffCiDf)]);
   const units = (a.rows || []).map(r => [r.target, r.group, r.unit, r.plates.join(" | "), n4(r.ct), n4(r.refCt), n4(r.dct), n4(r.ddct), n4(r.fold), r.tech.map(t => n4(t.ct)).join(" ")]);
   const gh = a.settings?.test === "gameshowell";
   const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", gh ? "games_howell_q" : "tukey_q", "df", gh ? "p_games_howell" : "p_tukey"],
@@ -461,11 +472,11 @@ export function analysisReportHtml(exp, res, esc) {
   try { a = analyzeRun(exp, res); } catch (e) { return `<h2>Analysis</h2><p>The analysis couldn't be worked out: ${esc(e.message)}</p>`; }
   if (!a.ok) return `<h2>Analysis</h2><p>The analysis is switched on, but ${esc([a.needs.includes("refs") && "no reference gene", a.needs.includes("control") && "no control group", a.needs.includes("targets") && "no target gene besides the references"].filter(Boolean).join(" and "))} has been chosen yet.</p>`;
   const f = x => (x === null || !Number.isFinite(x) ? "—" : x.toFixed(2));
-  const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
+  const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${f(r.foldCiLow)}–${f(r.foldCiHigh)}</td><td>${r.isControl ? "" : `${f(r.foldDiffCiLow)}–${f(r.foldDiffCiHigh)}`}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
   return `<h2>Analysis</h2>
 <p>${esc(a.method)}</p>
 <p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Test: ${esc(a.test.short)}${a.test.withinTarget ? " (p already adjusted for the comparisons within each target)" : ""}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
-<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>± ${a.settings.error === "sem" ? "SEM" : "SD"}</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
+<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>${a.settings.error === "ci" ? "95% CI (error bars)" : `± ${ERR[a.settings.error]}`}</th><th>95% CI of the group mean</th><th>95% CI vs control (Welch)</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
 ${a.pairwise.length ? `<p class="sub small">${esc(a.test.short)}, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.anova.length ? `<p class="sub small">${a.anova[0].welch ? "Welch's one-way ANOVA" : "One-way ANOVA"}: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${fmtDf(x.df2)}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}

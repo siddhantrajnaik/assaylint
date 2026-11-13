@@ -119,7 +119,7 @@ export function foldChart(a, { title = "" } = {}) {
   const ly = top + rowsN * ph + 10;
   svg.append(el("circle", { cx: 18, cy: ly, r: 4.6, fill: COLORS.bio }), txt(28, ly + 4, "Biological replicate (mean of its technical replicates)", { anchor: "start", size: 10.5 }),
     el("circle", { cx: 18, cy: ly + 18, r: 2.1, fill: COLORS.tech }), txt(28, ly + 22, "Technical replicate", { anchor: "start", size: 10.5 }),
-    el("line", { x1: 11, x2: 25, y1: ly + 36, y2: ly + 36, stroke: COLORS.ink, "stroke-width": 2.2 }), txt(28, ly + 40, `Mean ± ${s.error === "sem" ? "SEM" : "SD"}`, { anchor: "start", size: 10.5 }));
+    el("line", { x1: 11, x2: 25, y1: ly + 36, y2: ly + 36, stroke: COLORS.ink, "stroke-width": 2.2 }), txt(28, ly + 40, s.error === "ci" ? "Mean with 95% confidence interval" : `Mean ± ${A.ERR[s.error]}`, { anchor: "start", size: 10.5 }));
   note.forEach((line, k) => svg.append(txt(10, ly + 60 + k * 13, line, { anchor: "start", size: 9.5, fill: COLORS.mute })));
   return svg;
 }
@@ -260,7 +260,7 @@ function settingsPanel(ax, s, info, set) {
       h("small", null, A.TESTS[s.test].help),
       A.TESTS[s.test].rank && h("small", { class: "muted" }, " Rank tests only look at the order of the values. With 3 to 5 replicates per group they have little power: a real difference will often come out as not significant.")),
     h("div", { class: "row wrap" },
-      sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"]], "error", "Error bars"),
+      sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"], ["ci", "95% confidence interval of the mean"]], "error", "Error bars"),
       sel(s.test === "kruskal" ? "Correction for Dunn (within a gene, then across genes)" : A.TESTS[s.test].withinTarget ? "Correction across genes" : "p value shown on graphs", s.correction, [["bh", "Benjamini–Hochberg adjusted"], ["bonferroni", "Bonferroni adjusted"]], "correction", "Graph correction"),
       sel("Fold-change axis", s.scale, [["log2", "Log scale"], ["linear", "Linear"]], "scale", "Axis")),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.skipOmitted, onchange: e => set({ skipOmitted: e.target.checked }, `Leave out wells marked Omit: ${e.target.checked ? "yes" : "no"}`) }), "Leave out wells marked Omit in the instrument software"),
@@ -281,7 +281,8 @@ function resultsBlock(ax, a, base) {
     return [card(h("h2", null, "Results"), a.needs.map(n => h("p", null, need[n])), a.warnings.length > 0 && h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w))))];
   }
   const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
-  const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test];
+  const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test], range = a.settings.error === "ci" ? "Fold 95% CI (error bars)" : `Fold range (± ${err})`;
+  const ciCell = (lo, hi) => (fin(lo) && fin(hi) ? `${fmtFold(lo)}–${fmtFold(hi)}` : "—");
   const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method?.startsWith("exact") ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
   const out = [];
   if (a.warnings.length) out.push(card(h("h2", null, "Worth knowing before you use these numbers"), h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w)))));
@@ -293,11 +294,12 @@ function resultsBlock(ax, a, base) {
     h("p", { class: "lede" }, `Test: ${T.label.replace(" (default)", "")}. The p column is the ${T.short} p` +
       (T.withinTarget ? (a.settings.test === "kruskal" ? `, adjusted within each gene (${CORR[a.settings.correction]}); BH and Bonferroni then adjust across genes.` : ", already adjusted within each gene; BH and Bonferroni adjust across genes only.") : "; BH and Bonferroni adjust across every comparison in the table.") +
       ` Graphs show ${a.settings.test !== "kruskal" && T.withinTarget && new Set(a.summary.filter(r => !r.isControl).map(r => r.target)).size < 2 ? `the ${T.short} p` : `the ${CORR[a.settings.correction]} column`}.`),
-    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", `Fold range (± ${err})`, `${T.short} statistic`, `p (${T.short})`, "p (BH)", "p (Bonferroni)"],
+    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", range, "95% CI of group fold change", "Fold vs control, 95% CI (Welch)", `${T.short} statistic`, `p (${T.short})`, "p (BH)", "p (Bonferroni)"],
       a.summary.map(r => h("tr", { class: !r.isControl && fin(r.pAdj) && r.pAdj < A.ALPHA ? "diff" : "" },
         h("td", null, r.target), h("td", null, r.group, r.isControl ? " (control)" : ""), h("td", { class: "num" }, r.n), h("td", { class: "num" }, fmt(r.meanDct)),
         h("td", { class: "num" }, fmt(a.settings.error === "sem" ? r.semDct : r.sdDct, 3)), h("td", { class: "num" }, fmt(r.meanDdct)), h("td", { class: "num" }, fmtFold(r.fold)),
         h("td", { class: "num" }, fin(r.foldLow) ? `${fmtFold(r.foldLow)}–${fmtFold(r.foldHigh)}` : "—"),
+        h("td", { class: "num" }, ciCell(r.foldCiLow, r.foldCiHigh)), h("td", { class: "num" }, r.isControl ? "" : ciCell(r.foldDiffCiLow, r.foldDiffCiHigh)),
         h("td", { class: "num" }, r.isControl ? "" : statCell(r)),
         h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.p)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBH)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBonferroni))))),
     a.anova.length > 0 && h("div", null, h("h3", null, a.anova[0].welch ? "Welch's one-way ANOVA (all groups, unequal variances allowed)" : "One-way ANOVA (all groups)"),

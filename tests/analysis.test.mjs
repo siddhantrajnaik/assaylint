@@ -459,3 +459,23 @@ test("Welch ANOVA + Games–Howell gives the stats.js values and lists every pai
   exp.analysis = C.cleanAnalysisSettings(setFor("gameshowell"));
   assert.match(R.reportHtml(exp, res), /Games–Howell, every pair of groups/);
 });
+
+test("95% confidence intervals: group mean (t, n − 1 df) and difference from the control (Welch), back-transformed", () => {
+  const { exp, res } = threeRun();
+  const c = groupDct("c"), da = groupDct("a"), cm = S.mean(c);
+  const a = A.analyzeRun(exp, res, setFor("welch")), r = a.summary.find(x => x.group === "drugA");
+  const t = S.tQuantile(0.975, 2), h = t * S.sd(da) / Math.sqrt(3);
+  near(t, 4.302652729749462, 1e-12, "t(0.975, 2) from scipy.stats.t.ppf");
+  near(r.foldCiLow, 2 ** -(S.mean(da) + h - cm), 1e-12, "group CI low"); near(r.foldCiHigh, 2 ** -(S.mean(da) - h - cm), 1e-12, "group CI high");
+  const w = S.welch(da, c), hw = S.tQuantile(0.975, w.df) * Math.sqrt(S.variance(da) / 3 + S.variance(c) / 3);
+  near(r.foldDiffCiLow, 2 ** -(w.diff + hw), 1e-12, "difference CI low"); near(r.foldDiffCiHigh, 2 ** -(w.diff - hw), 1e-12, "difference CI high");
+  assert.ok(r.foldDiffCiLow < r.fold && r.fold < r.foldDiffCiHigh);
+  near(r.foldLow, 2 ** -(r.meanDdct + S.sd(da)), 1e-12, "default error bars are still SD");
+  const ci = A.analyzeRun(exp, res, { ...setFor("welch"), error: "ci" }), rc = ci.summary.find(x => x.group === "drugA");
+  near(rc.foldLow, r.foldCiLow, 1e-15, "CI error bars"); near(rc.p, r.p, 1e-15, "the test doesn't change");
+  assert.match(A.resultsCsv(a), /fold_ci95_low,fold_ci95_high,fold_vs_control_ci95_low/);
+  assert.equal(C.cleanAnalysisSettings({ error: "ci" }).error, "ci");
+  assert.equal(C.cleanAnalysisSettings({ error: "iqr" }).error, "sd");
+  exp.analysis = C.cleanAnalysisSettings({ ...setFor("welch"), error: "ci" });
+  assert.match(R.reportHtml(exp, res), /95% CI vs control \(Welch\)/);
+});

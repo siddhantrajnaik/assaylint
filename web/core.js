@@ -769,7 +769,7 @@ export function cleanAnalysisSettings(a) {
   const names = v => (Array.isArray(v) ? [...new Set(v.filter(x => typeof x === "string" && x.trim()).map(x => x.slice(0, 200)))].slice(0, 100) : []);
   const shift = a.refMaxShift;
   return { on: a.on === true, refs: names(a.refs), control: asStr(a.control).slice(0, 200), efficiency: a.efficiency === true,
-    error: a.error === "sem" ? "sem" : "sd", correction: a.correction === "bonferroni" ? "bonferroni" : "bh", skipOmitted: a.skipOmitted !== false,
+    error: ["sem", "ci"].includes(a.error) ? a.error : "sd", correction: a.correction === "bonferroni" ? "bonferroni" : "bh", skipOmitted: a.skipOmitted !== false,
     excluded: names(a.excluded), scale: a.scale === "linear" ? "linear" : "log2", test: ANALYSIS_TESTS.includes(a.test) ? a.test : "welch",
     refMaxShift: typeof shift === "number" && Number.isFinite(shift) && shift > 0 && shift <= 10 ? shift : 0.5 };
 }
