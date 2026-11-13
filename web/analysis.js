@@ -61,7 +61,7 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
   for (const u of ungrouped) if (unitGroups.has(u)) ungrouped.delete(u);
   for (const [u, gs] of unitGroups) if (gs.size > 1)
     out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} is labelled with more than one group (${[...gs].join(", ")}). I used ${[...gs][0]}; fix the labels in the plate map.`);
-  for (const [u, ps] of unitPairs) if (ps.size > 1 && s.test === "paired")
+  for (const [u, ps] of unitPairs) if (ps.size > 1 && TESTS[s.test].paired)
     out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} has more than one pair label (${[...ps].join(", ")}). I used ${[...ps][0]}.`);
   for (const rec of by.values()) {
     rec.group = unitGroups.has(rec.unit) ? [...unitGroups.get(rec.unit)][0] : null;
@@ -162,8 +162,10 @@ export const TESTS = {
     help: "Each group against the control. Doesn't assume equal variances, which you can't check with 3 to 6 replicates. A safe default." },
   student: { label: "Student t-test", short: "Student t-test", stat: "t",
     help: "Each group against the control, assuming both groups have the same variance. Only better than Welch when that is really true." },
-  paired: { label: "Paired t-test", short: "paired t-test", stat: "t",
+  paired: { label: "Paired t-test", short: "paired t-test", stat: "t", paired: true,
     help: "When each treated unit has a matching control unit (same animal, donor or culture split). Needs a Pair label on the Plate step." },
+  wilcoxon: { label: "Wilcoxon signed-rank (paired, non-parametric)", short: "Wilcoxon signed-rank", stat: "W", rank: true, paired: true,
+    help: "The rank version of the paired t-test: same Pair labels, no normal distribution assumed. With 5 pairs or fewer it can never give p < 0.05." },
   tukey: { label: "One-way ANOVA + Tukey", short: "Tukey HSD", stat: "q", withinTarget: true,
     help: "Three or more groups, every group against every other. p values are already adjusted for all those pairs." },
   dunnett: { label: "One-way ANOVA + Dunnett vs control", short: "Dunnett", stat: "t", withinTarget: true,
@@ -182,7 +184,7 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
     const r = (s.test === "welch" ? S.welch : S.student)(x.v, ctrl);
     set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, testNote: r.reason || "" });
   }
-  else if (s.test === "paired") {
+  else if (TESTS[s.test].paired) {
     if (!byGroup.some(x => x.d.some(d => d.u.pair))) { notes.none = true; for (const x of others) set(x.g, { testNote: "no pair labels" }); return; }
     // pair label → unit, per group; a label used twice in one group can't be paired
     const byPair = x => {
@@ -196,8 +198,14 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
       const m = byPair(x), labels = [...m.keys()].filter(p => cm.has(p));
       for (const p of labels) { used.add(m.get(p).u.unit); used.add(cm.get(p).u.unit); }
       for (const d of x.d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
-      const r = S.paired(labels.map(p => m.get(p).dct), labels.map(p => cm.get(p).dct));
-      set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, pairs: labels.length, testNote: r.reason || "" });
+      const xs = labels.map(p => m.get(p).dct), cs = labels.map(p => cm.get(p).dct);
+      if (s.test === "wilcoxon") {
+        const r = S.wilcoxon(xs, cs);
+        set(x.g, { stat: r.W, statName: "W", p: r.p, method: r.method, pairs: labels.length, zeros: r.zeros, minP: S.wilcoxonMinP(r.n), testNote: r.reason || "" });
+      } else {
+        const r = S.paired(xs, cs);
+        set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, pairs: labels.length, testNote: r.reason || "" });
+      }
     }
     for (const d of byGroup[ci].d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
   }
@@ -322,7 +330,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
       base.kruskal.push({ target: t, H: k.H, df: k.df, p: k.p, groups: byGroup.length, note: k.reason || "" });
     }
   }
-  if (pairNotes.none) warnings.push("The paired t-test needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.");
+  if (pairNotes.none) warnings.push(`The ${s.test === "wilcoxon" ? "Wilcoxon signed-rank test" : "paired t-test"} needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.`);
   if (pairNotes.unmatched.length) warnings.push(`Left out of the paired test because no unit in the other group has the same pair label: ${list(uniq(pairNotes.unmatched))}.`);
   if (pairNotes.duplicate.length) warnings.push(`These pair labels are used by more than one unit in the same group, so their pairs can't be formed: ${list(uniq(pairNotes.duplicate))}. Each pair label should appear once per group.`);
   // Multiple testing. Two-group tests: across every comparison with the control (all targets and groups together).
@@ -342,7 +350,8 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   if (small.length) warnings.push(`Fewer than ${MIN_N} biological replicates in: ${list(small.map(r => `${r.group} / ${r.target} (n = ${r.n})`))}. With so few, the test has little power and the p value is unreliable` +
     (small.some(r => r.n < 2) ? "; groups with one replicate get no p value at all" : "") + (TESTS[s.test].rank ? ". Rank tests have even less power than t-tests with groups this small" : "") + ".");
   const floor = comps.filter(r => r.minP > ALPHA);
-  if (floor.length) warnings.push(`With these group sizes the Mann–Whitney test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target}`))}. With 3 per group the smallest possible p is 0.1.`);
+  if (floor.length && s.test === "wilcoxon") warnings.push(`With this few pairs the Wilcoxon signed-rank test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target} (${r.pairs} pairs)`))}. It needs at least 6 pairs with no zero differences to get below 0.05.`);
+  else if (floor.length) warnings.push(`With these group sizes the Mann–Whitney test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target}`))}. With 3 per group the smallest possible p is 0.1.`);
   base.efficiency = eff;
   base.comparisons = comps.length;
   base.method = methodText({ ...base, eff });
@@ -402,6 +411,7 @@ function testMethod(a) {
     welch: "each group was compared with the control by Welch's t-test (Welch 1947), two-sided",
     student: "each group was compared with the control by Student's t-test with pooled variance (Student 1908), two-sided",
     paired: "each group was compared with the control by a paired t-test, two-sided: each unit was matched with the control unit that has the same pair label, and the differences in ΔCt were tested against zero",
+    wilcoxon: "each group was compared with the control by the Wilcoxon signed-rank test (Wilcoxon 1945), two-sided: each unit was matched with the control unit that has the same pair label, pairs with a difference of exactly zero were dropped (Wilcoxon's rule, SciPy's default), and p is exact (from all 2^n sign patterns) up to 13 pairs or without ties up to 50, otherwise from the normal approximation with the tie correction",
     tukey: "one-way ANOVA per target, then Tukey's honestly significant difference test for every pair of groups (Tukey 1949; Tukey–Kramer form for unequal n), which adjusts p for all pairs within the target",
     dunnett: "one-way ANOVA per target, then Dunnett's test of each group against the control (Dunnett 1955), two-sided, which adjusts p for the comparisons within the target",
     mannwhitney: "each group was compared with the control by the Mann–Whitney U test (Mann & Whitney 1947), two-sided: exact p when there are no ties and a group has 8 or fewer units, otherwise the normal approximation with tie and continuity corrections",

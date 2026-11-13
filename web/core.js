@@ -763,7 +763,7 @@ function cleanValues(v) {
 }
 // Analysis module settings (see web/analysis.js and docs/analysis.md). null means the analysis was never switched on.
 // Statistical tests offered in the Analysis step (web/analysis.js); "welch" is the default.
-export const ANALYSIS_TESTS = ["welch", "student", "paired", "tukey", "dunnett", "mannwhitney", "kruskal"];
+export const ANALYSIS_TESTS = ["welch", "student", "paired", "wilcoxon", "tukey", "dunnett", "mannwhitney", "kruskal"];
 export function cleanAnalysisSettings(a) {
   if (!isObj(a)) return null;
   const names = v => (Array.isArray(v) ? [...new Set(v.filter(x => typeof x === "string" && x.trim()).map(x => x.slice(0, 200)))].slice(0, 100) : []);

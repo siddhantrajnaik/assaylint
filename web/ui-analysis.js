@@ -282,7 +282,7 @@ function resultsBlock(ax, a, base) {
   }
   const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
   const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test];
-  const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method === "exact" ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
+  const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method?.startsWith("exact") ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
   const out = [];
   if (a.warnings.length) out.push(card(h("h2", null, "Worth knowing before you use these numbers"), h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w)))));
   out.push(card(h("h2", null, "Fold change"),

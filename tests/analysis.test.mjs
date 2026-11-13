@@ -427,3 +427,21 @@ test("the report names the test", () => {
   exp.analysis = C.cleanAnalysisSettings(setFor("tukey"));
   assert.match(R.reportHtml(exp, res), /Tukey HSD, every pair of groups/);
 });
+
+// ---------------------------------------------------------------- Wilcoxon, Games–Howell, two-way ANOVA, CIs, paired fold change
+const PAIRS = { c1: "m1", a1: "m1", c2: "m2", a2: "m2", c3: "m3", a3: "m3", b1: "m1", b2: "m2", b3: "m3" };
+test("Wilcoxon signed-rank uses the pair labels like the paired t-test", () => {
+  const { exp, res } = threeRun(["Pair"], r => [PAIRS[r[1]] || ""]);
+  const a = A.analyzeRun(exp, res, setFor("wilcoxon"));
+  const rA = a.summary.find(x => x.group === "drugA");
+  near(rA.p, S.wilcoxon(groupDct("a"), groupDct("c")).p, 1e-12, "Wilcoxon p");
+  assert.equal(rA.statName, "W"); assert.equal(rA.pairs, 3);
+  near(rA.p, 0.25, 1e-12, "3 pairs, all the same sign: the smallest p possible");
+  assert.ok(a.warnings.some(w => /Wilcoxon signed-rank test can't give a p value below 0\.250/.test(w)), a.warnings.join("\n"));
+  assert.match(a.method, /Wilcoxon 1945/);
+  assert.equal(a.kruskal.length, 1, "a rank test gets Kruskal–Wallis alongside");
+  const plain = threeRun();
+  const none = A.analyzeRun(plain.exp, plain.res, setFor("wilcoxon"));
+  assert.ok(none.warnings.some(w => /Wilcoxon signed-rank test needs a pair label/.test(w)));
+  assert.equal(C.cleanAnalysisSettings(setFor("wilcoxon")).test, "wilcoxon");
+});
