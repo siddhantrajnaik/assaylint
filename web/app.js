@@ -585,12 +585,16 @@ VIEWS.map = () => {
   };
   const importTpl = async file => {
     if (!file) return;
+    // Reading the file takes a moment; if the user has left this run by then, drop the template rather than apply it elsewhere.
+    const exp = st.exp, left = () => st.exp !== exp;
     const d = await readAny(file);
+    if (left()) return;
     let text = d.text;
     if (d.workbook) text = (d.workbook.all.find(s => { try { C.parseTemplate(s.text); return true; } catch { return false; } }) || d.workbook.all[0]).text;
     if (!text) { flash(`${file.name}: ${C.BINARY_MESSAGE}`, true); renderMain(); return; }
     try {
       const tpl = C.parseTemplate(text), sha = await C.sha256(text);
+      if (left()) return;
       let out;
       change("map.template", `Applied template ${file.name} (sha256 ${sha.slice(0, 12)}…)`, () => {
         out = C.applyTemplate(st.exp, res.rows, tpl, { name: file.name, sha256: sha, importedAt: new Date().toISOString(), importedBy: actor() });
