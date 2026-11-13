@@ -6,6 +6,7 @@ import { demoFiles, DEMO_CONTEXT, DEMO_TITLE } from "./demo.js";
 import { plot } from "./charts.js";
 import { CREDIT } from "./credit.js";
 import { readWorkbook } from "./excel.js";
+import { assayView } from "./ui-assays.js"; // assay types (ChIP, MSRE, 3C…): workstream 4
 
 const $ = s => document.querySelector(s);
 // File contents are untrusted: the DOM is built with text nodes only (no innerHTML).
@@ -125,9 +126,9 @@ function renderSidebar() {
 
 // Four everyday steps; the rest lives under "More" unless "Show all steps" is on.
 const TABS = [["setup", "Setup", 1], ["data", "Data", 2], ["map", "Plate map", 3], ["context", "Context & rules", 4],
-  ["findings", "Findings", 5], ["report", "Report & export", 6], ["compare", "Compare runs", null]];
+  ["findings", "Findings", 5], ["report", "Report & export", 6], ["assay", "Assay calculations", null], ["compare", "Compare runs", null]]; // "assay": workstream 4
 const SIMPLE_TABS = [["data", "Upload"], ["map", "Plate"], ["findings", "Review"], ["report", "Report"]];
-const MORE_TABS = [["context", "Method details and thresholds"], ["compare", "Compare with another run"], ["setup", "Rename or delete this run"]];
+const MORE_TABS = [["context", "Method details and thresholds"], ["assay", "Assay calculations (ChIP, MSRE, 3C…)"], ["compare", "Compare with another run"], ["setup", "Rename or delete this run"]]; // "assay": workstream 4
 const tabLabel = k => (S.getSetting("allSteps") ? TABS : [...SIMPLE_TABS, ...MORE_TABS]).find(t => t[0] === k)[1];
 function goTab(k) { if (k !== st.tab) { st.sel = new Set(); st.selFinding = null; } st.tab = k; renderMain(); scrollTo(0, 0); }
 function stepsNav() {
@@ -948,6 +949,9 @@ VIEWS.compare = () => {
     card(h("h2", null, "Findings by severity"), tbl(["Severity", A, B], C.SEVERITIES.map(s => h("tr", null, h("td", null, s), h("td", { class: "num" }, c.counts.a[s] || 0), h("td", { class: "num" }, c.counts.b[s] || 0))))));
   return out;
 };
+
+// ---------------------------------------------------------------- Assay calculations (workstream 4; the page itself is in ui-assays.js)
+VIEWS.assay = () => assayView({ h, st, card, emptyCard, change, renderMain, flash, plateGrid, plateDims });
 
 // ---------------------------------------------------------------- start
 const first = S.index()[0];
