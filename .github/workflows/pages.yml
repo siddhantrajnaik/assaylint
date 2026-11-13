@@ -25,7 +25,9 @@ jobs:
       - name: Random-click stress test
         run: npm ci --prefix tools/monkey && node tools/monkey/monkey.mjs 1500 1
       - uses: actions/configure-pages@v5
+      - name: Stamp file versions so browsers load the new files after each deploy
+        run: node tools/stamp.mjs _site "${GITHUB_SHA::7}"
       - uses: actions/upload-pages-artifact@v3
-        with: { path: web }
+        with: { path: _site }
       - id: deployment
         uses: actions/deploy-pages@v4
