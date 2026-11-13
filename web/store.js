@@ -41,7 +41,7 @@ export function normalizeStudy(s) {
   const now = new Date().toISOString(), str = v => (typeof v === "string" ? v : "");
   const ex = s.excluded && typeof s.excluded === "object" && !Array.isArray(s.excluded) ? s.excluded : {};
   return { id: str(s.id) || newId().replace(/^AL-/, "ST-"), title: str(s.title).slice(0, 300) || "Untitled study", runs: strList(s.runs),
-    settings: cleanAnalysisSettings(s.settings) || cleanAnalysisSettings({ on: true }), mode: ["calibrator", "centre", "none"].includes(s.mode) ? s.mode : "calibrator",
+    settings: cleanAnalysisSettings(s.settings) || cleanAnalysisSettings({ on: true }), mode: ["calibrator", "centre", "none", "combat"].includes(s.mode) ? s.mode : "calibrator", combatMeanOnly: s.combatMeanOnly === true, // [combat]
     calibrators: strList(s.calibrators), excluded: Object.fromEntries(Object.entries(ex).map(([k, v]) => [k, strList(v)]).filter(([, v]) => v.length)),
     created: str(s.created) || now, updated: str(s.updated) || now };
 }
