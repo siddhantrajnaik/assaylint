@@ -31,6 +31,20 @@ globalThis.URL.createObjectURL = () => "blob:x";
 globalThis.URL.revokeObjectURL = () => {};
 Object.assign(globalThis, { scrollTo: () => {}, scrollBy: () => {}, scrollY: 0, addEventListener: w.addEventListener.bind(w), devicePixelRatio: 1,
   confirm: () => rnd() < 0.8, prompt: () => pick(["Lab profile", "", null, "x".repeat(40)]) });
+// No real network: "Look up genes" gets a random fake answer (found, not found, server error or offline).
+const fetchLog = [];
+globalThis.fetch = w.fetch = async url => {
+  fetchLog.push(String(url));
+  if (!/^https:\/\/(mygene\.info|rest\.genenames\.org)\//.test(String(url))) report("unexpected request", url);
+  await new Promise(r => setTimeout(r, 1));
+  const r = rnd(), sym = decodeURIComponent(/(?:symbol:|alias:|\/)([A-Za-z0-9.-]+)(?:&|$)/.exec(String(url))?.[1] || "X");
+  if (r < 0.2) throw new TypeError("Failed to fetch");
+  if (r < 0.3) return new Response("oops", { status: 503 });
+  if (r < 0.5) return Response.json({ hits: [], response: { docs: [] } });
+  return Response.json({ hits: [{ symbol: sym, name: pick(["fake gene", "", "x".repeat(400)]), entrezgene: 123, ensembl: pick([{ gene: "ENSG00000000001" }, [{ gene: "ENSG00000000002" }], undefined]),
+    HGNC: "5", type_of_gene: pick(["protein-coding", "ncRNA", "snoRNA", "weird", null]), summary: pick(["A gene. More text.", null, "<b>x</b>"]) }],
+    response: { docs: [{ symbol: sym, name: "fake", hgnc_id: "HGNC:5", locus_type: "RNA, micro" }] } });
+};
 process.on("unhandledRejection", e => report("rejected promise", e));
 process.on("uncaughtException", e => report("uncaught", e));
 
@@ -110,8 +124,17 @@ const ACT = {
     localStorage.setItem(k, pick(["", "x", "null", "[]", "{}", "{\"id\":5}", "[null,1,{\"id\":\"zz\"}]", localStorage.getItem(k).slice(0, 50)]));
     return `corrupt ${k.slice(10, 40)}`;
   },
+  // The Targets panel sits under More, which random clicks rarely reach: go there and press "Look up genes".
+  genes() {
+    const tab = $$("#main button").find(b => /^(Method details and thresholds|4Context & rules)$/.test(b.textContent.trim()));
+    if (!tab) return "no run open";
+    tab.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    const look = $$("#main button").find(b => b.textContent === "Look up genes" && !b.disabled);
+    look?.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    return look ? "look up genes" : "targets panel";
+  },
 };
-const WEIGHTS = [["click", 50], ["type", 14], ["select", 8], ["check", 5], ["drop", 14], ["home", 5], ["corrupt", 4]];
+const WEIGHTS = [["click", 50], ["type", 14], ["select", 8], ["check", 5], ["drop", 14], ["home", 5], ["corrupt", 4], ["genes", 2]];
 const total = WEIGHTS.reduce((a, x) => a + x[1], 0);
 const counts = {}, seenText = new Set();
 for (let i = 0; i < ACTIONS; i++) {
@@ -133,7 +156,7 @@ for (let i = 0; i < ACTIONS; i++) {
   if (errors.length >= 25) break;
 }
 await tick(50);
-console.log(`${ACTIONS} actions (seed ${process.argv[3] || 1}):`, JSON.stringify(counts), `| ${fixtures.length} real files in the pool`);
+console.log(`${ACTIONS} actions (seed ${process.argv[3] || 1}):`, JSON.stringify(counts), `| ${fixtures.length} real files in the pool | ${fetchLog.length} fake gene lookups`);
 const uniq = new Map();
 for (const e of errors) { const k = e.kind + e.msg.slice(0, 110); if (!uniq.has(k)) uniq.set(k, { ...e, n: 0 }); uniq.get(k).n++; }
 if (!uniq.size) console.log("No errors.");

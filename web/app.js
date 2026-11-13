@@ -6,6 +6,7 @@ import { demoFiles, DEMO_CONTEXT, DEMO_TITLE } from "./demo.js";
 import { plot } from "./charts.js";
 import { CREDIT } from "./credit.js";
 import { readWorkbook } from "./excel.js";
+import { targetsPanel } from "./ui-genes.js"; // genes and RNA types per target
 
 const $ = s => document.querySelector(s);
 // File contents are untrusted: the DOM is built with text nodes only (no innerHTML).
@@ -703,6 +704,9 @@ VIEWS.context = () => {
         textInput(e.context[f.key], v => setContext(f, v), { multiline: f.multiline,
           placeholder: f.key === "instrument" && fileInst ? `From the file: ${fileInst[1]}` : (f.severity === "info" || !f.severity) ? "Optional" : "" }),
         f.key === "efficiency_evidence" ? "Not needed if this run has a standard curve." : null)))),
+    // Genes and RNA types: the Targets panel lives in ui-genes.js.
+    targetsPanel({ h, card, exp: e, rows: st.res?.rows, actor, change, flash, current: () => st.exp,
+      rerender: () => { if (st.exp && st.tab === "context") renderMain(); } }),
     card(h("div", { class: "head" }, h("div", null, h("h2", null, "Thresholds and expected controls"),
         h("p", { class: "muted", style: "margin:4px 0 0" }, `Using ${rs.profile.name}, version ${rs.profile.version}.`,
           changes.length > 0 && ` Changed here: ${changes.map(c => `${c.label[0].toLowerCase() + c.label.slice(1)} ${onoff(c.to)}`).join("; ")}.`)),

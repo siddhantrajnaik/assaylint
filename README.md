@@ -50,7 +50,7 @@ node --test tests/*.test.mjs
 - The default thresholds are common rules of thumb, not reviewed standards. Change them to match your lab.
 - Data is saved in your browser only. Download the experiment packet if you want a backup. More in [PRIVACY.md](PRIVACY.md).
 
-More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
+More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/genes.md](docs/genes.md) (genes, RNA types and the optional gene lookup), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
 
 ## Who made this
 

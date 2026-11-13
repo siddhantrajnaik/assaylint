@@ -12,6 +12,7 @@ PlateCheck is a static web app. This describes the hosted GitHub Pages build and
 | Backup | None. Export the experiment packet to keep a copy. |
 | Export | Report (HTML/PDF), well CSV, findings CSV, structured JSON and a full experiment packet, from the Report & export tab or the CLI. |
 | Deletion | “Delete experiment” removes the experiment, its files, plate map, notes, reports and audit history from this browser. Clearing site data removes everything, including rule profiles and settings. Exported files are outside PlateCheck's control. |
+| Gene lookup | Off unless you press “Look up genes” in the Targets panel. Then the browser sends only the gene symbols of your targets (for example `ACTB`, `MIR21`) and the species to MyGene.info (mygene.info), or to HGNC (rest.genenames.org) if MyGene.info can't be reached. No sample names, Ct values, well data or file contents are sent, and no cookies. Those services see the symbols and your IP address like any web request. The answers (IDs, gene name, a one-line description, source and date) are saved with the run. Details in [docs/genes.md](docs/genes.md). |
 | Secondary use | None. Data is never used for model training, benchmarking or sharing, so there is nothing to opt into. |
 
 The GitHub Pages host (GitHub) receives normal web-server request logs for the page and its static files; it never receives experiment data.
