@@ -7,8 +7,24 @@ export const RNA_TYPES = [
   ["sncRNA", "snoRNA / snRNA"], ["rRNA", "rRNA"], ["other", "Genomic DNA / other"],
 ];
 export const RNA_TYPE_LABEL = Object.fromEntries(RNA_TYPES);
-export const SPECIES = [["human", "Human"], ["mouse", "Mouse"], ["rat", "Rat"], ["other", "Other"]];
+export const SPECIES = [["human", "Human"], ["mouse", "Mouse"], ["rat", "Rat"], ["zebrafish", "Zebrafish"], ["fly", "Fruit fly (D. melanogaster)"],
+  ["worm", "C. elegans"], ["yeast", "Budding yeast (S. cerevisiae)"], ["arabidopsis", "Arabidopsis thaliana"], ["chicken", "Chicken"], ["pig", "Pig"],
+  ["cow", "Cow"], ["dog", "Dog"], ["macaque", "Rhesus macaque"], ["xenopus", "Xenopus tropicalis"], ["other", "Other"]];
 export const SPECIES_LABEL = Object.fromEntries(SPECIES);
+// NCBI taxonomy IDs. I checked each one against MyGene.info in Nov 2026 (a query for the species' actin gene returned it).
+// Yeast is the S288C reference strain (559292), which is how NCBI and MyGene.info file S. cerevisiae genes.
+export const TAXID = { human: "9606", mouse: "10090", rat: "10116", zebrafish: "7955", fly: "7227", worm: "6239", yeast: "559292", arabidopsis: "3702",
+  chicken: "9031", pig: "9823", cow: "9913", dog: "9615", macaque: "9544", xenopus: "8364" };
+// Vertebrates whose gene symbols follow the human (HGNC) style: upper case, MIR21, MIRLET7A.
+const HUMANLIKE = new Set(["human", "chicken", "pig", "cow", "dog", "macaque"]);
+const LOWERCASE = new Set(["zebrafish", "xenopus"]); // ZFIN and Xenbase: actb1, sox2, mir21-1
+// miRBase species prefixes. A prefix gives a guess for the user to confirm, not a fact.
+const MIR_PREFIX = { hsa: "human", mmu: "mouse", rno: "rat", dre: "zebrafish", dme: "fly", cel: "worm", ath: "arabidopsis", gga: "chicken",
+  ssc: "pig", bta: "cow", cfa: "dog", mml: "macaque", xtr: "xenopus", sce: "yeast" };
+const PREFIX_RE = new RegExp(`^(${Object.keys(MIR_PREFIX).join("|")})[-_]`, "i");
+const YEAST_ORF = /^Y[A-P][LR]\d{3}[WC](-[A-Z])?$/i; // S. cerevisiae systematic names (YFL039C)
+const AGI_LOCUS = /^AT[1-5CM]G\d{5}$/i; // Arabidopsis loci (AT3G18780)
+export const isLocusId = s => YEAST_ORF.test(s) || AGI_LOCUS.test(s);
 export const SOURCES = {
   "MyGene.info": "https://mygene.info",
   HGNC: "https://www.genenames.org",
@@ -43,12 +59,17 @@ const compact = s => s.normalize("NFKD").replace(/β/g, "beta").replace(/α/g, "
   .replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 const cap = s => (s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s);
 
-// Pulls a species out of the name: hsa-/mmu-/rno- prefixes (miRBase) or TaqMan assay IDs (Hs…/Mm…/Rn…_g1).
+// Pulls a species out of the name: miRBase prefixes (hsa-, mmu-, dre-, cel-, ath- …), TaqMan assay IDs (Hs…/Mm…/Rn…_g1),
+// yeast systematic names (YFL039C), Arabidopsis loci (AT3G18780) and FlyBase CG numbers.
 function speciesHint(raw) {
-  let m = /^(hsa|mmu|rno|cel)[-_]/i.exec(raw);
-  if (m) return { species: { hsa: "human", mmu: "mouse", rno: "rat", cel: "other" }[m[1].toLowerCase()], source: `the “${m[1].toLowerCase()}-” prefix` };
+  let m = PREFIX_RE.exec(raw);
+  if (m) return { species: MIR_PREFIX[m[1].toLowerCase()], source: `the “${m[1].toLowerCase()}-” prefix` };
   m = TAQMAN_RE.exec(raw);
   if (m) return { species: { Hs: "human", Mm: "mouse", Rn: "rat" }[m[1]], source: `the TaqMan assay ID ${m[0]}` };
+  const first = cleanName(raw).split(/\s+/)[0];
+  if (YEAST_ORF.test(first)) return { species: "yeast", source: `${first.toUpperCase()}, which is written like a yeast systematic name` };
+  if (AGI_LOCUS.test(first)) return { species: "arabidopsis", source: `${first.toUpperCase()}, which is written like an Arabidopsis locus` };
+  if (/^CG\d{3,5}$/.test(first)) return { species: "fly", source: `${first}, which is written like a FlyBase annotation ID` };
   return null;
 }
 const TAQMAN_RE = /(?<![A-Za-z0-9])(Hs|Mm|Rn)\d{6,8}_[a-z]\d(?![A-Za-z0-9])/;
@@ -59,14 +80,25 @@ function cleanName(raw) {
 }
 
 // hsa-miR-21-5p, miR-21, mir21, miR-199a-1-3p, let-7a, hsa-let-7f-2 → { human: MIR21 / MIR199A1 / MIRLET7A, extra loci to try }
-const MIR_RE = /^(?:(?:hsa|mmu|rno|cel|ath|dme)[-_])?(?:mi[rR]|MIR)-?(\d+)([a-zA-Z])?(?:-(\d+))?(?:-(?:5p|3p))?\*?$/;
-const LET_RE = /^(?:(?:hsa|mmu|rno|cel)[-_])?(?:let|LET)-?7([a-zA-Z])?(?:-(\d+))?(?:-(?:5p|3p))?\*?$/;
+const MIR_RE = /^(?:[a-z]{3}[-_])?(?:mi[rR]|MIR)-?(\d+)([a-zA-Z])?(?:-(\d+))?(?:-(?:5p|3p))?\*?$/;
+const LET_RE = /^(?:[a-z]{3}[-_])?(?:let|LET)-?7([a-zA-Z])?(?:-(\d+))?(?:-(?:5p|3p))?\*?$/;
+// miRNA gene symbols differ by species (checked in MyGene.info): MIR21 / MIRLET7A (human and the vertebrates that follow
+// HGNC), Mir21a / Mirlet7a (mouse, rat), mir21-1 / mirlet7a-1 (zebrafish, Xenopus), mir-1 / let-7 (fly, worm), MIR156a (Arabidopsis).
 function mirSymbol(name, species) {
   const mouse = species === "mouse" || species === "rat";
   let m = MIR_RE.exec(name);
   const mature = /^(?:[a-z]{3}[-_])?miR|-[35]p\*?$/.test(name);
+  const lower = LOWERCASE.has(species), dash = species === "fly" || species === "worm";
   if (m) {
     const [, n, letter = "", locus] = m, L = letter.toUpperCase();
+    if (lower || dash) {
+      const base = `mir${dash ? "-" : ""}${n}${letter.toLowerCase()}`;
+      return { symbol: locus ? `${base}-${locus}` : base, extra: locus || dash ? [] : [`${base}-1`], mature };
+    }
+    if (species === "arabidopsis") {
+      const base = `MIR${n}${letter.toLowerCase()}`;
+      return { symbol: base, extra: letter ? [] : [`${base}a`], mature };
+    }
     if (mouse) {
       const base = `Mir${n}${letter.toLowerCase()}`;
       return { symbol: locus ? `${base}-${locus}` : base, extra: locus ? [] : [`${base}-1`], mature };
@@ -78,6 +110,8 @@ function mirSymbol(name, species) {
   m = LET_RE.exec(name);
   if (m) {
     const [, letter = "", locus] = m;
+    if (dash) return { symbol: `let-7${letter.toLowerCase()}`, extra: [], mature: true };
+    if (lower) { const base = `mirlet7${letter.toLowerCase()}`; return { symbol: locus ? `${base}-${locus}` : base, extra: locus ? [] : [`${base}-1`], mature: true }; }
     if (mouse) { const base = `Mirlet7${letter.toLowerCase()}`; return { symbol: locus ? `${base}-${locus}` : base, extra: locus ? [] : [`${base}-1`], mature: true }; }
     const base = `MIRLET7${letter.toUpperCase()}`;
     return { symbol: locus ? `${base}${locus}` : base, extra: locus ? [] : [`${base}1`], mature: true };
@@ -85,7 +119,9 @@ function mirSymbol(name, species) {
   return null;
 }
 
-// Is this written the way HGNC (human) or MGI/RGD (mouse, rat) write symbols? Returns { ok, reason }.
+// Is this written the way the species' nomenclature database writes symbols? HGNC (human, and the vertebrates that
+// follow it), MGI/RGD (mouse, rat), ZFIN and Xenbase (lower case), WormBase (act-1), SGD (ACT1 or YFL039C) and
+// TAIR (ACT2 or AT3G18780). FlyBase symbols are case-sensitive in ways a pattern can't check. Returns { ok, reason }.
 export function checkSymbol(symbol, species = "human") {
   const s = String(symbol ?? "");
   if (!s) return { ok: false, reason: "No symbol given." };
@@ -93,10 +129,31 @@ export function checkSymbol(symbol, species = "human") {
   if (/\s/.test(s)) return { ok: false, reason: "Gene symbols have no spaces." };
   if (/[^A-Za-z0-9-.]/.test(s)) return { ok: false, reason: "Gene symbols use only letters, digits and hyphens (no Greek letters or brackets)." };
   if (/^-|-$|--/.test(s)) return { ok: false, reason: "A hyphen can't start or end a symbol." };
-  if (species === "human") {
+  if (HUMANLIKE.has(species)) {
     if (/^C(\d{1,2}|X|Y)orf\d+$/.test(s)) return { ok: true, reason: "" };
-    if (/[a-z]/.test(s)) return { ok: false, reason: `Human (HGNC) symbols are upper case: ${s.toUpperCase()}, not ${s}.` };
+    const who = species === "human" ? "Human (HGNC) symbols are" : `${SPECIES_LABEL[species]} symbols follow the human (HGNC) style and are`;
+    if (/[a-z]/.test(s)) return { ok: false, reason: `${who} upper case: ${s.toUpperCase()}, not ${s}.` };
     if (!/^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$/.test(s)) return { ok: false, reason: "HGNC symbols start with a letter and use upper-case letters, digits and hyphens." };
+    return { ok: true, reason: "" };
+  }
+  if (LOWERCASE.has(species)) {
+    if (/[A-Z]/.test(s)) return { ok: false, reason: `${SPECIES_LABEL[species]} symbols are all lower case: ${s.toLowerCase()}, not ${s}.` };
+    return { ok: true, reason: "" };
+  }
+  if (species === "worm") {
+    if (/^[a-z]{3,4}-\d+(\.\d+)?$/.test(s) || /^[A-Z0-9]+\.\d+[a-z]?$/.test(s)) return { ok: true, reason: "" };
+    if (/^[A-Za-z]{3,4}-\d+(\.\d+)?$/.test(s)) return { ok: false, reason: `C. elegans gene names are lower case: ${s.toLowerCase()}, not ${s} (upper case is the protein).` };
+    return { ok: false, reason: "C. elegans gene names are a lower-case class, a hyphen and a number (act-1, unc-54), or a sequence name such as F53A9.10." };
+  }
+  if (species === "yeast") {
+    if (YEAST_ORF.test(s)) return s === s.toUpperCase() ? { ok: true, reason: "" } : { ok: false, reason: `Yeast systematic names are upper case: ${s.toUpperCase()}.` };
+    if (/^[a-z]{3}\d+$/.test(s)) return { ok: false, reason: `Yeast gene names are upper case: ${s.toUpperCase()}, not ${s} (lower case means a mutant allele).` };
+    return { ok: true, reason: "" };
+  }
+  if (species === "arabidopsis") {
+    if (AGI_LOCUS.test(s)) return s === s.toUpperCase() ? { ok: true, reason: "" } : { ok: false, reason: `Arabidopsis locus IDs are upper case: ${s.toUpperCase()}.` };
+    if (/^MIR\d+[a-z]?$/.test(s)) return { ok: true, reason: "" };
+    if (/^[a-z][a-z0-9-]*$/.test(s)) return { ok: false, reason: `Arabidopsis gene symbols are upper case: ${s.toUpperCase()}, not ${s} (lower case means a mutant).` };
     return { ok: true, reason: "" };
   }
   if (species === "mouse" || species === "rat") {
@@ -114,25 +171,30 @@ export function suggestSymbol(raw, species = "human") {
   const mir = mirSymbol(name.replace(/\s+/g, ""), species);
   if (mir) return { symbol: mir.symbol, extra: mir.extra,
     note: mir.mature ? `${name} is the mature miRNA; ${mir.symbol} is the gene it's made from.${mir.extra.length ? ` If that symbol doesn't exist, the lookup also tries ${mir.extra[0]}, because some miRNAs come from more than one gene.` : ""}` : "" };
-  const bare = name.replace(/^(hsa|mmu|rno)[-_]/i, "");
+  const bare = name.replace(PREFIX_RE, "");
+  const first = bare.split(/\s+/)[0];
+  if (isLocusId(first)) return { symbol: first.toUpperCase(), extra: [], note: `${first.toUpperCase()} is a locus ID; the lookup finds the gene name that goes with it.` };
   const circ = /^circ(?:RNA)?[-_ ]?([A-Za-z][A-Za-z0-9-]+)$/i.exec(bare);
   if (circ && !/^hsa_circ_\d+$/i.test(name)) { const host = suggestSymbol(circ[1], species).symbol; return { symbol: host, extra: [], note: `circ${circ[1]} is a circular RNA; ${host} is its host gene, which is what the lookup describes.` }; }
   if (/^hsa_circ_\d+$/i.test(name)) return { symbol: "", extra: [], note: "circBase IDs aren't gene symbols, so there's nothing to look up." };
   const key = compact(bare);
-  if (ALIASES[key]) {
+  // The nickname list is for human-style and mouse/rat symbols; other species keep the name as written.
+  if (ALIASES[key] && (HUMANLIKE.has(species) || species === "mouse" || species === "rat")) {
     let sym = ALIASES[key];
     if (species === "mouse" || species === "rat") sym = { RNA18SN5: "Rn18s", RNA28SN5: "Rn28s1", "RNU6-1": "Rnu6", "RNU6-2": "Rnu6" }[sym] || cap(sym);
     return { symbol: sym, extra: [], note: sym === compact(bare) || sym === bare ? "" : `“${name}” is usually written ${sym}.` };
   }
   // "ACTB mRNA", "GAPDH promoter": the first word is the gene.
-  let sym = bare.split(/\s+/)[0];
-  if (species === "human") {
+  let sym = first;
+  if (HUMANLIKE.has(species) || LOWERCASE.has(species)) {
     if (!/^C(\d{1,2}|X|Y)orf\d+$/i.test(sym)) sym = sym.toUpperCase();
     else sym = sym.replace(/^c/, "C").replace(/ORF/i, "orf");
     // IL-6 → IL6, CD-4 → CD4; leave real hyphenated symbols (NKX2-1, HLA-A, MT-CO1, RNU6-1, *-AS1) alone.
     const h = /^([A-Z]{2,5})-(\d+[A-Z]?\d*)$/.exec(sym);
     if (h && !/^(MT|HLA|RNU\d|LINC|MIR)$/.test(h[1])) sym = h[1] + h[2];
-  }
+    if (LOWERCASE.has(species)) sym = sym.toLowerCase();
+  } else if (species === "worm") { if (/^[A-Za-z]{3,4}-\d+(\.\d+)?$/.test(sym)) sym = sym.toLowerCase(); }
+  else if ((species === "yeast" || species === "arabidopsis") && /^[A-Za-z]+\d*$/.test(sym)) sym = sym.toUpperCase();
   return { symbol: sym, extra: [], note: "" };
 }
 
@@ -158,15 +220,16 @@ export function analyzeTarget(raw) {
   const type = guessType(raw, sug.symbol);
   const notes = [];
   if (sug.note) notes.push(sug.note);
-  if (hint) notes.push(`Species ${SPECIES_LABEL[species].toLowerCase()}, from ${hint.source}.`);
+  if (hint) notes.push(`Species ${SPECIES_LABEL[species].replace(/^(Human|Mouse|Rat|Zebrafish|Chicken|Pig|Cow|Dog)$/, x => x.toLowerCase())}, guessed from ${hint.source}. Change it if that's wrong.`);
   else {
     notes.push("No species in the name, so I'm assuming human.");
     const bare = cleanName(String(raw ?? ""));
     if (/^[A-Z][a-z][a-z0-9]*$/.test(bare) && bare.length > 2) notes.push(`“${bare}” is written like a mouse or rat symbol; change the species if that's what it is.`);
+    else if (/^[a-z]+\d[a-z0-9]*$/.test(bare) && bare.length > 3) notes.push(`“${bare}” is all lower case, as zebrafish and Xenopus symbols are; change the species if that's what it is.`);
   }
   if (/^MT-/.test(sug.symbol)) notes.push("This is a mitochondrial gene.");
-  if (species === "other" && /^cel[-_]miR/i.test(String(raw))) notes.push("cel-miR-39 and other C. elegans miRNAs are usually spike-in controls added before extraction.");
-  const check = checkSymbol(sug.symbol, species === "other" ? "human" : species);
+  if (species === "worm" && /^cel[-_]miR/i.test(String(raw))) notes.push("cel-miR-39 and other C. elegans miRNAs are usually spike-in controls added before extraction.");
+  const check = checkSymbol(sug.symbol, species);
   return { name: String(raw ?? ""), symbol: sug.symbol, extra: sug.extra, type, species, speciesFrom: hint ? hint.source : "default", notes,
     valid: check.ok, reason: check.reason, gene: !isNonGene(raw) && !!sug.symbol };
 }
@@ -191,7 +254,11 @@ export const MITO_NOTE = "Mitochondrial genes have no introns, and nuclear DNA c
 // ---------------------------------------------------------------- stored annotations (exp.targets)
 const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
-const FIELD_RE = { entrez: /^\d{1,12}$/, ensembl: /^ENS[A-Z]*G\d{6,15}(\.\d+)?$/, hgncId: /^(HGNC|MGI|RGD):\d{1,10}$/ };
+// hgncId keeps its old name so saved runs still read, but holds whichever nomenclature ID the species has.
+// For fly, worm, yeast and Arabidopsis genes Ensembl uses the FlyBase, WormBase, SGD or TAIR ID as the gene ID.
+const FIELD_RE = { entrez: /^\d{1,12}$/, ensembl: /^(ENS[A-Z]*G\d{6,15}(\.\d+)?|FBgn\d{7}|WBGene\d{8}|Y[A-P][LR]\d{3}[WC](-[A-Z])?|AT[1-5CM]G\d{5})$/,
+  hgncId: /^((HGNC|MGI|RGD):\d{1,10}|ZFIN:ZDB-GENE-\d{6}-\d{1,6}|FB:FBgn\d{7}|WB:WBGene\d{8}|SGD:S\d{9}|TAIR:AT[1-5CM]G\d{5}|Xenbase:XB-GENE-\d{1,10})$/,
+  taxid: /^\d{1,9}$/, locus: /^(Y[A-P][LR]\d{3}[WC](-[A-Z])?|AT[1-5CM]G\d{5})$/ };
 // Sets a key safely even when a target is literally called "__proto__".
 export function putTarget(targets, name, rec) {
   Object.defineProperty(targets, name, { value: rec, enumerable: true, writable: true, configurable: true });
@@ -223,10 +290,11 @@ export function targetTable(exp, rows) {
   return names.map(name => {
     const g = analyzeTarget(name), s = Object.prototype.hasOwnProperty.call(saved, name) ? saved[name] : {};
     const symbol = s.symbol ?? g.symbol, species = s.species || g.species, type = s.type || g.type;
-    const check = checkSymbol(symbol, species === "other" ? "human" : species);
-    return { name, guess: g, saved: s, symbol, species, type, confirmed: !!s.confirmedBy, check,
-      // Looked up only if it reads as a gene symbol of a supported species and isn't plainly a non-gene target.
-      lookup: !!(check.ok && species !== "other" && sendable(symbol) && (g.gene || (s.symbol && s.symbol !== g.symbol))) };
+    const taxid = species === "other" ? s.taxid || "" : TAXID[species] || "";
+    const check = checkSymbol(symbol, species);
+    return { name, guess: g, saved: s, symbol, species, taxid, type, confirmed: !!s.confirmedBy, check,
+      // Looked up only if it reads as a gene symbol of a known species (or "Other" with a taxonomy ID) and isn't plainly a non-gene target.
+      lookup: !!(check.ok && taxid && sendable(symbol) && (g.gene || (s.symbol && s.symbol !== g.symbol))) };
   });
 }
 
@@ -255,7 +323,22 @@ const BOILERPLATE = /^\s*(microRNAs \(miRNAs\) are short|45S ribosomal DNA|This 
 export const describe = t => [t?.geneName, t?.description && t.description !== t.geneName ? t.description : ""].filter(Boolean).join(". ");
 // Only symbols that look like symbols are ever sent.
 export const sendable = s => typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/.test(s);
-const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,type_of_gene,summary,HGNC,MGI,RGD";
+const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,type_of_gene,summary,locus_tag,HGNC,MGI,RGD,ZFIN,FLYBASE,WormBase,SGD,TAIR,Xenbase";
+// Ensembl gene ID prefixes, to pick the reference-assembly ID when MyGene.info lists several (it lists a dozen for pig).
+const ENS_PREFIX = { human: "ENSG", mouse: "ENSMUSG", rat: "ENSRNOG", zebrafish: "ENSDARG", chicken: "ENSGALG", pig: "ENSSSCG", cow: "ENSBTAG",
+  dog: "ENSCAFG", macaque: "ENSMMUG", xenopus: "ENSXETG" };
+const first1 = v => (Array.isArray(v) ? v[0] : v);
+// The species' own nomenclature ID, written the way that database writes it (MyGene.info field names).
+const NOMEN = [["HGNC", "HGNC:"], ["MGI", "MGI:"], ["ZFIN", "ZFIN:"], ["FLYBASE", "FB:"], ["WormBase", "WB:"], ["SGD", "SGD:"], ["TAIR", "TAIR:"], ["Xenbase", "Xenbase:"], ["RGD", "RGD:"]];
+function nomenclatureId(hit) {
+  for (const [field, pre] of NOMEN) {
+    const v = first1(hit[field]);
+    if (v == null || v === "") continue;
+    const id = String(v).startsWith(pre) ? String(v) : pre + v;
+    return FIELD_RE.hgncId.test(id) ? id : "";
+  }
+  return "";
+}
 
 async function getJson(fetchFn, url, headers) {
   const signal = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined;
@@ -264,11 +347,11 @@ async function getJson(fetchFn, url, headers) {
   return r.json();
 }
 function fromMyGene(hit, species, now) {
-  const ens = [hit.ensembl].flat().map(e => e?.gene).filter(Boolean);
-  const want = { human: "ENSG", mouse: "ENSMUSG", rat: "ENSRNOG" }[species];
-  const id = hit.HGNC ? `HGNC:${hit.HGNC}` : typeof hit.MGI === "string" ? hit.MGI : hit.RGD ? `RGD:${hit.RGD}` : "";
-  return { symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), description: BOILERPLATE.test(hit.summary || "") ? "" : firstSentence(hit.summary),
-    entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.find(e => e.startsWith(want + "0")) || ens[0] || "", hgncId: id,
+  const ens = [hit.ensembl].flat().map(e => e?.gene).filter(e => typeof e === "string");
+  const want = ENS_PREFIX[species] || "-";
+  const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "");
+  return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), description: BOILERPLATE.test(hit.summary || "") ? "" : firstSentence(hit.summary),
+    entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.find(e => e.startsWith(want + "00000")) || ens.find(e => e.startsWith(want + "0")) || ens[0] || "", hgncId: id,
     dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now };
 }
 function fromHgnc(doc, now) {
@@ -278,16 +361,26 @@ function fromHgnc(doc, now) {
 }
 
 // Looks one symbol up. Tries MyGene.info (symbol, then the extra loci, then aliases); if MyGene.info can't be
-// reached and the gene is human, asks HGNC instead. Never throws: returns { status: "found" | "alias" |
-// "not_found" | "error", ... }. `fetch` is passed in so the tests (and the monkey test) never touch the network.
-export async function lookupGene(symbol, { species = "human", extra = [], fetch: fetchFn = globalThis.fetch, now = new Date().toISOString() } = {}) {
+// reached and the gene is human, asks HGNC instead (HGNC only has human genes). Yeast systematic names and
+// Arabidopsis loci are asked for as locus tags. Never throws: returns { status: "found" | "alias" | "not_found" |
+// "error", ... }. `fetch` is passed in so the tests (and the monkey test) never touch the network.
+// Only the symbol and the species are sent: "human", "mouse" or "rat" as before, otherwise the NCBI taxonomy ID.
+export async function lookupGene(symbol, { species = "human", taxid = "", extra = [], fetch: fetchFn = globalThis.fetch, now = new Date().toISOString() } = {}) {
   if (!sendable(symbol)) return { status: "error", error: "That isn't a gene symbol, so I didn't send it." };
-  if (!SPECIES_LABEL[species] || species === "other") return { status: "error", error: "Lookup works for human, mouse and rat genes only." };
+  if (!SPECIES_LABEL[species]) return { status: "error", error: "Choose a species to look this gene up." };
+  const sp = ["human", "mouse", "rat"].includes(species) ? species : species === "other" ? String(taxid ?? "") : TAXID[species];
+  if (!/^(human|mouse|rat|\d{1,9})$/.test(sp)) return { status: "error", error: "For “Other”, enter the species' NCBI taxonomy ID (digits only, for example 4932) to look its genes up." };
   if (typeof fetchFn !== "function") return { status: "error", error: "This browser can't make the request." };
   const cands = [symbol, ...extra.filter(sendable)];
-  const mg = (q, size = 3) => getJson(fetchFn, `https://mygene.info/v3/query?q=${encodeURIComponent(q)}&species=${species}&fields=${MYGENE_FIELDS}&size=${size}`);
+  const mg = (q, size = 3) => getJson(fetchFn, `https://mygene.info/v3/query?q=${encodeURIComponent(q)}&species=${sp}&fields=${MYGENE_FIELDS}&size=${size}`);
   let myGeneError = null;
   try {
+    if (isLocusId(symbol)) {
+      const want = symbol.toUpperCase(), d = await mg(`locus_tag:${want}`);
+      const hit = (d?.hits || []).find(x => String(first1(x.locus_tag) ?? "").toUpperCase() === want);
+      // A locus with a gene name (YFL039C is ACT1) comes back like an alias, so the panel says which name it found.
+      if (hit) return { status: String(hit.symbol || want).toUpperCase() === want ? "found" : "alias", ...fromMyGene(hit, species, now), asked: want, others: [] };
+    }
     for (const c of cands) {
       const d = await mg(`symbol:${c}`);
       const hit = (d?.hits || []).find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
@@ -297,7 +390,7 @@ export async function lookupGene(symbol, { species = "human", extra = [], fetch:
     if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), others: hits.slice(1).map(x => String(x.symbol)), asked: symbol };
     return { status: "not_found", source: "MyGene.info", checkedAt: now, asked: symbol };
   } catch (e) { myGeneError = e; }
-  if (species !== "human") return { status: "error", error: `MyGene.info couldn't be reached (${myGeneError.message}).` };
+  if (species !== "human") return { status: "error", error: `MyGene.info couldn't be reached (${myGeneError.message}). The fallback, HGNC, only has human genes.` };
   try {
     const hg = (field, v) => getJson(fetchFn, `https://rest.genenames.org/fetch/${field}/${encodeURIComponent(v)}`, { Accept: "application/json" });
     for (const c of cands) {
@@ -314,12 +407,17 @@ export async function lookupGene(symbol, { species = "human", extra = [], fetch:
   }
 }
 
+// "Zebrafish (taxid 7955)", "Other (taxid 4932)", or just "Other" when no ID was given.
+export const speciesText = r => `${SPECIES_LABEL[r.species] || "Other"}${r.taxid ? ` (taxid ${r.taxid})` : ""}`;
+// The IDs a lookup found, in one line.
+export const idList = (t, sep = ", ") => [t.entrez && `Entrez ${t.entrez}`, t.ensembl, t.hgncId, t.locus && t.locus !== t.ensembl && t.locus].filter(Boolean).join(sep);
+
 // ---------------------------------------------------------------- report section
 // HTML for the "Targets" section of the report. esc() and table() come from report.js so the look matches.
 export function targetsReportHtml(exp, res, { esc, table }) {
   const rows = targetTable(exp, res?.rows);
   if (!rows.length) return "";
-  const ids = r => [r.saved.entrez && `Entrez ${r.saved.entrez}`, r.saved.ensembl, r.saved.hgncId].filter(Boolean).join(", ");
+  const ids = r => idList(r.saved);
   const typeCell = r => RNA_TYPE_LABEL[r.type] + (r.confirmed ? "" : r.saved.type && r.saved.source ? ` (from ${r.saved.source})` : " (guessed from name)");
   const symCell = r => (r.symbol || "—") + (r.saved.status === "not_found" ? " (not found)" : r.saved.symbol ? "" : " (suggested)");
   const desc = r => describe(r.saved);
@@ -332,6 +430,6 @@ export function targetsReportHtml(exp, res, { esc, table }) {
   const from = [...sources].map(([k, ds]) => `${k} (${SOURCES[k]}) on ${[...ds].sort().join(", ")}`);
   const confirmed = rows.filter(r => r.confirmed).length;
   return `<h2>Targets</h2>
-${table(["Target in file", "RNA type", "Gene symbol", "Species", "IDs", "Description"], rows.map(r => [r.name, typeCell(r), symCell(r), SPECIES_LABEL[r.species], ids(r), desc(r)]))}
-<p class="sub small">${esc(`${confirmed} of ${rows.length} targets confirmed by the user. `)}${from.length ? esc(`Gene IDs and descriptions from ${from.join("; ")}. Only gene symbols were sent.`) : esc("No gene database was queried for this run.")}</p>`;
+${table(["Target in file", "RNA type", "Gene symbol", "Species", "IDs", "Description"], rows.map(r => [r.name, typeCell(r), symCell(r), speciesText(r), ids(r), desc(r)]))}
+<p class="sub small">${esc(`${confirmed} of ${rows.length} targets confirmed by the user. `)}${from.length ? esc(`Gene IDs and descriptions from ${from.join("; ")}. Only gene symbols and species were sent.`) : esc("No gene database was queried for this run.")}</p>`;
 }

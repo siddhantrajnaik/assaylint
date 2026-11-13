@@ -53,7 +53,7 @@ test("species comes from prefixes and TaqMan IDs; human is the stated default", 
   assert.equal(G.analyzeTarget("rno-miR-21-5p").species, "rat");
   assert.equal(G.analyzeTarget("Actb (Mm02619580_g1)").species, "mouse");
   assert.equal(G.analyzeTarget("Actb (Mm02619580_g1)").symbol, "Actb");
-  assert.equal(G.analyzeTarget("cel-miR-39").species, "other");
+  assert.equal(G.analyzeTarget("cel-miR-39").species, "worm");
   const a = G.analyzeTarget("ACTB");
   assert.equal(a.species, "human");
   assert.equal(a.speciesFrom, "default");
@@ -76,7 +76,7 @@ test("normalizeExperiment keeps and cleans per-target annotations", () => {
   const exp = C.normalizeExperiment({ id: "AL-x", targets: {
     ACTB: { symbol: "ACTB", type: "mRNA", species: "human", entrez: "60", ensembl: "ENSG00000075624", hgncId: "HGNC:132", geneName: "actin beta",
       description: "This gene encodes one of six different actin proteins.", source: "MyGene.info", status: "found", checkedAt: "2026-11-13T10:00:00Z", confirmedBy: "Siddhant", extra: "dropped" },
-    "miR-21": { symbol: "MIR21", type: "miRNA", entrez: "60; DROP TABLE", ensembl: "<script>", hgncId: "HGNC:abc", source: "evil.example", status: "weird", species: "dog" },
+    "miR-21": { symbol: "MIR21", type: "miRNA", entrez: "60; DROP TABLE", ensembl: "<script>", hgncId: "HGNC:abc", source: "evil.example", status: "weird", species: "unicorn", taxid: "96O6" },
     bad1: "not an object", bad2: null, bad3: [1, 2], bad4: { type: "protein" }, bad5: { symbol: "has space" },
     ["x".repeat(201)]: { symbol: "X" },
     long: { symbol: "LONG", description: "d".repeat(2000) },
@@ -202,9 +202,137 @@ test("report lists targets with type, symbol, IDs and the database it came from"
   assert.ok(sec.includes("Entrez 2597, HGNC:4141"));
   assert.ok(sec.includes("glyceraldehyde-3-phosphate dehydrogenase"));
   assert.ok(sec.includes("MyGene.info (https://mygene.info) on 2026-11-13"));
-  assert.ok(sec.includes("Only gene symbols were sent"));
+  assert.ok(sec.includes("Only gene symbols and species were sent"));
   assert.ok(JSON.parse(structuredJson(exp, res)).experiment.targets[name]);
   const empty = reportHtml(C.normalizeExperiment({ ...exp, targets: {} }), res);
   assert.ok(empty.includes("(guessed from name)"));
   assert.ok(empty.includes("No gene database was queried"));
+});
+
+// ---------------------------------------------------------------- other species
+test("species is guessed from miRBase prefixes, locus IDs and CG numbers, and says it's a guess", () => {
+  const cases = { "dre-miR-21": "zebrafish", "dme-miR-1-3p": "fly", "cel-miR-39": "worm", "ath-miR156a": "arabidopsis", "gga-miR-21-5p": "chicken",
+    "ssc-miR-21": "pig", "bta-miR-21-5p": "cow", "cfa-miR-21": "dog", "mml-miR-21": "macaque", "xtr-miR-21": "xenopus",
+    YFL039C: "yeast", "AT3G18780": "arabidopsis", "at3g18780 primers": "arabidopsis", CG1234: "fly", ACTB: "human" };
+  for (const [name, sp] of Object.entries(cases)) assert.equal(G.analyzeTarget(name).species, sp, name);
+  const z = G.analyzeTarget("dre-miR-21");
+  assert.notEqual(z.speciesFrom, "default");
+  assert.match(z.notes.join(" "), /zebrafish, guessed from the “dre-” prefix\. Change it if that's wrong\./);
+  // A guess is only a guess: the user's choice in exp.targets wins.
+  const [row] = G.targetTable({ targets: { "dre-miR-21": { species: "human" } } }, [{ target: "dre-miR-21" }]);
+  assert.equal(row.species, "human");
+  assert.match(G.analyzeTarget("sox10b").notes.join(" "), /lower case, as zebrafish and Xenopus symbols are/);
+});
+
+test("miRNA gene symbols follow each species' style", () => {
+  const cases = {
+    "dre-miR-21": ["mir21", "mir21-1"], "dre-let-7a": ["mirlet7a", "mirlet7a-1"], "xtr-miR-21-5p": ["mir21", "mir21-1"],
+    "dme-miR-276a-3p": ["mir-276a"], "cel-miR-39-3p": ["mir-39"], "cel-let-7-5p": ["let-7"],
+    "ath-miR156a": ["MIR156a"], "ath-miR156": ["MIR156", "MIR156a"], "gga-miR-21-5p": ["MIR21", "MIR21-1"], "bta-let-7a": ["MIRLET7A", "MIRLET7A1"],
+  };
+  for (const [name, [sym, extra]] of Object.entries(cases)) {
+    const a = G.analyzeTarget(name);
+    assert.equal(a.symbol, sym, name);
+    assert.equal(a.type, "miRNA", name);
+    assert.equal(a.valid, true, `${name}: ${a.reason}`);
+    if (extra) assert.equal(a.extra[0], extra, name); else assert.deepEqual(a.extra, [], name);
+  }
+});
+
+test("symbols are suggested and checked in each species' style", () => {
+  const sug = (n, sp) => G.suggestSymbol(n, sp).symbol;
+  assert.equal(sug("SOX10", "zebrafish"), "sox10");
+  assert.equal(sug("IL-6", "xenopus"), "il6");
+  assert.equal(sug("ACT-1", "worm"), "act-1");
+  assert.equal(sug("act1", "yeast"), "ACT1");
+  assert.equal(sug("yfl039c", "yeast"), "YFL039C");
+  assert.equal(sug("flc", "arabidopsis"), "FLC");
+  assert.equal(sug("Act5C", "fly"), "Act5C");
+  assert.equal(sug("b-actin", "pig"), "ACTB");
+  assert.equal(sug("b-actin", "fly"), "b-actin"); // the human nickname list isn't applied to flies
+  const ok = { zebrafish: ["actb1", "mir21-1", "si-ch211"], xenopus: ["actb", "sox2"], worm: ["act-1", "unc-54", "mir-39", "F53A9.10"],
+    yeast: ["ACT1", "YFL039C", "YAR028W", "TDH3"], arabidopsis: ["ACT2", "AT3G18780", "MIR156a", "FLC"], fly: ["Act5C", "w", "CG1234", "mir-1"],
+    chicken: ["ACTB", "MIR21"], pig: ["ACTB"], cow: ["MIR218-1"], dog: ["ACTB"], macaque: ["ACTB"], other: ["anything", "Abc1"] };
+  for (const [sp, syms] of Object.entries(ok)) for (const s of syms) assert.ok(G.checkSymbol(s, sp).ok, `${sp} ${s}: ${G.checkSymbol(s, sp).reason}`);
+  const bad = { zebrafish: [["Actb1", /all lower case: actb1/]], xenopus: [["SOX2", /lower case/]], worm: [["ACT-1", /lower case: act-1/], ["act1", /hyphen/]],
+    yeast: [["act1", /upper case: ACT1/], ["yfl039c", /upper case/]], arabidopsis: [["flc", /upper case: FLC.*mutant/], ["at3g18780", /upper case/]],
+    chicken: [["Actb", /Chicken symbols follow the human \(HGNC\) style and are upper case: ACTB/]], dog: [["actb", /upper case/]] };
+  for (const [sp, list] of Object.entries(bad)) for (const [s, re] of list) {
+    const c = G.checkSymbol(s, sp);
+    assert.ok(!c.ok, `${sp} ${s}`); assert.match(c.reason, re, `${sp} ${s}`);
+  }
+});
+
+test("every species has a taxonomy ID, and stored annotations keep the new IDs", () => {
+  for (const [k] of G.SPECIES) if (k !== "other") assert.match(G.TAXID[k], /^\d+$/, k);
+  assert.deepEqual([G.TAXID.zebrafish, G.TAXID.fly, G.TAXID.worm, G.TAXID.yeast, G.TAXID.arabidopsis, G.TAXID.chicken, G.TAXID.pig, G.TAXID.cow, G.TAXID.dog, G.TAXID.macaque, G.TAXID.xenopus],
+    ["7955", "7227", "6239", "559292", "3702", "9031", "9823", "9913", "9615", "9544", "8364"]);
+  const t = G.cleanTargets({
+    a: { symbol: "actb1", species: "zebrafish", hgncId: "ZFIN:ZDB-GENE-000329-1", ensembl: "ENSDARG00000037746" },
+    b: { symbol: "Act5C", species: "fly", hgncId: "FB:FBgn0000042", ensembl: "FBgn0000042" },
+    c: { symbol: "ACT1", species: "yeast", hgncId: "SGD:S000001855", ensembl: "YFL039C", locus: "YFL039C" },
+    d: { symbol: "X", species: "other", taxid: "4932" },
+    e: { symbol: "X", species: "other", taxid: "4932; DROP", hgncId: "ZFIN:<b>", locus: "nope" },
+  });
+  assert.equal(t.a.hgncId, "ZFIN:ZDB-GENE-000329-1"); assert.equal(t.b.ensembl, "FBgn0000042"); assert.equal(t.c.locus, "YFL039C");
+  assert.equal(t.d.taxid, "4932");
+  assert.deepEqual(t.e, { symbol: "X", species: "other" });
+  // "Other" is looked up only once it has a taxonomy ID.
+  const rows = [{ target: "Foo1" }];
+  assert.equal(G.targetTable({ targets: { Foo1: { species: "other" } } }, rows)[0].lookup, false);
+  const withId = G.targetTable({ targets: { Foo1: { species: "other", taxid: "4932" } } }, rows)[0];
+  assert.equal(withId.lookup, true); assert.equal(withId.taxid, "4932");
+  assert.equal(G.speciesText(withId), "Other (taxid 4932)");
+  assert.equal(G.targetTable({ targets: { Foo1: { species: "zebrafish", symbol: "foo1" } } }, rows)[0].taxid, "7955");
+});
+
+test("lookup for other species: taxonomy ID in the request, the species' own IDs back, no HGNC fallback", async () => {
+  const ZF = { ZFIN: "ZDB-GENE-000329-1", _id: "57934", ensembl: [{ gene: "ENSDARG00000113649" }, { gene: "ENSDARG00000037746" }], entrezgene: "57934",
+    name: "actin, beta 1", symbol: "actb1", taxid: 7955, type_of_gene: "protein-coding" };
+  const f = fakeFetch(() => json({ hits: [ZF] }));
+  const r = await G.lookupGene("actb1", { species: "zebrafish", fetch: f });
+  assert.equal(r.status, "found");
+  assert.match(f.calls[0].url, /^https:\/\/mygene\.info\/v3\/query\?q=symbol%3Aactb1&species=7955&/);
+  assert.match(f.calls[0].url, /ZFIN/);
+  assert.equal(r.hgncId, "ZFIN:ZDB-GENE-000329-1");
+  assert.match(r.ensembl, /^ENSDARG\d{11}$/);
+  assert.equal(r.entrez, "57934");
+
+  const fly = fakeFetch(() => json({ hits: [{ FLYBASE: "FBgn0000042", ensembl: { gene: "FBgn0000042" }, entrezgene: "31521", name: "Actin 5C", symbol: "Act5C", type_of_gene: "protein-coding" }] }));
+  const fr = await G.lookupGene("Act5C", { species: "fly", fetch: fly });
+  assert.match(fly.calls[0].url, /species=7227&/);
+  assert.equal(fr.hgncId, "FB:FBgn0000042"); assert.equal(fr.ensembl, "FBgn0000042");
+
+  // Yeast systematic names are asked for as locus tags, and the standard name comes back.
+  const y = fakeFetch(url => json({ hits: /locus_tag%3AYFL039C/.test(url) ? [{ SGD: "S000001855", ensembl: { gene: "YFL039C" }, entrezgene: "850504", locus_tag: "YFL039C", name: "actin", symbol: "ACT1", type_of_gene: "protein-coding" }] : [] }));
+  const yr = await G.lookupGene("YFL039C", { species: "yeast", fetch: y });
+  assert.equal(y.calls.length, 1);
+  assert.match(y.calls[0].url, /q=locus_tag%3AYFL039C&species=559292&/);
+  assert.equal(yr.status, "alias"); assert.equal(yr.symbol, "ACT1"); assert.equal(yr.asked, "YFL039C");
+  assert.equal(yr.hgncId, "SGD:S000001855"); assert.equal(yr.locus, "YFL039C");
+
+  const at = fakeFetch(url => json({ hits: /locus_tag%3AAT3G18780/.test(url) ? [{ TAIR: "AT3G18780", ensembl: { gene: "AT3G18780" }, entrezgene: "821411", locus_tag: "AT3G18780", name: "actin 2", symbol: "ACT2" }] : [] }));
+  const ar = await G.lookupGene("AT3G18780", { species: "arabidopsis", fetch: at });
+  assert.match(at.calls[0].url, /species=3702&/);
+  assert.equal(ar.symbol, "ACT2"); assert.equal(ar.hgncId, "TAIR:AT3G18780");
+
+  // "Other" sends the taxonomy ID the user typed, and nothing at all without one.
+  const o = fakeFetch(() => json({ hits: [] }));
+  assert.equal((await G.lookupGene("ACT1", { species: "other", taxid: "4932", fetch: o })).status, "not_found");
+  assert.match(o.calls[0].url, /species=4932&/);
+  const n = o.calls.length;
+  for (const bad of ["", "abc", "4932&q=x", "1234567890"]) assert.equal((await G.lookupGene("ACT1", { species: "other", taxid: bad, fetch: o })).status, "error", bad);
+  assert.equal((await G.lookupGene("ACT1", { species: "unicorn", fetch: o })).status, "error");
+  assert.equal(o.calls.length, n);
+
+  // MyGene.info down: HGNC is human-only, so a zebrafish gene is never sent there.
+  const down = fakeFetch(() => json({}, 503));
+  const d = await G.lookupGene("actb1", { species: "zebrafish", fetch: down });
+  assert.equal(d.status, "error"); assert.match(d.error, /only has human genes/);
+  assert.ok(down.calls.every(c => c.url.startsWith("https://mygene.info/")));
+  // Every request carries only the symbol and species (plus the fixed field list and page size).
+  for (const c of [...f.calls, ...y.calls, ...o.calls, ...down.calls]) {
+    const u = new URL(c.url);
+    assert.deepEqual([...u.searchParams.keys()].sort(), ["fields", "q", "size", "species"]);
+  }
 });
