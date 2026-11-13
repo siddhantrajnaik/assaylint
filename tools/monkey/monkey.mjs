@@ -40,7 +40,9 @@ if (process.argv[4] === "corrupt-start") {
   for (const k of ["index", "settings", "profiles", "exp.AL-zz", "exp.AL-ok"]) localStorage.setItem("assaylint.v1." + k, pick(junk));
   localStorage.setItem("assaylint.v1.index", "[null,7,{\"id\":\"AL-zz\",\"title\":5},{\"id\":\"AL-ok\"}]");
 }
-await import(pathToFileURL(join(WEB, "app.js")).href);
+// If the app itself fails to load (a syntax error, a missing file), fail loudly instead of "passing" with nothing tested.
+try { await import(pathToFileURL(join(WEB, "app.js")).href); }
+catch (e) { console.error("FAILED: app.js did not load.", e); process.exit(1); }
 const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
 await tick(20);
 // Self-test: a handler that throws and a promise that rejects must both be caught by this harness.
