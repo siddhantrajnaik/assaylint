@@ -30,8 +30,42 @@ Why a separate layer and not new roles in `core.js`: the existing rules treat ro
 
 - Technical replicates (same set, label, target and fraction) are averaged as Ct values first, the same way as PlateCheck's replicate table. Every well with a numeric Ct counts; wells without one are left out of the mean, and that's flagged.
 - A replicate SD above your threshold (Method details and thresholds) is flagged, as is a mean Ct above 35 for wells that should amplify.
-- A Ct difference becomes a ratio as 2^ΔCt, which assumes every primer pair doubles each cycle (100% efficiency). If your primer pairs differ a lot in efficiency, the numbers are off by that much. Haring et al. (2007) use a calibration line per primer pair for this reason.
+- A Ct difference becomes a ratio as E^ΔCt, where E = 1 + the PCR efficiency of that primer pair. By default E = 2 (every copy doubles each cycle, 100% efficiency), so results don't change unless you set an efficiency. The formulas below are written with 2; read 2 as E. See "PCR efficiency" below.
 - Nothing is clipped. A % methylation of 140% is shown as 140% with a note, because that number tells you something went wrong.
+
+## PCR efficiency
+
+Haring et al. (2007) use a calibration line per primer pair because primer pairs don't all amplify equally well, and the ENGL acceptance range for an assay is 90–110% (sources in docs/thresholds.md). A pair at 90% instead of 100% turns a 6.6-cycle difference into 1.9^6.6 = 69-fold instead of 2^6.6 = 97-fold, so the efficiency matters most where the ΔCt is large (input dilution, IgG, digested vs mock).
+
+On the Assay calculations page, under **PCR efficiency per primer pair**, each target in the labelled wells can be set to:
+
+- **100% (assumed)**, the default.
+- **Standard curve on this plate**: the efficiency PlateCheck already fits for the run checks (wells with the Standard role and a quantity; efficiency = 10^(−1/slope) − 1). Only offered when there is a curve for that target. If the curve later disappears (the results file is replaced, or the standards are relabelled), the calculation falls back to 100% and says so.
+- **Typed in**: a percentage from your own assay validation, between 50 and 150.
+
+A standard curve on the plate is never applied by itself; you pick it. The efficiency used is shown for every row of the results table and listed in the report, with the slope, R² and number of levels when it came from a curve. An efficiency outside 90–110% is flagged, but still used.
+
+Where each efficiency goes:
+
+| Calculation | With efficiencies |
+|---|---|
+| % input, fold over IgG | E(region)^ΔCt; the input dilution comes off the input Ct as log_E(100 / input %) |
+| Fold over negative region | ratio of the two % inputs, each with its own E; IP-only: E(region)^−Ct ÷ E(negative)^−Ct |
+| MSRE | E(region)^−ΔCt, divided by E(no-site)^−ΔCt and by the fully methylated control's value |
+| PMR | 100 × E(gene)^(Ct ref − Ct sample) × E(control)^(Ct sample − Ct ref) |
+| Accessibility | E(region)^d ÷ E(closed)^d(closed) (or the inverse for enriched DNA); % left = E(region)^−d |
+| 3C | E(pair)^−(Ct library − Ct template) × E(loading)^(loading Ct − mean loading Ct) |
+| Fractions | amount ∝ E(RNA)^−Ct, divided by E(spike-in)^−Ct(spike-in) |
+| Signal over blank | E^ΔCt |
+| 4sU labelling | E(RNA)^−d for treated vs mock; total % × E(RNA)^−(Ct pulldown − Ct total) |
+
+With every E = 2 each line is exactly the formula given in its section.
+
+**Worked example (% input).** IP 24, 1% input 26, at 90% efficiency (E = 1.9): % input = 1% × 1.9^2 = 3.61%, against 4% at 100%. Fold over an IgG at Ct 30: 1.9^6 = 47.0 instead of 64.
+
+**Worked example (MSRE).** Mock 24, digested 25, at 95% (E = 1.95): 100 × 1.95^−1 = 51.3% methylated with a sensitive enzyme, 48.7% with a dependent one. With a no-site region that moved 0.5 cycles at 100% and the region at 90% after 1.5 cycles: 1.9^−1.5 ÷ 2^−0.5 = 0.540, so 54.0%.
+
+**Caveat.** This corrects the slope part of the error only. Ratios between different primer pairs (fold over the negative region from IP alone, PMR, accessibility against a closed region, spike-in-corrected fractions) also depend on where each pair crosses the threshold, which an efficiency can't fix. That is why Haring et al., Hagège et al. and the MethyLight papers use a standard curve per primer pair and read quantities off it.
 
 ## 1. % input and fold enrichment
 
@@ -106,7 +140,7 @@ With a region without a cut site, its ΔCt is subtracted from each region's ΔCt
 - Campan M, Weisenberger DJ, Trinh B, Laird PW. MethyLight. *Methods Mol Biol* 2009;507:325–337. https://doi.org/10.1007/978-1-59745-522-0_23
 - Weisenberger DJ, Campan M, Long TI, et al. Analysis of repetitive element DNA methylation by MethyLight. *Nucleic Acids Res* 2005;33:6823–6836. https://doi.org/10.1093/nar/gki987
 
-**Caveats.** The papers calculate PMR from standard curves; the ΔΔCt form here is the same ratio if both reactions are 100% efficient. PMR can be above 100.
+**Caveats.** The papers calculate PMR from standard curves; the ΔΔCt form here is the same ratio if both reactions are 100% efficient, or if you set each reaction's efficiency. PMR can be above 100.
 
 ## 3. Accessibility relative to a closed region (DNase, MNase, ATAC, FAIRE)
 
@@ -155,7 +189,7 @@ There are two directions, and you choose which:
 
 - Hagège H, Klous P, Braem C, et al. Quantitative analysis of chromosome conformation capture assays (3C-qPCR). *Nat Protoc* 2007;2:1722–1733. https://doi.org/10.1038/nprot.2007.243
 
-**Caveats.** The protocol uses a standard curve of the control template for every primer pair; PlateCheck uses one template level and 100% efficiency. Put several template dilutions on the plate as standards if you want the efficiency checked (the standard-curve check on the Review page will do it).
+**Caveats.** The protocol uses a standard curve of the control template for every primer pair; PlateCheck uses one template level. Put several template dilutions on the plate as standards and the standard-curve check fits an efficiency per primer pair, which you can then pick under PCR efficiency.
 
 ## 5. Distribution across fractions (polysome profiling, TRAP)
 
@@ -255,5 +289,5 @@ iCLIP (König et al. 2010) and eCLIP are listed with RIP and CLIP under % input 
 ## Not covered yet
 
 - Allele-specific qPCR for SLAM-seq T-to-C conversions. Nobody has published it as far as I could find, and it would need primers designed over each converted position.
-- Efficiency-corrected versions of these calculations (standard curve per primer pair).
+- Reading quantities straight off a standard curve per primer pair (as the 3C and MethyLight protocols do), rather than correcting ΔCt with an efficiency.
 - Statistics across biological replicates; the Analysis module (roadmap workstream 2) will take these numbers as input.

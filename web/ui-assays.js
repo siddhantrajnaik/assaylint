@@ -107,8 +107,43 @@ export function assayView(ctx) {
     h("div", { class: "rows" }, family.params.map(p => h("label", { class: "line" }, h("span", { class: "line-l" }, p.label), h("span", { class: "line-c" }, control(p), p.hint && h("small", null, p.hint))))),
     h("details", null, h("summary", null, "How it's calculated"),
       h("pre", { class: "fd-evidence" }, family.formula.join("\n")),
-      h("p", { class: "fine" }, "Technical replicates are averaged as Ct values first. Ct differences become ratios assuming every primer pair doubles each cycle (100% efficiency)."),
+      h("p", { class: "fine" }, "Technical replicates are averaged as Ct values first. A Ct difference becomes a ratio as E^ΔCt, where E = 1 + the PCR efficiency of that primer pair: E = 2 (every copy doubles each cycle, 100%) unless you set the efficiency below."),
       h("ul", { class: "fine" }, family.refs.map(k => h("li", null, A.REFS[k].cite, A.REFS[k].doi ? ` doi:${A.REFS[k].doi}` : ` PMID ${A.REFS[k].pmid}`))))));
+
+  // ---- PCR efficiency per primer pair: 100% unless the user picks the plate's standard curve or types a value
+  const effTargets = [...new Set(labelled.map(r => r.target).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (effTargets.length) {
+    const effs = A.efficiencies(setup, st.res.stdCurves, effTargets), chosen = setup.eff || {};
+    const setEff = (t, v, what) => save("assay.efficiency", `${t}: PCR efficiency ${what}`, s => {
+      const next = { ...(s.eff || {}) };
+      if (v === null) delete next[t]; else Object.defineProperty(next, t, { value: v, enumerable: true, writable: true, configurable: true });
+      s.eff = next;
+    });
+    const typed = (t, raw) => {
+      const v = Number(String(raw).trim());
+      if (!String(raw).trim() || !Number.isFinite(v) || v < A.EFF_MIN || v > A.EFF_MAX) { ctx.flash(`Efficiency for ${t}: “${String(raw).slice(0, 20)}” isn't a percentage between ${A.EFF_MIN} and ${A.EFF_MAX}, so it wasn't changed.`, true); ctx.renderMain(); return; }
+      if (chosen[t] === v) return;
+      setEff(t, v, `set to ${v}% (typed in)`);
+    };
+    out.push(card(h("h3", null, "PCR efficiency per primer pair"),
+      h("p", { class: "fine" }, "Every result assumes 100% efficiency (E = 2) unless you change it here. If the plate has a standard curve for a target (wells marked Standard with quantities), you can use its efficiency; otherwise type one in from your assay validation. The efficiency used is shown in the results table and the report."),
+      h("div", { class: "rows" }, effTargets.map(t => {
+        const e = effs.get(t), mode = chosen[t] === "curve" ? "curve" : typeof chosen[t] === "number" ? "typed" : "assumed";
+        const sel = h("select", { "aria-label": `Efficiency source for ${t}`, onchange: ev => {
+          const m = ev.target.value;
+          if (m === "assumed") setEff(t, null, "back to 100% (assumed)");
+          else if (m === "curve") setEff(t, "curve", e.curve !== null ? `from the standard curve (${A.fmtNum(e.curve, 1)}%)` : "from the standard curve");
+          else { ctx.flash(`Type the efficiency for ${t} in the box next to it.`); typed(t, chosen[t] ?? 100); }
+        } },
+        h("option", { value: "assumed", selected: mode === "assumed" }, "100% (assumed)"),
+        h("option", { value: "curve", selected: mode === "curve", disabled: e.curve === null && mode !== "curve" }, e.curve !== null ? `Standard curve on this plate: ${A.fmtNum(e.curve, 1)}%` : "Standard curve (none on this plate)"),
+        h("option", { value: "typed", selected: mode === "typed" }, "Type it in"));
+        return h("label", { class: "line" }, h("span", { class: "line-l mono" }, t),
+          h("span", { class: "line-c" }, sel,
+            mode === "typed" && h("input", { type: "number", class: "num-in", step: 0.1, min: A.EFF_MIN, max: A.EFF_MAX, value: String(chosen[t]), "aria-label": `Efficiency % for ${t}`, onchange: ev => typed(t, ev.target.value) }),
+            h("small", null, `Used: ${A.effLabel(e)}${e.source === "curve" ? `, ${e.note}` : e.source === "missing" ? `, ${e.note}` : ""}`)));
+      }))));
+  }
 
   // ---- labelling wells, on the same plate picture as the Plate page
   const byKey = new Map();
@@ -170,7 +205,7 @@ export function assayView(ctx) {
 
   // ---- results
   let res;
-  try { res = A.runAssay(st.exp, rows); } catch (e) { out.push(card(h("p", { class: "error" }, `The calculation could not run: ${e.message}`))); return out; }
+  try { res = A.runAssay(st.exp, rows, { stdCurves: st.res.stdCurves }); } catch (e) { out.push(card(h("p", { class: "error" }, `The calculation could not run: ${e.message}`))); return out; }
   const cell = (r, [k, , d]) => (typeof r[k] === "number" ? A.fmtNum(r[k], d ?? 2) : r[k] ?? "");
   const SEV = { high: "High", medium: "Medium", low: "Low" };
   out.push(card(h("h2", null, `Results: ${assay.name}`),
