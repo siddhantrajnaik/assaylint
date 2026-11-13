@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { crc32 } from "node:zlib";
 import * as C from "../web/core.js";
 import * as A from "../web/analysis.js";
+import * as S from "../web/stats.js";
 import * as R from "../web/report.js";
 import { pngWithDpi } from "../web/ui-analysis.js";
 
@@ -237,13 +238,13 @@ test("saved analysis settings survive normalizeExperiment and a packet round tri
   const { exp, res } = handRun();
   exp.source.sha256 = await C.sha256(exp.source.text);
   exp.analysis = { on: true, refs: ["GAPDH", "GAPDH", 5, ""], control: "control", efficiency: true, error: "sem", correction: "bonferroni", skipOmitted: false,
-    excluded: ["A1", null], scale: "linear", refMaxShift: 0.8, junk: "<script>" };
+    excluded: ["A1", null], scale: "linear", refMaxShift: 0.8, test: "dunnett", junk: "<script>" };
   C.normalizeExperiment(exp);
   assert.deepEqual(exp.analysis, { on: true, refs: ["GAPDH"], control: "control", efficiency: true, error: "sem", correction: "bonferroni", skipOmitted: false,
-    excluded: ["A1"], scale: "linear", refMaxShift: 0.8 });
+    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett" });
   const again = await C.verifyPacket(JSON.parse(R.packetJson(exp, res)));
   assert.deepEqual(again.analysis, exp.analysis);
-  for (const junk of [null, 5, "x", [], { on: "yes", refs: "GAPDH", error: "var", correction: "holm", refMaxShift: -1 }]) {
+  for (const junk of [null, 5, "x", [], { on: "yes", refs: "GAPDH", error: "var", correction: "holm", refMaxShift: -1, test: "anova; drop table" }]) {
     const e = C.normalizeExperiment({ ...structuredClone(exp), analysis: junk });
     if (junk && typeof junk === "object" && !Array.isArray(junk)) assert.deepEqual(e.analysis, { ...A.DEFAULT_SETTINGS }, JSON.stringify(junk));
     else assert.equal(e.analysis, null);
@@ -304,4 +305,123 @@ test("PNG export carries 300 dpi", () => {
   assert.equal(dv.getUint32(at + 17), crc32(out.subarray(at + 4, at + 17)));
   assert.equal(out.length, png.length, "the old pHYs chunk was replaced, not duplicated");
   assert.equal(pngWithDpi(new Uint8Array([1, 2, 3]), 300).length, 3, "not a PNG: left alone");
+});
+
+// ---------------------------------------------------------------- the test choice
+// Three groups, one target, each value worked out by hand so the analysis can be compared with web/stats.js directly.
+const THREE = {
+  c1: ["control", { GAPDH: [18.0], IL6: [25.0] }], c2: ["control", { GAPDH: [18.2], IL6: [25.4] }], c3: ["control", { GAPDH: [18.1], IL6: [25.0] }],
+  a1: ["drugA", { GAPDH: [18.1], IL6: [23.1] }], a2: ["drugA", { GAPDH: [18.0], IL6: [23.3] }], a3: ["drugA", { GAPDH: [18.2], IL6: [22.9] }],
+  b1: ["drugB", { GAPDH: [18.0], IL6: [24.6] }], b2: ["drugB", { GAPDH: [18.1], IL6: [25.2] }], b3: ["drugB", { GAPDH: [18.2], IL6: [24.9] }],
+};
+const dctOf = (u, k) => THREE[u][1].IL6[0] - THREE[u][1].GAPDH[0];
+const groupDct = p => ["1", "2", "3"].map(i => dctOf(p + i));
+const threeRun = (extraHead = [], extra = () => []) => {
+  const rows = plate(THREE).map(r => [...r, ...extra(r)]);
+  return run(rows, { head: ["Well", "Sample", "Target", "Ct", "Group", ...extraHead] });
+};
+const setFor = test => ({ on: true, refs: ["GAPDH"], control: "control", test });
+
+test("the default test is still Welch, and the settings say so", () => {
+  const { exp, res } = threeRun();
+  const a = A.analyzeRun(exp, res, { on: true, refs: ["GAPDH"], control: "control" });
+  assert.equal(a.settings.test, "welch");
+  const r = a.summary.find(x => x.group === "drugA");
+  near(r.p, S.welch(groupDct("a"), groupDct("c")).p, 1e-12, "Welch p");
+  assert.equal(r.test, "Welch t-test"); assert.equal(r.statName, "t");
+  assert.match(a.method, /Welch's t-test/);
+});
+
+test("Student, Tukey, Dunnett, Mann–Whitney and Kruskal–Wallis + Dunn give the stats.js values", () => {
+  const { exp, res } = threeRun();
+  const c = groupDct("c"), da = groupDct("a"), db = groupDct("b");
+  const st = A.analyzeRun(exp, res, setFor("student"));
+  near(st.summary.find(x => x.group === "drugA").p, S.student(da, c).p, 1e-12, "Student");
+  assert.match(st.method, /Student's t-test/);
+
+  const tk = A.analyzeRun(exp, res, setFor("tukey")), ref = S.tukeyHsd([c, da, db]);
+  near(tk.summary.find(x => x.group === "drugA").p, ref.pairs.find(p => p.i === 0 && p.j === 1).p, 1e-12, "Tukey vs control");
+  assert.equal(tk.pairwise.length, 3, "all three pairs are listed");
+  assert.ok(tk.pairwise.some(p => p.a === "drugA" && p.b === "drugB"));
+  assert.equal(tk.anova.length, 1, "ANOVA is shown with Tukey");
+  // one target: no second correction on top of Tukey's own
+  for (const r of tk.summary.filter(x => !x.isControl)) { assert.equal(r.pBH, r.p); assert.equal(r.pBonferroni, r.p); assert.equal(r.pAdj, r.p); }
+  assert.match(tk.method, /Tukey 1949/); assert.match(tk.method, /nothing more to adjust/);
+  assert.match(A.resultsCsv(tk), /tukey_q/);
+
+  const dn = A.analyzeRun(exp, res, setFor("dunnett")), dref = S.dunnett([c, da, db], 0);
+  near(dn.summary.find(x => x.group === "drugB").p, dref.comparisons[1].p, 1e-12, "Dunnett");
+  assert.match(dn.method, /Dunnett 1955/);
+
+  const mw = A.analyzeRun(exp, res, setFor("mannwhitney"));
+  const rA = mw.summary.find(x => x.group === "drugA");
+  near(rA.p, S.mannWhitney(da, c).p, 1e-12, "Mann–Whitney");
+  near(rA.p, 0.1, 1e-12, "3 vs 3, complete separation: the smallest p possible");
+  assert.ok(mw.warnings.some(w => /can't give a p value below 0\.100/.test(w)), mw.warnings.join("\n"));
+  assert.equal(mw.anova.length, 0); assert.equal(mw.kruskal.length, 1, "rank tests get Kruskal–Wallis, not ANOVA");
+
+  const kw = A.analyzeRun(exp, res, { ...setFor("kruskal"), correction: "bonferroni" }), dref2 = S.dunn([c, da, db], [[1, 0], [2, 0]]);
+  near(kw.summary.find(x => x.group === "drugA").p, dref2.comparisons[0].pBonferroni, 1e-12, "Dunn, Bonferroni within the target");
+  near(kw.summary.find(x => x.group === "drugA").pRaw, dref2.comparisons[0].p, 1e-12, "Dunn raw");
+  near(kw.kruskal[0].p, S.kruskal([c, da, db]).p, 1e-12, "Kruskal–Wallis");
+  assert.match(kw.method, /Dunn 1964/);
+});
+
+test("Tukey and Dunnett are corrected only across targets, separately for each comparison", () => {
+  const ts = ["G1", "G2", "G3"], units = {};
+  const d = { c: [0, 0.2, -0.1], a: [1.5, 1.2, 1.9], b: [0.3, -0.2, 0.6] };
+  for (const [g, key] of [["control", "c"], ["drugA", "a"], ["drugB", "b"]]) d[key].forEach((x, i) => {
+    units[`${key}${i}`] = [g, { GAPDH: [18 + i * 0.1], ...Object.fromEntries(ts.map((t, k) => [t, [24 + k + x * (k + 1) + i * 0.1]])) }];
+  });
+  const { exp, res } = run(plate(units));
+  const a = A.analyzeRun(exp, res, { ...setFor("dunnett"), correction: "bonferroni" });
+  for (const g of ["drugA", "drugB"]) {
+    const rows = a.summary.filter(r => r.group === g);
+    assert.equal(rows.length, 3);
+    for (const r of rows) near(r.pBonferroni, Math.min(1, r.p * 3), 1e-12, `${g} Bonferroni over 3 targets, not 6 comparisons`);
+  }
+  assert.match(a.method, /only across the 3 targets/);
+});
+
+test("paired t-test matches units by their pair label and refuses without one", () => {
+  const pairOf = r => [{ c1: "m1", a1: "m1", c2: "m2", a2: "m2", c3: "m3", a3: "m3", b1: "m1", b2: "m2" }[r[1]] || ""];
+  const { exp, res } = threeRun(["Pair"], pairOf);
+  assert.equal(res.rows.find(r => r.sample === "a2").pair, "m2", "the Pair column is read from the file");
+  const a = A.analyzeRun(exp, res, setFor("paired"));
+  const rA = a.summary.find(x => x.group === "drugA");
+  near(rA.p, S.paired(groupDct("a"), groupDct("c")).p, 1e-12, "paired p");
+  assert.equal(rA.pairs, 3); assert.equal(rA.df, 2);
+  const rB = a.summary.find(x => x.group === "drugB");
+  assert.equal(rB.pairs, 2, "b3 has no pair label");
+  near(rB.p, S.paired([dctOf("b1"), dctOf("b2")], [dctOf("c1"), dctOf("c2")]).p, 1e-12, "drugB paired over two pairs");
+  assert.ok(a.warnings.some(w => /Left out of the paired test/.test(w) && /b3/.test(w)), a.warnings.join("\n"));
+  assert.match(a.method, /paired t-test/);
+  // no pair labels at all: no p values and a clear message
+  const plain = threeRun();
+  const none = A.analyzeRun(plain.exp, plain.res, setFor("paired"));
+  assert.ok(none.summary.filter(r => !r.isControl).every(r => r.p === null && r.testNote === "no pair labels"));
+  assert.ok(none.warnings.some(w => /needs a pair label/.test(w) && /Plate step/.test(w)));
+  // a label used twice in one group can't be paired
+  const dup = threeRun(["Pair"], r => [{ c1: "m1", c2: "m1", c3: "m3", a1: "m1", a3: "m3" }[r[1]] || ""]);
+  const ad = A.analyzeRun(dup.exp, dup.res, setFor("paired"));
+  assert.ok(ad.warnings.some(w => /used by more than one unit in the same group/.test(w) && /m1 \(control\)/.test(w)), ad.warnings.join("\n"));
+  assert.equal(ad.summary.find(x => x.group === "drugA").pairs, 1);
+  assert.equal(ad.summary.find(x => x.group === "drugA").p, null, "one pair: no p");
+  // the pair label set on the Plate step is kept with the run
+  plain.exp.map[plain.res.rows[0].id] = { pair: "m9" };
+  C.normalizeExperiment(plain.exp);
+  assert.equal(plain.exp.map[plain.res.rows[0].id].pair, "m9");
+  assert.equal(C.analyze(plain.exp).rows[0].pair, "m9");
+  assert.match(C.mapTemplateCsv(C.analyze(plain.exp).rows), /^well,sample,target,group,role,bio_unit,quantity,pair/);
+  assert.doesNotMatch(C.mapTemplateCsv(plain.res.rows), /pair/, "no pair column when no pair label is used");
+});
+
+test("the report names the test", () => {
+  const { exp, res } = threeRun();
+  exp.analysis = C.cleanAnalysisSettings(setFor("dunnett"));
+  const html = R.reportHtml(exp, res);
+  assert.match(html, /<th>Dunnett p<\/th>/);
+  assert.match(html, /Test: Dunnett/);
+  exp.analysis = C.cleanAnalysisSettings(setFor("tukey"));
+  assert.match(R.reportHtml(exp, res), /Tukey HSD, every pair of groups/);
 });

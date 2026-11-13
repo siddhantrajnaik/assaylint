@@ -38,7 +38,7 @@ export function choices(res) {
 export function plateRecords(res, settings, plate = "", calibrators = []) {
   const s = cleanAnalysisSettings(settings) || DEFAULT_SETTINGS, out = { plate, records: [], warnings: [] };
   const excluded = new Set(s.excluded.map(w => w.trim().toUpperCase()));
-  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map();
+  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map(), unitPairs = new Map();
   const by = new Map();
   for (const r of res?.rows || []) {
     if (r.role !== "sample" || !r.target || !r.bio_unit) continue;
@@ -50,6 +50,7 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
       if (!unitGroups.has(r.bio_unit)) unitGroups.set(r.bio_unit, new Set());
       unitGroups.get(r.bio_unit).add(r.group);
     }
+    if (r.pair) { if (!unitPairs.has(r.bio_unit)) unitPairs.set(r.bio_unit, new Set()); unitPairs.get(r.bio_unit).add(r.pair); }
     const ct = ctNum(r.ct, r.dc);
     const k = `${r.bio_unit}\u0000${r.target}`;
     if (!by.has(k)) by.set(k, { plate, unit: r.bio_unit, group: r.group, target: r.target, tech: [], missing: [] });
@@ -59,8 +60,11 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
   for (const u of ungrouped) if (unitGroups.has(u)) ungrouped.delete(u);
   for (const [u, gs] of unitGroups) if (gs.size > 1)
     out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} is labelled with more than one group (${[...gs].join(", ")}). I used ${[...gs][0]}; fix the labels in the plate map.`);
+  for (const [u, ps] of unitPairs) if (ps.size > 1 && s.test === "paired")
+    out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} has more than one pair label (${[...ps].join(", ")}). I used ${[...ps][0]}.`);
   for (const rec of by.values()) {
     rec.group = unitGroups.has(rec.unit) ? [...unitGroups.get(rec.unit)][0] : null;
+    rec.pair = unitPairs.has(rec.unit) ? [...unitPairs.get(rec.unit)][0] : null;
     if (rec.tech.length) out.records.push({ ...rec, ct: mean(rec.tech.map(t => t.ct)) });
   }
   const at = plate ? ` on ${plate}` : "";
@@ -148,15 +152,91 @@ function efficiencies(stdCurves, targets, on) {
   return { eff: out, warnings };
 }
 
+// ---------------------------------------------------------------- the test chosen in the settings
+// label: the choice in the settings; short: name in tables and graphs; help: one line on when to use it;
+// withinTarget: the test already adjusts for the several comparisons within one target; rank: a rank (non-parametric) test.
+export const TESTS = {
+  welch: { label: "Welch t-test (default)", short: "Welch t-test", stat: "t",
+    help: "Each group against the control. Doesn't assume equal variances, which you can't check with 3 to 6 replicates. A safe default." },
+  student: { label: "Student t-test", short: "Student t-test", stat: "t",
+    help: "Each group against the control, assuming both groups have the same variance. Only better than Welch when that is really true." },
+  paired: { label: "Paired t-test", short: "paired t-test", stat: "t",
+    help: "When each treated unit has a matching control unit (same animal, donor or culture split). Needs a Pair label on the Plate step." },
+  tukey: { label: "One-way ANOVA + Tukey", short: "Tukey HSD", stat: "q", withinTarget: true,
+    help: "Three or more groups, every group against every other. p values are already adjusted for all those pairs." },
+  dunnett: { label: "One-way ANOVA + Dunnett vs control", short: "Dunnett", stat: "t", withinTarget: true,
+    help: "Three or more groups, each against the control only. More power than Tukey when the control is all you compare with." },
+  mannwhitney: { label: "Mann–Whitney (non-parametric)", short: "Mann–Whitney U", stat: "U", rank: true,
+    help: "Each group against the control, on ranks. Doesn't assume a normal distribution, but with 3 per group it can never give p < 0.05." },
+  kruskal: { label: "Kruskal–Wallis + Dunn", short: "Dunn", stat: "z", withinTarget: true, rank: true,
+    help: "Three or more groups on ranks, then each group against the control. Very little power with small groups." },
+};
+// Runs the chosen test for one target. byGroup: [{ g, v: ΔCt values, d: [{ u, dct }] }]; rowOf: group → summary row.
+function testTarget(s, t, byGroup, control, rowOf, base, notes) {
+  const ci = byGroup.findIndex(x => x.g === control), ctrl = byGroup[ci].v, others = byGroup.filter(x => x.g !== control);
+  const set = (g, o) => Object.assign(rowOf.get(g), o);
+  const all = r => { if (r.reason) for (const x of others) set(x.g, { testNote: r.reason }); };
+  if (s.test === "welch" || s.test === "student") for (const x of others) {
+    const r = (s.test === "welch" ? S.welch : S.student)(x.v, ctrl);
+    set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, testNote: r.reason || "" });
+  }
+  else if (s.test === "paired") {
+    if (!byGroup.some(x => x.d.some(d => d.u.pair))) { notes.none = true; for (const x of others) set(x.g, { testNote: "no pair labels" }); return; }
+    // pair label → unit, per group; a label used twice in one group can't be paired
+    const byPair = x => {
+      const m = new Map(), dup = new Set();
+      for (const d of x.d) if (d.u.pair) { if (m.has(d.u.pair)) dup.add(d.u.pair); else m.set(d.u.pair, d); }
+      for (const p of dup) { m.delete(p); notes.duplicate.push(`${p} (${x.g})`); }
+      return m;
+    };
+    const cm = byPair(byGroup[ci]), used = new Set();
+    for (const x of others) {
+      const m = byPair(x), labels = [...m.keys()].filter(p => cm.has(p));
+      for (const p of labels) { used.add(m.get(p).u.unit); used.add(cm.get(p).u.unit); }
+      for (const d of x.d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
+      const r = S.paired(labels.map(p => m.get(p).dct), labels.map(p => cm.get(p).dct));
+      set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, pairs: labels.length, testNote: r.reason || "" });
+    }
+    for (const d of byGroup[ci].d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
+  }
+  else if (s.test === "tukey") {
+    const r = S.tukeyHsd(byGroup.map(x => x.v));
+    all(r);
+    for (const pr of r.pairs) {
+      const a = byGroup[pr.i].g, b = byGroup[pr.j].g;
+      base.pairwise.push({ target: t, a, b, diff: pr.diff, fold: 2 ** -pr.diff, q: pr.q, df: r.df, p: pr.p });
+      const other = a === control ? b : b === control ? a : null;
+      if (other !== null) set(other, { stat: pr.q, statName: "q", df: r.df, p: pr.p });
+    }
+  }
+  else if (s.test === "dunnett") {
+    const r = S.dunnett(byGroup.map(x => x.v), ci);
+    all(r);
+    for (const c of r.comparisons) set(byGroup[c.i].g, { stat: c.t, statName: "t", t: c.t, df: r.df, p: c.p });
+  }
+  else if (s.test === "mannwhitney") for (const x of others) {
+    const r = S.mannWhitney(x.v, ctrl);
+    // The smallest p the test can give with these group sizes (every value of one group above every value of the other).
+    const minP = Math.min(1, 2 * Math.exp(S.lgamma(x.v.length + 1) + S.lgamma(ctrl.length + 1) - S.lgamma(x.v.length + ctrl.length + 1)));
+    set(x.g, { stat: r.U, statName: "U", p: r.p, method: r.method, minP, testNote: r.reason || "" });
+  }
+  else if (s.test === "kruskal") {
+    const r = S.dunn(byGroup.map(x => x.v), others.map(x => [byGroup.indexOf(x), ci]));
+    all(r);
+    for (const c of r.comparisons) set(byGroup[c.i].g, { stat: c.z, statName: "z", pRaw: c.p, p: s.correction === "bonferroni" ? c.pBonferroni : c.pBH });
+  }
+}
+
 export function compute(records, settings, { stdCurves = [], plates = [""], calibration = null, warnings: pre = [] } = {}) {
   const s = cleanAnalysisSettings(settings) || DEFAULT_SETTINGS;
   const warnings = [...pre], needs = [];
   // Merge plates: one value per biological unit and target (the mean over the plates it was measured on).
   const units = new Map();
   for (const r of records) {
-    if (!units.has(r.unit)) units.set(r.unit, { unit: r.unit, group: null, plates: new Set(), groups: new Set(), t: {} });
+    if (!units.has(r.unit)) units.set(r.unit, { unit: r.unit, group: null, pair: null, plates: new Set(), groups: new Set(), t: {} });
     const u = units.get(r.unit);
     u.plates.add(r.plate);
+    u.pair ||= r.pair || null;
     if (r.group) { u.groups.add(r.group); u.group ||= r.group; }
     (u.t[r.target] ||= { per: [], tech: [] }).per.push(r.ct);
     u.t[r.target].tech.push(...r.tech);
@@ -179,7 +259,8 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   const groups = control ? [control, ...groupsSeen.filter(g => g !== control)] : groupsSeen;
   const targets = allTargets.filter(t => !refs.includes(t));
   if (refs.length && !targets.length) needs.push("targets");
-  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], refStability: [], efficiency: {} };
+  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], kruskal: [], pairwise: [], refStability: [], efficiency: {},
+    test: TESTS[s.test] };
   if (needs.length) return { ...base, ok: false };
 
   const { eff, warnings: ew } = efficiencies(stdCurves, allTargets, s.efficiency);
@@ -209,7 +290,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   }
 
   // ΔCt per unit and target, then ΔΔCt against the control group's mean ΔCt.
-  const comps = [];
+  const comps = [], pairNotes = { none: false, unmatched: [], duplicate: [] };
   for (const t of targets) {
     const data = [...units.values()].filter(u => u.group && u.ref !== null && u.t[t]).map(u => ({ u, dct: w(t) * u.t[t].ct - u.ref }));
     const ctrl = data.filter(d => d.u.group === control).map(d => d.dct);
@@ -218,33 +299,47 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     for (const d of data) base.rows.push({ target: t, group: d.u.group, unit: d.u.unit, plates: [...d.u.plates], ct: d.u.t[t].ct, refCt: d.u.ref,
       dct: d.dct, ddct: d.dct - cm, fold: 2 ** -(d.dct - cm),
       tech: d.u.t[t].tech.map(x => ({ well: x.well, plate: x.plate, ct: x.ct, fold: 2 ** -(w(t) * x.ct - d.u.ref - cm) })) });
-    const byGroup = groups.map(g => ({ g, v: data.filter(d => d.u.group === g).map(d => d.dct) })).filter(x => x.v.length);
+    const byGroup = groups.map(g => ({ g, d: data.filter(d => d.u.group === g) })).filter(x => x.d.length).map(x => ({ ...x, v: x.d.map(d => d.dct) }));
+    const rowOf = new Map();
     for (const { g, v } of byGroup) {
       const m = mean(v) - cm, sdv = S.sd(v), semv = S.sem(v), err = s.error === "sem" ? semv : sdv;
       const row = { target: t, group: g, isControl: g === control, n: v.length, meanDct: mean(v), sdDct: sdv, semDct: semv, meanDdct: m,
         fold: 2 ** -m, foldLow: err === null ? null : 2 ** -(m + err), foldHigh: err === null ? null : 2 ** -(m - err), log2fc: -m,
-        t: null, df: null, p: null, pBH: null, pBonferroni: null, pAdj: null };
-      if (g !== control) {
-        const r = S.welch(v, ctrl);
-        Object.assign(row, { t: r.t, df: r.df, p: r.p, testNote: r.reason || "" });
-        comps.push(row);
-      }
+        test: g === control ? null : TESTS[s.test].short, stat: null, statName: null, t: null, df: null, p: null, pBH: null, pBonferroni: null, pAdj: null, testNote: "" };
+      if (g !== control) { comps.push(row); rowOf.set(g, row); }
       base.summary.push(row);
     }
-    if (byGroup.length > 2) {
+    testTarget(s, t, byGroup, control, rowOf, base, pairNotes);
+    if (byGroup.length > 2 && !TESTS[s.test].rank) {
       const a = S.anova(byGroup.map(x => x.v));
       base.anova.push({ target: t, F: a.F, df1: a.df1, df2: a.df2, p: a.p, groups: byGroup.length, note: a.reason || "" });
     }
+    if (byGroup.length > 2 && TESTS[s.test].rank) {
+      const k = S.kruskal(byGroup.map(x => x.v));
+      base.kruskal.push({ target: t, H: k.H, df: k.df, p: k.p, groups: byGroup.length, note: k.reason || "" });
+    }
   }
-  // Corrections across every comparison with the control (all targets and groups together).
-  const bh = S.benjaminiHochberg(comps.map(c => c.p)), bf = S.bonferroni(comps.map(c => c.p));
-  comps.forEach((c, i) => { c.pBH = bh[i]; c.pBonferroni = bf[i]; c.pAdj = s.correction === "bonferroni" ? bf[i] : bh[i]; });
-  const abh = S.benjaminiHochberg(base.anova.map(a => a.p)), abf = S.bonferroni(base.anova.map(a => a.p));
-  base.anova.forEach((a, i) => { a.pBH = abh[i]; a.pBonferroni = abf[i]; });
+  if (pairNotes.none) warnings.push("The paired t-test needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.");
+  if (pairNotes.unmatched.length) warnings.push(`Left out of the paired test because no unit in the other group has the same pair label: ${list(uniq(pairNotes.unmatched))}.`);
+  if (pairNotes.duplicate.length) warnings.push(`These pair labels are used by more than one unit in the same group, so their pairs can't be formed: ${list(uniq(pairNotes.duplicate))}. Each pair label should appear once per group.`);
+  // Multiple testing. Two-group tests: across every comparison with the control (all targets and groups together).
+  // Tukey, Dunnett and Dunn already account for the several comparisons within a target, so for them the
+  // correction runs only across targets, separately for each comparison (each group against the control).
+  const fams = TESTS[s.test].withinTarget ? uniq(comps.map(c => c.group)).map(g => comps.filter(c => c.group === g)) : [comps];
+  for (const fam of fams) {
+    const bh = S.benjaminiHochberg(fam.map(c => c.p)), bf = S.bonferroni(fam.map(c => c.p));
+    fam.forEach((c, i) => { c.pBH = bh[i]; c.pBonferroni = bf[i]; c.pAdj = s.correction === "bonferroni" ? bf[i] : bh[i]; });
+  }
+  for (const om of [base.anova, base.kruskal]) {
+    const abh = S.benjaminiHochberg(om.map(a => a.p)), abf = S.bonferroni(om.map(a => a.p));
+    om.forEach((a, i) => { a.pBH = abh[i]; a.pBonferroni = abf[i]; });
+  }
 
   const small = base.summary.filter(r => r.n < MIN_N);
-  if (small.length) warnings.push(`Fewer than ${MIN_N} biological replicates in: ${list(small.map(r => `${r.group} / ${r.target} (n = ${r.n})`))}. With so few, a t-test has little power and the p value is unreliable` +
-    (small.some(r => r.n < 2) ? "; groups with one replicate get no p value at all" : "") + ".");
+  if (small.length) warnings.push(`Fewer than ${MIN_N} biological replicates in: ${list(small.map(r => `${r.group} / ${r.target} (n = ${r.n})`))}. With so few, the test has little power and the p value is unreliable` +
+    (small.some(r => r.n < 2) ? "; groups with one replicate get no p value at all" : "") + (TESTS[s.test].rank ? ". Rank tests have even less power than t-tests with groups this small" : "") + ".");
+  const floor = comps.filter(r => r.minP > ALPHA);
+  if (floor.length) warnings.push(`With these group sizes the Mann–Whitney test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target}`))}. With 3 per group the smallest possible p is 0.1.`);
   base.efficiency = eff;
   base.comparisons = comps.length;
   base.method = methodText({ ...base, eff });
@@ -291,17 +386,39 @@ function methodText(a) {
   return `Ct values of technical replicates were averaged per biological unit${s.skipOmitted ? ", leaving out wells marked Omit" : ""}. ` +
     `ΔCt = Ct(target) − Ct(reference), with ${refs} as reference. ΔΔCt = ΔCt − mean ΔCt of the control group (${a.control}); fold change = 2^−ΔΔCt` +
     (e ? `, with amplification efficiencies from standard curves (Pfaffl 2001; each Ct multiplied by log2 of its efficiency factor)` : " (Livak & Schmittgen 2001, assuming 100% efficiency)") + "." + calText +
-    ` Each group was compared with the control by Welch's t-test on ΔCt with biological replicates as n` + (a.anova?.length ? "; one-way ANOVA across all groups for targets with more than two groups" : "") +
-    `. p values were adjusted across ${a.comparisons === 1 ? "the one comparison" : `all ${a.comparisons} comparisons`} with Benjamini–Hochberg and Bonferroni; graphs show ${CORR[s.correction]}. Error bars: ${s.error === "sem" ? "SEM" : "SD"} of ΔΔCt.`;
+    ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${s.error === "sem" ? "SEM" : "SD"} of ΔΔCt.`;
+}
+function testMethod(a) {
+  const s = a.settings, omni = a.anova?.length ? "; one-way ANOVA across all groups for targets with more than two groups" : a.kruskal?.length ? "; Kruskal–Wallis across all groups for targets with more than two groups" : "";
+  const txt = {
+    welch: "each group was compared with the control by Welch's t-test (Welch 1947), two-sided",
+    student: "each group was compared with the control by Student's t-test with pooled variance (Student 1908), two-sided",
+    paired: "each group was compared with the control by a paired t-test, two-sided: each unit was matched with the control unit that has the same pair label, and the differences in ΔCt were tested against zero",
+    tukey: "one-way ANOVA per target, then Tukey's honestly significant difference test for every pair of groups (Tukey 1949; Tukey–Kramer form for unequal n), which adjusts p for all pairs within the target",
+    dunnett: "one-way ANOVA per target, then Dunnett's test of each group against the control (Dunnett 1955), two-sided, which adjusts p for the comparisons within the target",
+    mannwhitney: "each group was compared with the control by the Mann–Whitney U test (Mann & Whitney 1947), two-sided: exact p when there are no ties and a group has 8 or fewer units, otherwise the normal approximation with tie and continuity corrections",
+    kruskal: `Kruskal–Wallis test per target with the tie correction (Kruskal & Wallis 1952), then Dunn's test of each group against the control (Dunn 1964), with p adjusted within the target by ${CORR[s.correction]}`,
+  }[s.test];
+  return txt + (TESTS[s.test].withinTarget ? "" : omni);
+}
+function correctionText(a) {
+  const s = a.settings;
+  if (!TESTS[s.test].withinTarget)
+    return ` p values were adjusted across ${a.comparisons === 1 ? "the one comparison" : `all ${a.comparisons} comparisons`} with Benjamini–Hochberg and Bonferroni; graphs show ${CORR[s.correction]}.`;
+  const nt = uniq(a.summary.filter(r => !r.isControl).map(r => r.target)).length;
+  return nt > 1 ? ` Because ${TESTS[s.test].short} already adjusts within a target, p values were then adjusted only across the ${nt} targets, separately for each comparison, with Benjamini–Hochberg and Bonferroni; graphs show ${CORR[s.correction]}.`
+    : ` With one target there is nothing more to adjust, so the graphs show the ${TESTS[s.test].short} p.`;
 }
 const n4 = x => (x === null || x === undefined || !Number.isFinite(x) ? "" : String(+x.toFixed(6)));
 export function resultsCsv(a) {
   const head = ["target", "group", "is_control", "n_biological", "mean_dCt", "sd_dCt", "sem_dCt", "mean_ddCt", "fold_change", "fold_low", "fold_high",
-    "welch_t", "welch_df", "p", "p_bh", "p_bonferroni"];
+    "test", "statistic", "statistic_value", "df", "p", "p_bh", "p_bonferroni"];
   const rows = (a.summary || []).map(r => [r.target, r.group, r.isControl ? "yes" : "no", r.n, n4(r.meanDct), n4(r.sdDct), n4(r.semDct), n4(r.meanDdct), n4(r.fold),
-    n4(r.foldLow), n4(r.foldHigh), n4(r.t), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? ""]);
+    n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? ""]);
   const units = (a.rows || []).map(r => [r.target, r.group, r.unit, r.plates.join(" | "), n4(r.ct), n4(r.refCt), n4(r.dct), n4(r.ddct), n4(r.fold), r.tech.map(t => n4(t.ct)).join(" ")]);
-  return toCsv([head, ...rows, [], ["target", "group", "biological_unit", "plates", "mean_ct", "reference_level", "dCt", "ddCt", "fold_change", "technical_ct"], ...units]);
+  const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", "tukey_q", "df", "p_tukey"],
+    ...a.pairwise.map(x => [x.target, x.a, x.b, n4(x.fold), n4(x.q), x.df, x.p ?? ""])] : [];
+  return toCsv([head, ...rows, ...pw, [], ["target", "group", "biological_unit", "plates", "mean_ct", "reference_level", "dCt", "ddCt", "fold_change", "technical_ct"], ...units]);
 }
 
 // Short section for the HTML report (web/report.js). esc escapes HTML.
@@ -314,8 +431,10 @@ export function analysisReportHtml(exp, res, esc) {
   const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
   return `<h2>Analysis</h2>
 <p>${esc(a.method)}</p>
-<p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
-<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>± ${a.settings.error === "sem" ? "SEM" : "SD"}</th><th>Welch p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
+<p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Test: ${esc(a.test.short)}${a.test.withinTarget ? " (p already adjusted for the comparisons within each target)" : ""}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
+<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>± ${a.settings.error === "sem" ? "SEM" : "SD"}</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
+${a.pairwise.length ? `<p class="sub small">Tukey HSD, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.anova.length ? `<p class="sub small">One-way ANOVA: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${x.df2}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.warnings.length ? `<p><b>Notes on the analysis</b></p><ul>${a.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
 }

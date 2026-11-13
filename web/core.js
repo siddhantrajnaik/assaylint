@@ -408,11 +408,12 @@ const FIELD_ALIASES = {
   quantity: ["quantity", "starting quantity (sq)", "sq", "qty"],
   group: ["group", "condition", "biological group", "biological set name"],
   bio_unit: ["bio_unit", "biological unit", "biological replicate", "bio rep"],
+  pair: ["pair", "pair id", "pairing"],
   fluor: ["fluor", "reporter", "dye"],
   omit: ["omit"],
 };
 export const FIELD_LABEL = { well: "Well", sample: "Sample", target: "Target", ct: "Ct/Cq", role: "Role / task",
-  quantity: "Quantity", group: "Group", bio_unit: "Biological unit", fluor: "Fluorophore", omit: "Omit flag" };
+  quantity: "Quantity", group: "Group", bio_unit: "Biological unit", pair: "Pair", fluor: "Fluorophore", omit: "Omit flag" };
 const normHeader = h => String(h ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 function mapHeaders(headers) {
   const norm = headers.map(normHeader), columns = {}, names = {};
@@ -491,7 +492,7 @@ export function parseResults(input, opts = {}) {
     const roleRaw = get("role");
     out.push({ id: line, line, well: get("well") ?? "", key: wellKey(get("well")), sample: get("sample"), target: get("target"),
       ct: get("ct"), roleRaw, role: normalizeRole(roleRaw), quantity: get("quantity"), group: get("group"),
-      bio_unit: get("bio_unit"), fluor: get("fluor"), omit: /^(true|yes|1)$/i.test(get("omit") || "") });
+      bio_unit: get("bio_unit"), pair: get("pair"), fluor: get("fluor"), omit: /^(true|yes|1)$/i.test(get("omit") || "") });
   }
   const decimalComma = delim === ";" && out.some(r => /^-?\d+,\d+$/.test(r.ct || ""));
   if (decimalComma) {
@@ -613,7 +614,7 @@ export function parseTemplate(input) {
   if (rows.length < 2) throw new ParseError("The plate-map template has no rows.");
   const { columns } = mapHeaders(rows[0].cells);
   if (!("well" in columns)) throw new ParseError("The plate-map template needs a well column.");
-  const fields = ["sample", "target", "group", "role", "bio_unit", "quantity"].filter(f => f in columns);
+  const fields = ["sample", "target", "group", "role", "bio_unit", "quantity", "pair"].filter(f => f in columns);
   if (!fields.length) throw new ParseError("The template has no recognised columns (sample, target, group, role, bio_unit, quantity).");
   const entries = [], invalid = [];
   for (const r of rows.slice(1)) {
@@ -644,8 +645,9 @@ export function applyTemplate(exp, rows, tpl, meta) {
   return { changes, issues };
 }
 export function mapTemplateCsv(rows) {
-  return toCsv([["well", "sample", "target", "group", "role", "bio_unit", "quantity"],
-    ...rows.filter(r => r.key).map(r => [r.key, r.sample, r.target, r.group, r.role, r.bioSource?.startsWith("default") ? "" : r.bio_unit, r.quantity])]);
+  const pair = rows.some(r => r.pair); // the pair column only when a pairing label is in use
+  return toCsv([["well", "sample", "target", "group", "role", "bio_unit", "quantity", ...(pair ? ["pair"] : [])],
+    ...rows.filter(r => r.key).map(r => [r.key, r.sample, r.target, r.group, r.role, r.bioSource?.startsWith("default") ? "" : r.bio_unit, r.quantity, ...(pair ? [r.pair] : [])])]);
 }
 export function toCsv(rows) {
   return rows.map(r => r.map(c => { const s = String(c ?? ""); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(",")).join("\n") + "\n";
@@ -691,13 +693,15 @@ function cleanValues(v) {
   return out;
 }
 // Analysis module settings (see web/analysis.js and docs/analysis.md). null means the analysis was never switched on.
+// Statistical tests offered in the Analysis step (web/analysis.js); "welch" is the default.
+export const ANALYSIS_TESTS = ["welch", "student", "paired", "tukey", "dunnett", "mannwhitney", "kruskal"];
 export function cleanAnalysisSettings(a) {
   if (!isObj(a)) return null;
   const names = v => (Array.isArray(v) ? [...new Set(v.filter(x => typeof x === "string" && x.trim()).map(x => x.slice(0, 200)))].slice(0, 100) : []);
   const shift = a.refMaxShift;
   return { on: a.on === true, refs: names(a.refs), control: asStr(a.control).slice(0, 200), efficiency: a.efficiency === true,
     error: a.error === "sem" ? "sem" : "sd", correction: a.correction === "bonferroni" ? "bonferroni" : "bh", skipOmitted: a.skipOmitted !== false,
-    excluded: names(a.excluded), scale: a.scale === "linear" ? "linear" : "log2",
+    excluded: names(a.excluded), scale: a.scale === "linear" ? "linear" : "log2", test: ANALYSIS_TESTS.includes(a.test) ? a.test : "welch",
     refMaxShift: typeof shift === "number" && Number.isFinite(shift) && shift > 0 && shift <= 10 ? shift : 0.5 };
 }
 export function normalizeExperiment(exp) {
@@ -717,7 +721,7 @@ export function normalizeExperiment(exp) {
   if (isObj(exp.map)) for (const [id, m] of Object.entries(exp.map)) {
     if (!isObj(m)) continue;
     const e = {};
-    for (const k of ["sample", "target", "group", "bio_unit", "quantity"]) if (typeof m[k] === "string") e[k] = m[k];
+    for (const k of ["sample", "target", "group", "bio_unit", "quantity", "pair"]) if (typeof m[k] === "string") e[k] = m[k];
     if (ROLES.includes(m.role)) e.role = m.role;
     if (Object.keys(e).length) map[id] = e;
   }
@@ -750,7 +754,7 @@ export function effectiveRows(exp, parsed) {
     const m = exp.map?.[r.id] || {};
     const take = f => (f in m ? [m[f] === "" ? null : m[f], "user"] : r[f] != null ? [r[f], "file"] : [null, null]);
     const [sample, sampleSource] = take("sample"), [target, targetSource] = take("target");
-    const [group] = take("group"), [quantity] = take("quantity");
+    const [group] = take("group"), [quantity] = take("quantity"), [pair] = take("pair");
     let role, roleSource;
     if (ROLES.includes(m.role)) [role, roleSource] = [m.role, "user"];
     else if (sample && NTC_NAME_RE.test(sample.trim()) && (!r.role || r.role === "sample"))
@@ -760,9 +764,9 @@ export function effectiveRows(exp, parsed) {
     let [bio_unit, bioSource] = take("bio_unit");
     if (!bio_unit && bioSource !== "user") { bio_unit = sample; bioSource = sample ? "default (sample name)" : null; }
     return { id: r.id, line: r.line, well: r.well, key: r.key, ct: r.ct, dc: r.dc, fluor: r.fluor,
-      sample, sampleSource, target, targetSource, group, quantity, role, roleSource, roleRaw: r.roleRaw,
+      sample, sampleSource, target, targetSource, group, quantity, pair, role, roleSource, roleRaw: r.roleRaw,
       fileRoleUnmapped: !!(r.roleRaw && !r.role), bio_unit, bioSource, omit: r.omit,
-      file: { sample: r.sample, target: r.target, group: r.group, role: r.role ?? r.roleRaw, bio_unit: r.bio_unit, quantity: r.quantity } };
+      file: { sample: r.sample, target: r.target, group: r.group, role: r.role ?? r.roleRaw, bio_unit: r.bio_unit, quantity: r.quantity, pair: r.pair } };
   });
 }
 
