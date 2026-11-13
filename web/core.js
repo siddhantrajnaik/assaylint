@@ -182,6 +182,99 @@ export const DEFAULT_PROFILE = {
     ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3,
     effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3 },
 };
+
+// ---------------------------------------------------------------- threshold evidence (metadata only)
+// Where each number comes from. Every reference below was checked against the paper itself (see
+// docs/thresholds.md for the passages and the reasoning). `evidence` is the one-line reason shown next
+// to a setting, `detail` the longer note behind "Why this number", `refs` keys into REFERENCES.
+export const REFERENCES = {
+  miqe2009: { short: "Bustin et al. 2009 (MIQE)", doi: "10.1373/clinchem.2008.112797",
+    text: "Bustin SA, Benes V, Garson JA, et al. The MIQE guidelines: minimum information for publication of quantitative real-time PCR experiments. Clin Chem. 2009;55(4):611–622." },
+  miqe2025: { short: "Bustin et al. 2025 (MIQE 2.0)", doi: "10.1093/clinchem/hvaf043",
+    text: "Bustin SA, Ruijter JM, van den Hoff MJB, et al. MIQE 2.0: revision of the Minimum Information for Publication of Quantitative Real-Time PCR Experiments guidelines. Clin Chem. 2025;71(6):634–651." },
+  ruizvillalba2021: { short: "Ruiz-Villalba et al. 2021", doi: "10.3390/life11060496",
+    text: "Ruiz-Villalba A, Ruijter JM, van den Hoff MJB. Use and misuse of Cq in qPCR data analysis and reporting. Life (Basel). 2021;11(6):496." },
+  deronde2017: { short: "de Ronde et al. 2017", doi: "10.1261/rna.059063.116",
+    text: "de Ronde MWJ, Ruijter JM, Lanfear D, et al. Practical data handling pipeline improves performance of qPCR-based circulating miRNA measurements. RNA. 2017;23(5):811–821." },
+  forootan2017: { short: "Forootan et al. 2017", doi: "10.1016/j.bdq.2017.04.001",
+    text: "Forootan A, Sjöback R, Björkman J, Sjögreen B, Linz L, Kubista M. Methods to determine limit of detection and limit of quantification in quantitative real-time PCR (qPCR). Biomol Detect Quantif. 2017;12:1–6." },
+  svec2015: { short: "Svec et al. 2015", doi: "10.1016/j.bdq.2015.01.005",
+    text: "Svec D, Tichopad A, Novosadova V, Pfaffl MW, Kubista M. How good is a PCR efficiency estimate: recommendations for precise and robust qPCR efficiency assessments. Biomol Detect Quantif. 2015;3:9–16." },
+  engl2017: { short: "Hougs et al. 2017 (ENGL)", doi: "10.2760/645114",
+    text: "Hougs L, Gatto F, Goerlich O, et al. Verification of analytical methods for GMO testing when implementing interlaboratory validated methods, version 2. European Network of GMO Laboratories. EUR 29015 EN. Publications Office of the European Union; 2017." },
+  pfaffl2001: { short: "Pfaffl 2001", doi: "10.1093/nar/29.9.e45",
+    text: "Pfaffl MW. A new mathematical model for relative quantification in real-time RT-PCR. Nucleic Acids Res. 2001;29(9):e45." },
+  ruijter2009: { short: "Ruijter et al. 2009", doi: "10.1093/nar/gkp045",
+    text: "Ruijter JM, Ramakers C, Hoogaars WMH, et al. Amplification efficiency: linking baseline and bias in the analysis of quantitative PCR data. Nucleic Acids Res. 2009;37(6):e45." },
+  ririe1997: { short: "Ririe et al. 1997", doi: "10.1006/abio.1996.9916",
+    text: "Ririe KM, Rasmussen RP, Wittwer CT. Product differentiation by analysis of DNA melting curves during the polymerase chain reaction. Anal Biochem. 1997;245(2):154–160." },
+};
+const THRESHOLD_EVIDENCE = {
+  sdThreshold: { refs: ["deronde2017", "ruizvillalba2021", "miqe2025"],
+    evidence: "Pipetting error alone gives replicates up to about 0.5 cycles apart; 0.3 SD is about that for triplicates. Late Ct values spread more.",
+    detail: "A common rule discards technical replicates more than 0.5 cycles apart, which is what a 15% pipetting error gives when there is plenty of template (de Ronde et al. 2017; Ruiz-Villalba et al. 2021). For three replicates an SD of 0.3 is roughly that range. Below about 100 copies per well, Poisson sampling adds more spread than pipetting does: about 0.29 cycles at 25 copies and 0.46 at 10 copies, which is around Ct 35. So a fixed 0.3 will flag late-Ct groups that are behaving as expected. Ruiz-Villalba et al. accept up to 2 cycles between replicates for Ct values up to 35. For low-expression targets, raise this number or run more replicates rather than dropping wells." },
+  ntcCtThreshold: { refs: ["miqe2009", "miqe2025", "ruizvillalba2021"],
+    evidence: "About 10 copies reach Ct 35 at 90–100% efficiency. MIQE gives NTC signal near Ct 40 as ignorable when the lowest sample is below Ct 35.",
+    detail: "MIQE 2.0 puts the lower limit of quantification near 10 copies per reaction (Ct about 35 at 90% efficiency) and the limit of detection at 3 copies (Ct about 37). An NTC before Ct 35 means roughly 10 or more contaminating copies, enough to change a quantity, so I rate it high. Later NTC signal is still reported, as medium. MIQE 2.0 also says a sample should count as positive only if its Cq comes at least 5 cycles before an amplifying negative control. If your targets come up late (miRNA, single cells, rare transcripts), compare the NTC with your latest sample, not with a fixed Ct." },
+  expectNtc: { refs: ["miqe2009", "miqe2025"],
+    evidence: "MIQE asks for NTCs on each plate or batch of samples.",
+    detail: "NTCs pick up reagent contamination and, in dye-based assays, primer-dimer. MIQE (2009) says they should be included on each plate or batch, with the rules for rejecting data set in advance." },
+  expectPositive: { refs: ["miqe2009", "miqe2025"],
+    evidence: "MIQE calls positive controls essential when there is no calibration curve in the run. Off by default because many plates carry standards instead.",
+    detail: "A positive control tells a failed reaction apart from a true negative. MIQE (2009) calls it essential when calibration curves are not run on every plate; MIQE 2.0 adds that positive controls at several concentrations help set LOD and LOQ. Turn this on if your plates have no standard curve." },
+  expectNrt: { refs: ["miqe2009", "miqe2025"],
+    evidence: "A no-RT control is essential the first time an RNA prep is checked; after that MIQE calls it desirable. Off by default for that reason.",
+    detail: "No-RT wells show genomic DNA signal. The MIQE checklists (2009 and 2.0) call it essential when RNA is first extracted and desirable once the prep is shown to be DNA-free; the MIQE 2.0 text says RT-qPCR should include one. Turn this on for new RNA preps, for primers that do not span an intron, and for single-exon or intronless targets." },
+  ctTolerance: { refs: ["ruijter2009", "ruizvillalba2021"],
+    evidence: "No published value. Ct depends on each instrument's baseline and threshold, so I compare each well's offset with the plate's usual offset.",
+    detail: "Baseline errors change the observed efficiency and Ct (Ruijter et al. 2009), and Cq moves with the threshold setting (Ruiz-Villalba et al. 2021). PlateCheck redraws one common threshold and flags a well only when its offset from the reported Ct differs from the plate median offset by more than this many cycles. Two cycles is a heuristic of mine, wide enough to ignore normal curve-shape differences. Tighten it if your instrument uses a single threshold for the whole plate." },
+  meltChecks: { refs: ["miqe2025"],
+    evidence: "For dye-based assays, MIQE 2.0 calls melt curve analysis essential. Off by default because probe assays have no melt step.",
+    detail: "Intercalating dyes report every double-stranded product, so the melt curve is the main check that one product amplified. MIQE 2.0 calls it essential for dye assays. Probe-based assays do not need it." },
+  meltTmTolerance: { refs: ["ririe1997", "miqe2025"],
+    evidence: "Melt curves can tell apart products less than 2 °C apart (Ririe et al. 1997); 1 °C is half that.",
+    detail: "Ririe et al. (1997) separated products whose Tm differed by less than 2 °C. A shift of more than 1 °C from the target's median therefore may be a different product, though salt, volume and instrument calibration also move Tm (MIQE 2.0). On high-resolution melt instruments you can tighten this to about 0.5 °C." },
+  meltSecondaryRatio: { refs: ["miqe2025", "ririe1997"],
+    evidence: "No published cut-off. My heuristic: a second peak at 30% or more of the main peak is big enough to affect Ct.",
+    detail: "I found no paper that sets a height ratio. MIQE 2.0 notes that amplicons with uneven GC content can melt in blocks and show more than one peak from a single product, so check the expected melt shape (for example with uMELT) before acting on this flag. Lower the ratio to catch small primer-dimer peaks; raise it for amplicons known to melt in two domains." },
+  effMin: { refs: ["engl2017", "svec2015", "miqe2025"],
+    evidence: "ENGL acceptance criterion for validated qPCR methods: slope −3.6 to −3.1, i.e. 90–110% efficiency.",
+    detail: "The European Network of GMO Laboratories accepts standard curves with slopes between −3.6 and −3.1 (Hougs et al. 2017), which is 90–110%. Svec et al. (2015) found that a well-designed assay should reach at least 90%, and that the estimate itself is imprecise: with one replicate per dilution the 95% interval was about 89–99% for one assay. MIQE 2.0 notes that dilution errors can push the apparent efficiency above 100%." },
+  effMax: { refs: ["engl2017", "miqe2025", "pfaffl2001"],
+    evidence: "Same ENGL range (90–110%). Above 100% usually points to dilution error or inhibition in the concentrated standards.",
+    detail: "Efficiency cannot truly exceed 100%. MIQE 2.0 lists pipetting errors in the dilution series (slopes below −3.32) and inhibitors that are diluted out in the higher dilutions as the usual causes of values above it. If an assay is reproducibly outside the range and cannot be redesigned, use an efficiency-corrected calculation (Pfaffl 2001) rather than one that assumes 100%." },
+  r2Min: { refs: ["engl2017", "miqe2009"],
+    evidence: "ENGL acceptance criterion: R² ≥ 0.98. MIQE asks for R² to be reported but sets no number.",
+    detail: "Hougs et al. (2017) accept standard curves with R² of at least 0.98. MIQE (2009) asks for R² and, ideally, confidence intervals across the linear range. R² rises with the width of the range, so a curve over 2 logs can fail at 0.98 even with good pipetting." },
+  minStdLevels: { refs: ["miqe2009", "miqe2025", "svec2015"],
+    evidence: "Three levels is the fewest that can show a curve. MIQE asks for at least 3 orders of magnitude (4 tenfold points), MIQE 2.0 for 4–5.",
+    detail: "This setting only decides whether PlateCheck fits a curve at all. MIQE (2009) asks for a range of at least 3 orders of magnitude, ideally 5–6; MIQE 2.0 asks for 4–5 orders with at least 3 replicates per dilution, and Svec et al. (2015) recommend 3–4 replicates per concentration for a precise efficiency. If you run tenfold dilutions, 5 levels is a better minimum." },
+};
+for (const f of RULESET_FIELDS) Object.assign(f, THRESHOLD_EVIDENCE[f.key]);
+const RULE_EVIDENCE = {
+  missing_ct: { refs: ["miqe2025", "forootan2017"], evidence: "Below 3 copies per well Poisson sampling means some replicates get no template at all." },
+  replicate_dispersion: THRESHOLD_EVIDENCE.sdThreshold,
+  ntc_amplification: THRESHOLD_EVIDENCE.ntcCtThreshold,
+  positive_control_failed: THRESHOLD_EVIDENCE.expectPositive,
+  nrt_amplification: { refs: ["miqe2025", "miqe2009"],
+    evidence: "MIQE 2.0: a sample counts as positive only if its Cq is at least 5 cycles before an amplifying negative control. Five cycles is about 32-fold, or 3% of the signal." },
+  std_curve_insufficient: THRESHOLD_EVIDENCE.minStdLevels,
+  std_curve_efficiency: THRESHOLD_EVIDENCE.effMin,
+  std_curve_r2: THRESHOLD_EVIDENCE.r2Min,
+  amp_ct_without_rise: { refs: ["ruizvillalba2021"], evidence: "Instruments usually set the threshold about 10 SD above the baseline noise; I use the same 10 × baseline SD for a rise." },
+  amp_rise_without_ct: { refs: ["ruizvillalba2021"], evidence: "Instruments usually set the threshold about 10 SD above the baseline noise; I use the same 10 × baseline SD for a rise." },
+  amp_ct_inconsistent: THRESHOLD_EVIDENCE.ctTolerance,
+  melt_multiple_peaks: THRESHOLD_EVIDENCE.meltSecondaryRatio,
+  melt_tm_deviation: THRESHOLD_EVIDENCE.meltTmTolerance,
+  ntc_melt_peak: THRESHOLD_EVIDENCE.meltChecks,
+};
+for (const [k, e] of Object.entries(RULE_EVIDENCE)) Object.assign(RULES[k], { evidence: e.evidence, refs: e.refs });
+// References behind the settings and the rules that produced findings, in a stable order.
+export function referencesFor(findings = []) {
+  const keys = new Set([...RULESET_FIELDS.flatMap(f => f.refs || []), ...findings.flatMap(f => RULES[f.rule]?.refs || [])]);
+  return Object.keys(REFERENCES).filter(k => keys.has(k)).map(k => ({ key: k, ...REFERENCES[k] }));
+}
+
 export function rulesetFrom(profile) {
   return { profile: { id: profile.id, name: profile.name, version: profile.version },
     values: { ...DEFAULT_PROFILE.values, ...profile.values }, base: { ...DEFAULT_PROFILE.values, ...profile.values } };

@@ -1,7 +1,7 @@
 // Human-readable report (FR-19) and structured exports (FR-20, FR-21). No DOM access.
 import {
   TOOL, APP_VERSION, PARSER_VERSION, PACKET_VERSION, RULES, RULES_REVIEW, CATEGORY_LABEL, DISPOSITION_LABEL, ROLE_LABEL,
-  FORMATS, FIELD_LABEL, CONTEXT_FIELDS, RULESET_FIELDS, rulesetId, rulesetChanges, toCsv,
+  FORMATS, FIELD_LABEL, CONTEXT_FIELDS, RULESET_FIELDS, REFERENCES, rulesetId, rulesetChanges, referencesFor, toCsv,
 } from "./core.js";
 import { CREDIT } from "./credit.js";
 
@@ -12,7 +12,7 @@ const num = (x, d = 2) => (x == null || !Number.isFinite(x) ? "—" : x.toFixed(
 export const LIMITATIONS = [
   "PlateCheck points out things worth a second look. It can't tell you whether the experiment or its conclusions are right.",
   "Only the checks under “What was checked” ran. Anything under “Not checked” wasn't looked at, so don't read it as a pass.",
-  "The thresholds are common rules of thumb that haven't been reviewed by a qPCR expert yet.",
+  "Each threshold's source is listed under References. Some are published acceptance criteria and some are my own rules of thumb; none has been reviewed by a qPCR expert for this tool yet.",
   "Possible causes are suggestions. Contamination or the reason a reaction failed can't be worked out from the data files alone.",
   "No wells or values were removed or changed. Plate-map edits only change labels, and the original values are listed above.",
 ];
@@ -41,7 +41,7 @@ table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 14px}th,td
 th{font-weight:500;color:#5b6762;border-bottom:1px solid #d3dad6}
 dl{display:grid;grid-template-columns:220px minmax(0,1fr);gap:5px 16px;margin:0 0 12px}dt{color:#5b6762}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:12.5px}
-ul{margin:4px 0 12px;padding-left:20px}li{margin:3px 0}
+ul{margin:4px 0 12px;padding-left:20px}li{margin:3px 0}.refs{font-size:13px;padding-left:22px}.refs li{margin:5px 0;overflow-wrap:anywhere}
 .file{margin:0 0 16px}.file h3{margin-bottom:6px}
 footer{margin-top:48px;padding-top:14px;border-top:1px solid #d3dad6;font-size:13px;color:#5b6762}
 a{color:#0b6b5c}
@@ -102,7 +102,7 @@ ${p ? kv([["Layout recognised", FORMATS[p.format]], ["Columns read", Object.entr
 
 <h2>Settings used</h2>
 <p>${esc(rs.profile.name)}, version ${esc(String(rs.profile.version))}. ${esc(RULES_REVIEW.status)}.${changes.length ? ` Changed for this experiment: ${esc(sentence(changes.map(c => `${c.label[0].toLowerCase() + c.label.slice(1)} ${onoff(c.to)} (default ${onoff(c.from)})`)))}.` : ""}</p>
-${table(["Setting", "Value"], RULESET_FIELDS.map(f => [f.label, onoff(rs.values[f.key])]))}
+${table(["Setting", "Value", "Basis"], RULESET_FIELDS.map(f => [f.label, onoff(rs.values[f.key]), [f.evidence, (f.refs || []).map(k => REFERENCES[k].short).join("; ")].filter(Boolean).join(" ")]))}
 ${Object.keys(exp.controlNA || {}).length ? `<p><b>Controls marked not applicable</b></p><ul>${Object.entries(exp.controlNA).map(([k, v]) => { const [role, t] = k.split("|"); return `<li>${esc(ROLE_LABEL[role])} for ${esc(t)}: ${esc(v.reason)} (${esc(v.by)})</li>`; }).join("")}</ul>` : ""}
 
 <h2>Technical replicates</h2>
@@ -119,6 +119,10 @@ ${table(["Well", "Sample", "Target", "Group", "Role", "Biological unit", "Quanti
 
 <h2>History</h2>
 ${table(["When", "Who", "What"], exp.audit.map(a => [when(a.at), a.actor, a.detail]))}
+
+<h2>References</h2>
+<p class="sub small">Sources for the thresholds above and for the checks that raised a flag. The reasoning behind each number is in docs/thresholds.md in the PlateCheck repository.</p>
+<ol class="refs">${referencesFor(res.findings).map(r => `<li>${esc(r.text)} <a href="https://doi.org/${esc(r.doi)}">doi:${esc(r.doi)}</a></li>`).join("")}</ol>
 
 <h2>Limits of this report</h2>
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>

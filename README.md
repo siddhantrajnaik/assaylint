@@ -47,7 +47,7 @@ node --test tests/*.test.mjs
 
 - I've tested it on 12 real exports from public datasets plus realistic files I generated ([testdata/README.md](testdata/README.md)). Machines I haven't seen yet may lay files out differently. If yours doesn't open, email it to me and I'll add support.
 - Excel files open directly. PlateCheck reads every sheet and picks the results, amplification and melt sheets itself; numbers are read as stored, not as rounded on screen. Raw run files (`.eds`, `.pcrd`) don't open, so export Excel, CSV or text from your instrument software.
-- The default thresholds are common rules of thumb, not reviewed standards. Change them to match your lab.
+- Each default threshold has a stated reason and source ([docs/thresholds.md](docs/thresholds.md)). Some are published acceptance criteria, some are my own rules of thumb. Change them to match your lab.
 - Data is saved in your browser only. Download the experiment packet if you want a backup. More in [PRIVACY.md](PRIVACY.md).
 
 More detail: [docs/formats.md](docs/formats.md) (file formats), [docs/rules.md](docs/rules.md) (every check), [docs/prd.md](docs/prd.md) (the original spec) and [docs/prd-coverage.md](docs/prd-coverage.md) (what's built).
