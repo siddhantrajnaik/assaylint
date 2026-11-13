@@ -96,8 +96,11 @@ export const RULES = {
     checks: "Each technical replicate group has at least two numeric Ct/Cq values.",
     why: "With fewer than two values, dispersion cannot be estimated." },
   replicate_dispersion: { group: "Replicates", category: "review_warning", severity: "medium", title: "Technical replicates spread above threshold",
-    checks: "Sample standard deviation of Ct/Cq within a technical replicate group is at or below the threshold.",
+    checks: "Sample standard deviation of Ct/Cq within a technical replicate group is at or below the threshold. With the Ct-dependent option on, the threshold for a group is the larger of the set value and a multiple of the SD expected from Poisson sampling at that group's mean Ct.",
     why: "Wide technical spread can come from pipetting, low template or an outlier well. No value was removed or down-weighted." },
+  late_ct: { group: "Replicates", category: "review_warning", severity: "low", title: "Late Ct: low copy number",
+    checks: "Sample replicate groups have a mean Ct/Cq at or below the late-Ct setting.",
+    why: "Past about Ct 35 a well holds roughly 10 template copies or fewer, so how many copies land in each well is down to chance. Replicates scatter, some wells stay empty, and the result is closer to detected / not detected than to a quantity. This is a note, not a fault." },
   missing_control: { group: "Controls", category: "missing_context", severity: "medium", title: "Expected control not found",
     checks: "Each target has the controls the selected rule set expects.",
     why: "Without the control, contamination or reaction failure for this target cannot be assessed from the data." },
@@ -116,6 +119,9 @@ export const RULES = {
   nrt_amplification: { group: "Controls", category: "review_warning", severity: "medium", title: "No-RT control shows amplification",
     checks: "No-RT controls do not amplify.",
     why: "Signal without reverse transcription can indicate genomic DNA. Its distance from the sample Ct matters for interpretation." },
+  nrt_margin: { group: "Controls", category: "review_warning", severity: "medium", title: "No-RT control too close to the samples",
+    checks: "An amplifying no-RT control comes up at least the configured number of cycles after the mean Ct of the samples it controls (the sample it was made from when the names match, otherwise all samples of that target).",
+    why: "The gap says how much of the sample signal could be genomic DNA: 5 cycles is about 3%, 3.3 cycles about 10%, 1 cycle about half. A small gap means the sample Ct is not a clean measure of the RNA." },
   std_curve_missing_quantity: { group: "Standard curve", category: "data_issue", severity: "medium", title: "Standard without a usable quantity",
     checks: "Standard wells have a positive numeric quantity.",
     why: "Standards without a quantity cannot be placed on the curve." },
@@ -129,6 +135,9 @@ export const RULES = {
     why: "Efficiency far from 100% can bias relative quantification methods that assume equal efficiency." },
   std_curve_r2: { group: "Standard curve", category: "review_warning", severity: "medium", title: "Standard curve R² below threshold",
     checks: "The linear fit reaches the configured R².", why: "Poor linearity can indicate dilution errors, inhibition or a range that is too wide." },
+  std_curve_range: { group: "Standard curve", category: "review_warning", severity: "low", title: "Standard curve covers a narrow range",
+    checks: "The standards with a quantity and a Ct/Cq span at least the configured number of log10 units, lowest to highest quantity.",
+    why: "Slope, efficiency and R² are poorly pinned down by a short curve: the same pipetting scatter moves them more over 2 logs than over 5. The curve was still fitted and reported." },
   amp_curve_missing: { group: "Amplification", category: "not_assessed", severity: "low", title: "No amplification curve for some wells",
     checks: "Every used well has an amplification curve in the curve file.", why: "Curve checks could not run for these wells." },
   amp_curve_ambiguous: { group: "Amplification", category: "not_assessed", severity: "low", title: "Curve could not be matched to a target",
@@ -164,10 +173,14 @@ for (const r of Object.values(RULES)) { r.version = V; r.basis ||= BASIS; }
 // ---------------------------------------------------------------- rule sets
 export const RULESET_FIELDS = [
   { key: "sdThreshold", label: "Technical replicate SD threshold (cycles)", type: "number", step: 0.05 },
+  { key: "sdCtDependent", label: "Let the SD threshold rise for late Ct (Poisson sampling)", type: "bool" },
+  { key: "sdPoissonK", label: "Late-Ct SD threshold as a multiple of the expected Poisson SD", type: "number", step: 0.1 },
+  { key: "lateCtThreshold", label: "Note sample groups with a mean Ct above (0 = off)", type: "number", step: 1 },
   { key: "ntcCtThreshold", label: "NTC amplification rated high below Ct", type: "number", step: 1 },
   { key: "expectNtc", label: "Expect an NTC for every target", type: "bool" },
   { key: "expectPositive", label: "Expect a positive control for every target", type: "bool" },
   { key: "expectNrt", label: "Expect a no-RT control for every target", type: "bool" },
+  { key: "nrtMargin", label: "No-RT margin: cycles an amplifying no-RT must trail the samples (0 = off)", type: "number", step: 0.5 },
   { key: "ctTolerance", label: "Curve vs reported Ct/Cq tolerance (cycles)", type: "number", step: 0.5 },
   { key: "meltChecks", label: "Run melt-curve checks (intercalating-dye assay)", type: "bool" },
   { key: "meltTmTolerance", label: "Melt Tm tolerance from target median (°C)", type: "number", step: 0.1 },
@@ -176,12 +189,14 @@ export const RULESET_FIELDS = [
   { key: "effMax", label: "Standard curve efficiency maximum (%)", type: "number", step: 1 },
   { key: "r2Min", label: "Standard curve minimum R²", type: "number", step: 0.005 },
   { key: "minStdLevels", label: "Minimum dilution levels for a standard curve", type: "number", step: 1 },
+  { key: "minStdRange", label: "Note standard curves spanning fewer log10 units than (0 = off)", type: "number", step: 0.5 },
 ];
 export const DEFAULT_PROFILE = {
   id: "assaylint-default", name: "PlateCheck defaults", version: 1,
-  values: { sdThreshold: 0.3, ntcCtThreshold: 35, expectNtc: true, expectPositive: false, expectNrt: false,
+  values: { sdThreshold: 0.3, sdCtDependent: false, sdPoissonK: 1.5, lateCtThreshold: 35,
+    ntcCtThreshold: 35, expectNtc: true, expectPositive: false, expectNrt: false, nrtMargin: 5,
     ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3,
-    effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3 },
+    effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3, minStdRange: 3 },
 };
 
 // ---------------------------------------------------------------- threshold evidence (metadata only)
@@ -214,6 +229,18 @@ const THRESHOLD_EVIDENCE = {
   sdThreshold: { refs: ["deronde2017", "ruizvillalba2021", "miqe2025"],
     evidence: "Pipetting error alone gives replicates up to about 0.5 cycles apart; 0.3 SD is about that for triplicates. Late Ct values spread more.",
     detail: "A common rule discards technical replicates more than 0.5 cycles apart, which is what a 15% pipetting error gives when there is plenty of template (de Ronde et al. 2017; Ruiz-Villalba et al. 2021). For three replicates an SD of 0.3 is roughly that range. Below about 100 copies per well, Poisson sampling adds more spread than pipetting does: about 0.29 cycles at 25 copies and 0.46 at 10 copies, which is around Ct 35. So a fixed 0.3 will flag late-Ct groups that are behaving as expected. Ruiz-Villalba et al. accept up to 2 cycles between replicates for Ct values up to 35. For low-expression targets, raise this number or run more replicates rather than dropping wells." },
+  sdCtDependent: { refs: ["deronde2017", "ruizvillalba2021", "miqe2025"],
+    evidence: "Below about 100 copies per well, chance in how many copies each well gets adds more spread than pipetting. Off by default so results do not change until you ask for it.",
+    detail: "When this is on, a replicate group is flagged only if its SD is above both the fixed threshold and a multiple of the SD that Poisson sampling alone predicts at the group's mean Ct: 1 / (√N · ln 2) cycles for N copies, taking 10 copies at Ct 35 and 100% efficiency. That is the curve drawn on the SD-against-Ct graph. de Ronde et al. (2017) replace the fixed 0.5-cycle rule with a Poisson-based range for low-input samples, and Ruiz-Villalba et al. (2021) accept up to 2 cycles between replicates for Ct values up to 35. Past about Ct 36.7 (under 3 copies) I hold the limit at its 3-copy value, since Ct is no longer quantitative there. Turn it on for miRNA, single-cell or other low-copy work; leave it off if all your targets come up before about Ct 32, where it changes nothing." },
+  sdPoissonK: { refs: ["deronde2017", "ruizvillalba2021"],
+    evidence: "Only used when the option above is on. 1.5 × the Poisson SD is my own allowance for pipetting on top of sampling noise; no paper sets this factor.",
+    detail: "With the default 1.5 the limit stays at the fixed 0.3 up to about Ct 32.6, then rises: 0.48 at Ct 34, 0.68 at Ct 35, 0.97 at Ct 36 and 1.25 from about Ct 36.7 on. For comparison, the range of 2 cycles that Ruiz-Villalba et al. (2021) accept up to Ct 35 is an SD of about 1.0 to 1.15 for triplicates and 1.4 for duplicates, so 1.5 is the stricter of the two. The factor itself is a rule of thumb of mine, not a published number. Raise it to 2 or 3 if groups sitting just above the curve on the graph are still being flagged." },
+  lateCtThreshold: { refs: ["miqe2025", "ruizvillalba2021", "forootan2017", "miqe2009"],
+    evidence: "About 10 copies reach Ct 35 at 90–100% efficiency, the usual lower limit of quantification; under 3 copies (about Ct 37) even detection is unreliable.",
+    detail: "MIQE 2.0 puts the lower limit of quantification of a good assay near 10 copies per reaction, reached at about 35 cycles at 90% efficiency, and the limit of detection at 3 copies (about 37 cycles). Ruiz-Villalba et al. (2021) say inputs below 10 copies cannot be used for quantitative analysis, and Forootan et al. (2017) show that sampling noise alone puts the 95% limit of detection at 3 molecules. So a sample group whose mean Ct is past 35 gets a low-severity note: read it as detected or not detected, or add replicates. MIQE (2009) warns that a fixed cut-off can be too low or too high, which is why this is a note and nothing is removed. If you have measured your own limit of quantification from a dilution series, enter that Ct here. For low-efficiency assays the number should be higher (MIQE 2.0: 42 cycles at 70%). Set 0 to switch the note off." },
+  nrtMargin: { refs: ["miqe2025", "miqe2009"],
+    evidence: "MIQE 2.0: a sample counts as positive only if its Cq is at least 5 cycles before an amplifying negative control. Five cycles is 32-fold, so about 3% of the signal.",
+    detail: "Any amplification in a no-RT well is still flagged as before. This setting adds a second, separate flag when the no-RT comes up fewer than this many cycles after the mean Ct of the samples it controls. PlateCheck matches a no-RT well to its sample by name (for example “c1 -RT” to “c1”); if no name matches it uses all sample wells of that target. The 5-cycle figure is the MIQE 2.0 rule for negative controls: 2⁵ = 32-fold, so genomic DNA would account for about 3% of the signal; 3.3 cycles would be 10%. Tighten it (7–10 cycles) for small fold changes, loosen it only if you correct for genomic DNA signal separately. Set 0 to switch the margin flag off." },
   ntcCtThreshold: { refs: ["miqe2009", "miqe2025", "ruizvillalba2021"],
     evidence: "About 10 copies reach Ct 35 at 90–100% efficiency. MIQE gives NTC signal near Ct 40 as ignorable when the lowest sample is below Ct 35.",
     detail: "MIQE 2.0 puts the lower limit of quantification near 10 copies per reaction (Ct about 35 at 90% efficiency) and the limit of detection at 3 copies (Ct about 37). An NTC before Ct 35 means roughly 10 or more contaminating copies, enough to change a quantity, so I rate it high. Later NTC signal is still reported, as medium. MIQE 2.0 also says a sample should count as positive only if its Cq comes at least 5 cycles before an amplifying negative control. If your targets come up late (miRNA, single cells, rare transcripts), compare the NTC with your latest sample, not with a fixed Ct." },
@@ -250,9 +277,15 @@ const THRESHOLD_EVIDENCE = {
   minStdLevels: { refs: ["miqe2009", "miqe2025", "svec2015"],
     evidence: "Three levels is the fewest that can show a curve. MIQE asks for at least 3 orders of magnitude (4 tenfold points), MIQE 2.0 for 4–5.",
     detail: "This setting only decides whether PlateCheck fits a curve at all. MIQE (2009) asks for a range of at least 3 orders of magnitude, ideally 5–6; MIQE 2.0 asks for 4–5 orders with at least 3 replicates per dilution, and Svec et al. (2015) recommend 3–4 replicates per concentration for a precise efficiency. If you run tenfold dilutions, 5 levels is a better minimum." },
+  minStdRange: { refs: ["miqe2009", "miqe2025"],
+    evidence: "MIQE asks for a standard curve covering at least 3 orders of magnitude (ideally 5–6); MIQE 2.0 asks for 4–5.",
+    detail: "The range is log10 of the highest quantity minus log10 of the lowest, counting only standards that have both a quantity and a Ct. Three log10 units is four tenfold points. MIQE (2009) asks for at least 3 orders of magnitude and ideally 5–6; MIQE 2.0 asks for 4–5. A shorter curve is still fitted and its efficiency reported, with a low-severity note, because R² and the slope are less certain over a short range. Raise this to 4 or 5 to follow MIQE 2.0, or set 0 to switch the note off, for example when a low-abundance target leaves only a few levels above the limit of detection." },
 };
 for (const f of RULESET_FIELDS) Object.assign(f, THRESHOLD_EVIDENCE[f.key]);
 const RULE_EVIDENCE = {
+  late_ct: THRESHOLD_EVIDENCE.lateCtThreshold,
+  nrt_margin: THRESHOLD_EVIDENCE.nrtMargin,
+  std_curve_range: THRESHOLD_EVIDENCE.minStdRange,
   missing_ct: { refs: ["miqe2025", "forootan2017"], evidence: "Below 3 copies per well Poisson sampling means some replicates get no template at all." },
   replicate_dispersion: THRESHOLD_EVIDENCE.sdThreshold,
   ntc_amplification: THRESHOLD_EVIDENCE.ntcCtThreshold,
@@ -324,6 +357,26 @@ function linfit(pts) {
   if (!sxx) return null;
   const slope = sxy / sxx;
   return { slope, intercept: my - slope * mx, r2: syy ? (sxy * sxy) / (sxx * syy) : 1, n };
+}
+// SD of Ct expected from Poisson sampling alone, for the copy number implied by a Ct. Uses the rule of thumb
+// that about 10 copies give Ct 35 (MIQE 2.0; Ruiz-Villalba et al. 2021). SD(log_E N) ≈ 1 / (√N · ln E).
+// Pipetting and instrument noise come on top of this. Returns null below 3 copies, where Ct is not quantitative.
+export function poissonSd(ct, { copiesAt35 = 10, efficiency = 2 } = {}) {
+  const n = copiesAt35 * efficiency ** (35 - ct);
+  return Number.isFinite(n) && n >= 3 ? 1 / (Math.sqrt(n) * Math.log(efficiency)) : null;
+}
+const POISSON_SD_3_COPIES = 1 / (Math.sqrt(3) * Math.LN2);
+// The SD limit for a replicate group. Fixed unless the Ct-dependent option is on; then it never drops below
+// the fixed value, and past 3 copies it stays at the 3-copy value.
+export function sdLimit(values, meanCt) {
+  if (!values.sdCtDependent || !Number.isFinite(meanCt)) return values.sdThreshold;
+  return Math.max(values.sdThreshold, values.sdPoissonK * (poissonSd(meanCt) ?? POISSON_SD_3_COPIES));
+}
+// "c1 -RT", "c1_noRT", "NRT c1" → "c1": the sample a no-RT well was made from, as far as the name says.
+function nrtBaseName(s) {
+  return String(s ?? "").toLowerCase()
+    .replace(/(?:(?<![a-z0-9])(?:no[\s_-]?rt|nrt|minus[\s_-]?rt|rt[\s_-]?minus|nac)|[-−–]\s?rt)(?![a-z0-9])(?:[\s_-]*(?:control|ctrl)(?![a-z0-9]))?/g, " ")
+    .replace(/^[\s_()[\]:,-]+|[\s_()[\]:,-]+$/g, "").replace(/\s+/g, " ");
 }
 const fmtRaw = v => (v == null ? "(empty)" : `'${v}'`);
 const f2 = x => (x == null ? "—" : x.toFixed(2));
@@ -861,19 +914,21 @@ export function analyze(exp) {
   }
 
   // Replicates (FR-5, FR-10)
-  res.checksRun.push(`Technical replicates: sample SD of Ct/Cq within each biological unit × target (threshold ${v.sdThreshold} cycles)`);
+  res.checksRun.push(`Technical replicates: sample SD of Ct/Cq within each biological unit × target (threshold ${v.sdThreshold} cycles` +
+    (v.sdCtDependent ? `, or ${v.sdPoissonK} × the Poisson sampling SD expected at the group's mean Ct when that is larger)` : ")"));
   const repRows = active.filter(r => ["sample", "positive", "standard"].includes(r.role) && r.target);
   for (const [k, rs] of groupBy(repRows, r => `${r.role === "standard" ? `standard @ ${r.quantity ?? "?"}` : r.bio_unit ?? ""}\u0000${r.target}`)) {
     const unit = k.split("\u0000")[0];
     if (!unit) continue;
     const vals = rs.map(r => ctNum(r.ct, r.dc)).filter(x => x !== null), s = stats(vals);
     const g = { unit, target: rs[0].target, group: rs[0].group, role: rs[0].role, wells: wl(rs), lines: ln(rs), raw_ct: rs.map(r => r.ct),
-      n: rs.length, n_numeric: vals.length, mean: s.mean, sd: s.sd, over: s.sd !== null && s.sd > v.sdThreshold };
+      n: rs.length, n_numeric: vals.length, mean: s.mean, sd: s.sd, threshold: sdLimit(v, s.mean) };
+    g.over = s.sd !== null && s.sd > g.threshold;
     res.replicateGroups.push(g);
     const raw = g.raw_ct.map(fmtRaw).join(", ");
     if (g.over) add("replicate_dispersion", k, { wells: g.wells, lines: g.lines, target: g.target, sample: unit,
       description: `Technical replicates for ${unit} / ${g.target} have SD ${g.sd.toFixed(3)} cycles.`,
-      evidence: `raw Ct ${raw}; mean ${g.mean.toFixed(2)}; sample SD ${g.sd.toFixed(3)} > threshold ${v.sdThreshold}`,
+      evidence: `raw Ct ${raw}; mean ${g.mean.toFixed(2)}; sample SD ${g.sd.toFixed(3)} > threshold ${g.threshold > v.sdThreshold ? `${g.threshold.toFixed(3)} (${v.sdPoissonK} × the Poisson sampling SD expected at this mean Ct; fixed threshold ${v.sdThreshold})` : v.sdThreshold}`,
       next_check: "Inspect the individual wells and their curves. No value was removed or down-weighted." });
   }
   const single = res.replicateGroups.filter(g => g.sd === null && g.role === "sample");
@@ -884,6 +939,18 @@ export function analyze(exp) {
   else for (const g of single) add("insufficient_replicates", `${g.unit}\u0000${g.target}`, { wells: g.wells, lines: g.lines, target: g.target, sample: g.unit,
     description: `${g.unit} / ${g.target} has ${g.n_numeric} numeric Ct/Cq value(s) in ${g.n} well(s); spread was not assessed.`,
     evidence: `raw Ct ${g.raw_ct.map(fmtRaw).join(", ")}`, next_check: "Confirm whether technical replicates were planned for this sample and target." });
+  // Late Ct: one note per target, listing the sample groups past the setting.
+  if (v.lateCtThreshold > 0) {
+    res.checksRun.push(`Late Ct: sample groups with a mean Ct/Cq above ${v.lateCtThreshold} are noted as low copy number`);
+    const sampleGroups = res.replicateGroups.filter(g => g.role === "sample" && g.mean !== null);
+    for (const [t, gs] of groupBy(sampleGroups.filter(g => g.mean > v.lateCtThreshold), g => g.target)) {
+      const one = g => `${g.unit}: mean Ct ${g.mean.toFixed(2)}${g.sd !== null ? ` (SD ${g.sd.toFixed(2)}, n = ${g.n_numeric})` : ` (n = ${g.n_numeric})`}`;
+      add("late_ct", t, { wells: gs.flatMap(g => g.wells), lines: gs.flatMap(g => g.lines), target: t, sample: gs.length === 1 ? gs[0].unit : null,
+        description: `${gs.length} of ${sampleGroups.filter(g => g.target === t).length} sample group(s) for '${t}' have a mean Ct above ${v.lateCtThreshold}.`,
+        evidence: gs.slice(0, 12).map(one).join("; ") + (gs.length > 12 ? `; … ${gs.length - 12} more` : "") + ". About 10 copies per well reach Ct 35 at 90–100% efficiency",
+        next_check: "Read these as detected or not detected rather than as exact quantities, or run more replicates or more template. If you have measured this assay's limit of quantification, set that Ct under Context & rules." });
+    }
+  } else res.notAssessed.push("Late Ct: the late-Ct note is switched off in the rule set.");
   for (const [, rs] of groupBy(active.filter(r => r.role === "sample" && r.target && r.bio_unit), r => `${r.group ?? ""}\u0000${r.target}`)) {
     const units = [...new Set(rs.map(r => r.bio_unit))];
     res.bioSummary.push({ group: rs[0].group, target: rs[0].target, units, wells: rs.length });
@@ -896,7 +963,7 @@ export function analyze(exp) {
   const targets = [...new Set(active.map(r => r.target).filter(Boolean))];
   const CTRL = [["ntc", "expectNtc", "No-template control (NTC)"], ["positive", "expectPositive", "Positive control"], ["nrt", "expectNrt", "No-RT control"]];
   const expected = CTRL.filter(c => v[c[1]]).map(c => c[2]);
-  res.checksRun.push(`Controls: expected for every target: ${expected.join(", ") || "none"}; behaviour of all NTC, positive and no-RT wells present (NTC rated high below Ct ${v.ntcCtThreshold})`);
+  res.checksRun.push(`Controls: expected for every target: ${expected.join(", ") || "none"}; behaviour of all NTC, positive and no-RT wells present (NTC rated high below Ct ${v.ntcCtThreshold}` + (v.nrtMargin > 0 ? `; an amplifying no-RT should trail its samples by ${v.nrtMargin} cycles)` : ")"));
   for (const c of CTRL) if (!v[c[1]]) res.notAssessed.push(`${c[2]}s: not expected by the selected rule set, so their absence is not flagged. Any that are present are still checked.`);
   for (const t of targets) for (const [role, flag, label] of CTRL) {
     const ws = active.filter(r => r.target === t && r.role === role), na = exp.controlNA?.[`${role}|${t}`];
@@ -924,6 +991,19 @@ export function analyze(exp) {
         add("nrt_amplification", r.line, { ...at(r), uncertain: true, description: `No-RT control ${name(r)} for '${t}' amplified (Ct ${r.ct}).`,
           evidence: `source line ${r.line}` + (minS !== null ? `; ${(c - minS).toFixed(1)} cycles after the earliest sample well (Ct ${minS})` : ""),
           next_check: "Assess possible genomic DNA contribution, for example DNase treatment or intron-spanning primers." });
+        // Margin to the samples this no-RT controls: the sample it was made from if the names say so, otherwise the whole target.
+        const samples = active.filter(x => x.target === t && x.role === "sample" && ctNum(x.ct, x.dc) !== null);
+        const names = new Set([nrtBaseName(r.sample), r.bioSource === "file" || r.bioSource === "user" ? String(r.bio_unit).toLowerCase() : ""].filter(Boolean));
+        const own = samples.filter(x => names.has(String(x.sample ?? "").toLowerCase()) || names.has(String(x.bio_unit ?? "").toLowerCase()));
+        const used = own.length ? own : samples;
+        if (v.nrtMargin > 0 && used.length) {
+          const mean = stats(used.map(x => ctNum(x.ct, x.dc))).mean, margin = c - mean;
+          const share = margin > 0 ? `about ${(100 / 2 ** margin).toFixed(margin < 3.3 ? 0 : 1)}% of the sample signal at 100% efficiency` : "as early as the samples, or earlier";
+          if (margin < v.nrtMargin) add("nrt_margin", r.line, { ...at(r), wells: [r.key || r.well, ...(own.length ? wl(own) : [])], lines: [r.line, ...(own.length ? ln(own) : [])], uncertain: true,
+            description: `No-RT control ${name(r)} for '${t}' (Ct ${r.ct}) is ${margin.toFixed(1)} cycles after ${own.length ? `its sample ${own[0].sample ?? own[0].bio_unit}` : "the samples"} (mean Ct ${mean.toFixed(2)}); at least ${v.nrtMargin} are expected.`,
+            evidence: `source line ${r.line}; ${own.length ? `matched by name to ${wl(own).join(", ")}` : `no sample name matches '${r.sample ?? ""}', so compared with all ${used.length} sample well(s) of '${t}'`}; margin ${margin.toFixed(2)} < ${v.nrtMargin} cycles; ${share}`,
+            next_check: "Treat the Ct of these samples as partly genomic DNA. DNase-treat the RNA and repeat, use primers that span an exon junction, or measure and subtract the genomic signal." });
+        }
       }
     }
   }
@@ -934,7 +1014,7 @@ export function analyze(exp) {
   // Standard curves (FR-12)
   const stdRows = active.filter(r => r.role === "standard");
   if (!stdRows.length) res.notAssessed.push("Standard curve: no wells have the Standard role, so efficiency and linearity were not assessed.");
-  else res.checksRun.push(`Standard curve: efficiency ${v.effMin}–${v.effMax}%, R² ≥ ${v.r2Min}, at least ${v.minStdLevels} dilution levels`);
+  else res.checksRun.push(`Standard curve: efficiency ${v.effMin}–${v.effMax}%, R² ≥ ${v.r2Min}, at least ${v.minStdLevels} dilution levels` + (v.minStdRange > 0 ? `, range of at least ${v.minStdRange} log10 units` : ""));
   for (const [t, rs] of groupBy(stdRows.filter(r => r.target), r => r.target)) {
     const bad = rs.filter(r => !(toNum(r.quantity, r.dc) > 0));
     if (bad.length) add("std_curve_missing_quantity", t, { wells: wl(bad), lines: ln(bad), target: t,
@@ -951,7 +1031,8 @@ export function analyze(exp) {
     const fit = linfit(pts);
     if (!fit) continue;
     const eff = (Math.pow(10, -1 / fit.slope) - 1) * 100;
-    res.stdCurves.push({ target: t, ...fit, efficiency: eff, levels, points: pts });
+    const lo = pts.reduce((a, p) => (p.x < a.x ? p : a)), hi = pts.reduce((a, p) => (p.x > a.x ? p : a)), range = hi.x - lo.x;
+    res.stdCurves.push({ target: t, ...fit, efficiency: eff, levels, range, points: pts });
     const ev = `slope ${fit.slope.toFixed(3)}, intercept ${fit.intercept.toFixed(2)}, R² ${fit.r2.toFixed(4)}, efficiency ${eff.toFixed(1)}%, ${levels} levels, ${pts.length} wells`;
     add("std_curve_summary", t, { wells: pts.map(p => p.well), target: t, description: `Standard curve for '${t}': efficiency ${eff.toFixed(1)}%, R² ${fit.r2.toFixed(4)}.`, evidence: ev, next_check: "None." });
     if (!(eff >= v.effMin && eff <= v.effMax)) add("std_curve_efficiency", t, { wells: pts.map(p => p.well), target: t,
@@ -960,6 +1041,10 @@ export function analyze(exp) {
     if (fit.r2 < v.r2Min) add("std_curve_r2", t, { wells: pts.map(p => p.well), target: t,
       description: `Standard curve R² for '${t}' is ${fit.r2.toFixed(4)}, below ${v.r2Min}.`, evidence: ev,
       next_check: "Inspect individual standards for outliers or pipetting errors." });
+    if (v.minStdRange > 0 && range < v.minStdRange - 1e-9) add("std_curve_range", t, { wells: pts.map(p => p.well), target: t,
+      description: `Standard curve for '${t}' spans ${range.toFixed(1)} log10 units; at least ${v.minStdRange} are recommended.`,
+      evidence: `lowest quantity ${lo.q}, highest ${hi.q}; ${ev}`,
+      next_check: "Treat the efficiency and R² as rough. Extend the dilution series if the target allows it, and keep the samples inside the range the standards cover." });
   }
 
   // Amplification curves (FR-11)
