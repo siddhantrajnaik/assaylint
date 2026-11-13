@@ -123,7 +123,7 @@ ${table(["When", "Who", "What"], exp.audit.map(a => [when(a.at), a.actor, a.deta
 <h2>Limits of this report</h2>
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
 ${exp.feedback ? `<p class="sub">Asked whether this review was useful: ${esc(exp.feedback.value.toLowerCase())}.</p>` : ""}
-<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.</footer>
+<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.${CREDIT.guidance?.length ? ` With guidance from ${CREDIT.guidance.map(g => `${esc(g.name)}, ${esc(g.affiliation)} (<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>)`).join(", ")}.` : ""}</footer>
 </body></html>`;
 }
 

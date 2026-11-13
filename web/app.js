@@ -96,6 +96,7 @@ function plateArt(rows, cols, lit = {}, r = 4.2) {
 function creditBlock(cls) {
   return h("div", { class: "credit " + cls },
     h("p", null, `Made by ${CREDIT.name}, ${CREDIT.affiliation}.`),
+    CREDIT.guidance?.length > 0 && h("p", null, "With guidance from ", CREDIT.guidance.map((g, i) => [i ? ", " : "", `${g.name}, ${g.affiliation} (`, h("a", { href: `mailto:${g.email}`, class: "link" }, g.email), ")"]), "."),
     h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=PlateCheck`, class: "link" }, CREDIT.email), "."),
     CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
 }
@@ -216,7 +217,7 @@ function home() {
       h("p", { class: "ht-sum" }, "PlateCheck does the finding; the thinking and deciding are yours. You can also skip the deciding: the report still gets made, and those flags show as “not reviewed”.")),
     h("section", { class: "home-cols" },
       h("div", null, h("h2", null, "What it does"), h("ul", null,
-        h("li", null, "Reads exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT, LightCycler 480, or any CSV with wells and Ct values."),
+        h("li", null, "Reads exports from QuantStudio, Bio-Rad CFX, ABI 7500 and 7900HT, LightCycler 480, as Excel, CSV or text, or any sheet with wells and Ct values."),
         h("li", null, "Checks your controls, replicates, plate labels, curves and standard curve, and shows the numbers behind every flag."),
         h("li", null, "Gives you a report to keep with your notebook."))),
       h("div", null, h("h2", null, "What it doesn't do"), h("ul", null,

@@ -60,4 +60,6 @@ Questions, bugs, or a file it can't read: **siddhantrajnaik2001@gmail.com**
 
 LinkedIn: [siddhant-raj-naik](https://www.linkedin.com/in/siddhant-raj-naik-22065b205)
 
+With guidance from **Sanket Mukherjee**, PhD, KSBS, IIT Delhi (smukherjee109@gmail.com).
+
 Built with three.js (MIT), SheetJS for reading Excel files (Apache-2.0, `web/vendor/xlsx-LICENSE`) and IBM Plex fonts (SIL OFL).
