@@ -43,6 +43,7 @@ Mature miRNA names are turned into the gene they come from: `hsa-miR-21-5p`, `mi
 | Dog | 9615 | `cfa-` |
 | Rhesus macaque | 9544 | `mml-` |
 | *Xenopus tropicalis* | 8364 | `xtr-` |
+| *Xenopus laevis* | 8355 | `xla-`, a `.L` or `.S` suffix (`actb.L`) |
 | Other | the ID you type | nothing |
 
 I checked each taxonomy ID against MyGene.info in November 2026: a query for that species' actin gene with the ID as the species came back with the right gene (actb1, Act5C, act-1, ACT1, ACT2, ACTB, actb). Yeast is filed under the S288C reference strain (559292), not the species ID 4932, because that is where NCBI keeps the S. cerevisiae genes.
@@ -57,7 +58,8 @@ For **Other**, type the NCBI taxonomy ID (digits only; look it up at https://www
 |---|---|---|
 | Human, chicken, pig, cow, dog, rhesus macaque | HGNC style: upper-case letters, digits and hyphens (`C1orf112`-style names allowed) | ACTB, MIR21, MIRLET7A |
 | Mouse, rat | MGI/RGD style: capital then lower case | Actb, Mir21a |
-| Zebrafish, *Xenopus* | ZFIN and Xenbase: all lower case | actb1, sox10, mir21-1, mirlet7a-1 |
+| Zebrafish, *Xenopus tropicalis* | ZFIN and Xenbase: all lower case | actb1, sox10, mir21-1, mirlet7a-1 |
+| *Xenopus laevis* | Xenbase: lower case, plus `.L` or `.S` in upper case for the subgenome copy (homeolog); miRNA genes have no suffix | actb.L, sox2.S, mir16a |
 | *C. elegans* | a lower-case class, a hyphen and a number, or a sequence name; upper case is the protein | act-1, unc-54, mir-39, F53A9.10 |
 | Yeast | standard name in upper case (lower case is a mutant allele), or the systematic name | ACT1, YFL039C |
 | *Arabidopsis* | upper case (lower case is a mutant), or the AGI locus | ACT2, FLC, AT3G18780, MIR156a |
@@ -100,8 +102,8 @@ The panel shows short notes for the RNA types in your run. In brief:
 
 - The alias list covers common reference genes and lab nicknames, not every name in use. The database lookup catches many more (it searches aliases too).
 - A mature miRNA's gene symbol names one locus; the qPCR assay can't tell loci apart when they give the same mature sequence.
-- Fourteen species are named in the list; anything else needs its taxonomy ID typed in. A species guessed from a prefix or an ID pattern is only a guess.
+- Fifteen species are named in the list; anything else needs its taxonomy ID typed in. A species guessed from a prefix or an ID pattern is only a guess.
 - Fly symbols aren't checked, and the checks for the other species catch case mistakes, not misspellings. The lookup is the real check.
 - MyGene.info coverage differs between species: RefSeq summaries (the one-line description) mostly exist for human and mouse, so for other species you'll usually get only the gene name.
-- *Xenopus laevis* is not in the list. Its symbols carry .L and .S suffixes for the two subgenomes; use Other with taxonomy ID 8355 if you need it.
+- *X. laevis* has two copies of most genes, one per subgenome, and Xenbase names them `actb.L` and `actb.S`; a plain `actb` doesn't exist there (I checked this in MyGene.info in November 2026). If you give a symbol without the suffix, the lookup asks for both copies in one request, uses the `.L` one and tells you about the `.S` one. Enter the suffix yourself if your primers are for one copy. The two copies are often similar enough that one primer pair amplifies both.
 - The RNA type is used by three low-severity checks (a miRNA normalised to an mRNA reference or the other way round, miRNAs with no small-RNA reference on the plate, lncRNAs with no no-RT control). Where you haven't set a type, they use the guess from the name, and the finding says so. See [rules.md](rules.md) and [thresholds.md](thresholds.md#rna-type-notes).

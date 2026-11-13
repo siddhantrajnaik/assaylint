@@ -9,18 +9,21 @@ export const RNA_TYPES = [
 export const RNA_TYPE_LABEL = Object.fromEntries(RNA_TYPES);
 export const SPECIES = [["human", "Human"], ["mouse", "Mouse"], ["rat", "Rat"], ["zebrafish", "Zebrafish"], ["fly", "Fruit fly (D. melanogaster)"],
   ["worm", "C. elegans"], ["yeast", "Budding yeast (S. cerevisiae)"], ["arabidopsis", "Arabidopsis thaliana"], ["chicken", "Chicken"], ["pig", "Pig"],
-  ["cow", "Cow"], ["dog", "Dog"], ["macaque", "Rhesus macaque"], ["xenopus", "Xenopus tropicalis"], ["other", "Other"]];
+  ["cow", "Cow"], ["dog", "Dog"], ["macaque", "Rhesus macaque"], ["xenopus", "Xenopus tropicalis"], ["xlaevis", "Xenopus laevis"], ["other", "Other"]];
 export const SPECIES_LABEL = Object.fromEntries(SPECIES);
 // NCBI taxonomy IDs. I checked each one against MyGene.info in Nov 2026 (a query for the species' actin gene returned it).
 // Yeast is the S288C reference strain (559292), which is how NCBI and MyGene.info file S. cerevisiae genes.
 export const TAXID = { human: "9606", mouse: "10090", rat: "10116", zebrafish: "7955", fly: "7227", worm: "6239", yeast: "559292", arabidopsis: "3702",
-  chicken: "9031", pig: "9823", cow: "9913", dog: "9615", macaque: "9544", xenopus: "8364" };
+  chicken: "9031", pig: "9823", cow: "9913", dog: "9615", macaque: "9544", xenopus: "8364", xlaevis: "8355" };
 // Vertebrates whose gene symbols follow the human (HGNC) style: upper case, MIR21, MIRLET7A.
 const HUMANLIKE = new Set(["human", "chicken", "pig", "cow", "dog", "macaque"]);
-const LOWERCASE = new Set(["zebrafish", "xenopus"]); // ZFIN and Xenbase: actb1, sox2, mir21-1
+const LOWERCASE = new Set(["zebrafish", "xenopus", "xlaevis"]); // ZFIN and Xenbase: actb1, sox2, mir21-1
+// X. laevis is allotetraploid, and Xenbase names each copy by subgenome: actb.L and actb.S (checked in MyGene.info, Nov 2026:
+// actb.L and actb.S exist for taxid 8355, plain actb doesn't). miRNA genes there have no suffix (mir16a).
+const HOMEOLOG = /\.(L|S)$/;
 // miRBase species prefixes. A prefix gives a guess for the user to confirm, not a fact.
 const MIR_PREFIX = { hsa: "human", mmu: "mouse", rno: "rat", dre: "zebrafish", dme: "fly", cel: "worm", ath: "arabidopsis", gga: "chicken",
-  ssc: "pig", bta: "cow", cfa: "dog", mml: "macaque", xtr: "xenopus", sce: "yeast" };
+  ssc: "pig", bta: "cow", cfa: "dog", mml: "macaque", xtr: "xenopus", xla: "xlaevis", sce: "yeast" };
 const PREFIX_RE = new RegExp(`^(${Object.keys(MIR_PREFIX).join("|")})[-_]`, "i");
 const YEAST_ORF = /^Y[A-P][LR]\d{3}[WC](-[A-Z])?$/i; // S. cerevisiae systematic names (YFL039C)
 const AGI_LOCUS = /^AT[1-5CM]G\d{5}$/i; // Arabidopsis loci (AT3G18780)
@@ -70,6 +73,7 @@ function speciesHint(raw) {
   if (YEAST_ORF.test(first)) return { species: "yeast", source: `${first.toUpperCase()}, which is written like a yeast systematic name` };
   if (AGI_LOCUS.test(first)) return { species: "arabidopsis", source: `${first.toUpperCase()}, which is written like an Arabidopsis locus` };
   if (/^CG\d{3,5}$/.test(first)) return { species: "fly", source: `${first}, which is written like a FlyBase annotation ID` };
+  if (/^[a-z][a-z0-9-]*\.[LS]$/i.test(first)) return { species: "xlaevis", source: `the .${first.slice(-1).toUpperCase()} suffix, which Xenbase gives X. laevis homeologs` };
   return null;
 }
 const TAQMAN_RE = /(?<![A-Za-z0-9])(Hs|Mm|Rn)\d{6,8}_[a-z]\d(?![A-Za-z0-9])/;
@@ -137,6 +141,13 @@ export function checkSymbol(symbol, species = "human") {
     return { ok: true, reason: "" };
   }
   if (LOWERCASE.has(species)) {
+    if (/\.[LSls]$/.test(s) && species !== "xlaevis") return { ok: false, reason: `The .L and .S suffixes are for Xenopus laevis homeologs; ${SPECIES_LABEL[species]} symbols don't have them. Change the species to Xenopus laevis if that's what it is.` };
+    if (species === "xlaevis") {
+      if (/\.[ls]$/.test(s)) return { ok: false, reason: `Xenbase writes the subgenome suffix in upper case: ${s.slice(0, -1).toLowerCase()}${s.slice(-1).toUpperCase()}, not ${s}.` };
+      const base = s.replace(HOMEOLOG, "");
+      if (/[A-Z]/.test(base)) return { ok: false, reason: `Xenopus laevis symbols are lower case with an upper-case .L or .S suffix: ${base.toLowerCase()}${s.slice(base.length)}, not ${s}.` };
+      return { ok: true, reason: "" };
+    }
     if (/[A-Z]/.test(s)) return { ok: false, reason: `${SPECIES_LABEL[species]} symbols are all lower case: ${s.toLowerCase()}, not ${s}.` };
     return { ok: true, reason: "" };
   }
@@ -192,7 +203,10 @@ export function suggestSymbol(raw, species = "human") {
     // IL-6 → IL6, CD-4 → CD4; leave real hyphenated symbols (NKX2-1, HLA-A, MT-CO1, RNU6-1, *-AS1) alone.
     const h = /^([A-Z]{2,5})-(\d+[A-Z]?\d*)$/.exec(sym);
     if (h && !/^(MT|HLA|RNU\d|LINC|MIR)$/.test(h[1])) sym = h[1] + h[2];
-    if (LOWERCASE.has(species)) sym = sym.toLowerCase();
+    if (LOWERCASE.has(species)) {
+      const suffix = species === "xlaevis" && /\.[LS]$/i.test(sym) ? sym.slice(-2).toUpperCase() : "";
+      sym = sym.slice(0, sym.length - suffix.length).toLowerCase() + suffix;
+    }
   } else if (species === "worm") { if (/^[A-Za-z]{3,4}-\d+(\.\d+)?$/.test(sym)) sym = sym.toLowerCase(); }
   else if ((species === "yeast" || species === "arabidopsis") && /^[A-Za-z]+\d*$/.test(sym)) sym = sym.toUpperCase();
   return { symbol: sym, extra: [], note: "" };
@@ -276,7 +290,7 @@ export function cleanTargets(v) {
     if (t.type in RNA_TYPE_LABEL) r.type = t.type;
     if (t.species in SPECIES_LABEL) r.species = t.species;
     for (const [k, re] of Object.entries(FIELD_RE)) if (typeof t[k] === "string" && re.test(t[k])) r[k] = t[k];
-    for (const [k, max] of [["asked", 40], ["geneName", 300],["description", 600], ["dbType", 60], ["checkedAt", 40], ["confirmedBy", 120], ["confirmedAt", 40]]) { const s = str(t[k], max); if (s) r[k] = s; }
+    for (const [k, max] of [["asked", 40], ["geneName", 300],["description", 600], ["dbType", 60], ["lookupNote", 600], ["checkedAt", 40], ["confirmedBy", 120], ["confirmedAt", 40]]) { const s = str(t[k], max); if (s) r[k] = s; }
     if (t.source in SOURCES) r.source = t.source;
     if (["found", "alias", "not_found"].includes(t.status)) r.status = t.status;
     if (Object.keys(r).length) putTarget(out, name, r);
@@ -385,6 +399,14 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       const d = await mg(`symbol:${c}`);
       const hit = (d?.hits || []).find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
       if (hit) return { status: "found", ...fromMyGene(hit, species, now) };
+    }
+    // X. laevis: a symbol without .L or .S usually names both homeologs, so ask for both in one request and say which was used.
+    if (species === "xlaevis" && !HOMEOLOG.test(symbol) && !/^mir/i.test(symbol)) {
+      const d = await mg(`symbol:${symbol}.L OR symbol:${symbol}.S`);
+      const hits = (d?.hits || []).filter(x => HOMEOLOG.test(x.symbol) && String(x.symbol).slice(0, -2).toLowerCase() === symbol.toLowerCase());
+      hits.sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))); // .L before .S
+      if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), asked: symbol, others: hits.slice(1).map(x => String(x.symbol)),
+        lookupNote: `X. laevis has ${hits.length === 2 ? "two copies" : "one copy"} of ${symbol}: ${hits.map(x => x.symbol).join(" and ")}. I used ${hits[0].symbol}${hits.length === 2 ? `; if your primers are for ${hits[1].symbol}, enter that symbol instead` : ""}.` };
     }
     const d = await mg(`alias:${symbol}`, 5), hits = d?.hits || [];
     if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), others: hits.slice(1).map(x => String(x.symbol)), asked: symbol };

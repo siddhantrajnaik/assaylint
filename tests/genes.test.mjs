@@ -336,3 +336,37 @@ test("lookup for other species: taxonomy ID in the request, the species' own IDs
     assert.deepEqual([...u.searchParams.keys()].sort(), ["fields", "q", "size", "species"]);
   }
 });
+
+// ---------------------------------------------------------------- Xenopus laevis
+test("Xenopus laevis: taxid 8355, xla- prefix, .L/.S suffix in guess and check", () => {
+  assert.equal(G.TAXID.xlaevis, "8355");
+  assert.equal(G.SPECIES_LABEL.xlaevis, "Xenopus laevis");
+  assert.equal(G.analyzeTarget("xla-miR-16a-5p").species, "xlaevis");
+  assert.equal(G.analyzeTarget("xla-miR-16a-5p").symbol, "mir16a");
+  const a = G.analyzeTarget("ACTB.L");
+  assert.equal(a.species, "xlaevis");
+  assert.equal(a.symbol, "actb.L");
+  assert.match(a.notes.join(" "), /\.L suffix/);
+  for (const s of ["actb.L", "sox2.S", "actb", "mir16a"]) assert.ok(G.checkSymbol(s, "xlaevis").ok, s);
+  assert.match(G.checkSymbol("actb.l", "xlaevis").reason, /actb\.L/);
+  assert.match(G.checkSymbol("ACTB.L", "xlaevis").reason, /actb\.L/);
+  assert.match(G.checkSymbol("actb.L", "xenopus").reason, /Xenopus laevis/);
+  assert.equal(G.suggestSymbol("Sox2.s", "xlaevis").symbol, "sox2.S");
+  assert.equal(G.cleanTargets({ a: { species: "xlaevis", hgncId: "Xenbase:XB-GENE-866011" } }).a.species, "xlaevis");
+});
+
+test("Xenopus laevis lookup: a symbol without suffix asks for both homeologs in one request", async () => {
+  const L = { Xenbase: "XB-GENE-866011", entrezgene: "398459", name: "actin, beta L homeolog", symbol: "actb.L", type_of_gene: "protein-coding" };
+  const S = { Xenbase: "XB-GENE-17335697", entrezgene: "108703086", name: "actin, beta S homeolog", symbol: "actb.S", type_of_gene: "protein-coding" };
+  const f = fakeFetch(url => json({ hits: / OR /.test(new URL(url).searchParams.get("q")) ? [S, L] : [] }));
+  const r = await G.lookupGene("actb", { species: "xlaevis", fetch: f });
+  assert.match(f.calls[0].url, /species=8355&/);
+  assert.equal(new URL(f.calls.at(-1).url).searchParams.get("q"), "symbol:actb.L OR symbol:actb.S");
+  assert.equal(r.status, "alias"); assert.equal(r.symbol, "actb.L"); assert.deepEqual(r.others, ["actb.S"]);
+  assert.equal(r.hgncId, "Xenbase:XB-GENE-866011");
+  assert.match(r.lookupNote, /two copies of actb: actb\.L and actb\.S\. I used actb\.L/);
+  const direct = fakeFetch(() => json({ hits: [L] }));
+  const d = await G.lookupGene("actb.L", { species: "xlaevis", fetch: direct });
+  assert.equal(d.status, "found"); assert.equal(direct.calls.length, 1); assert.equal(d.lookupNote, undefined);
+  assert.equal(G.cleanTargets({ x: { symbol: "actb.L", lookupNote: r.lookupNote } }).x.lookupNote, r.lookupNote);
+});
