@@ -16,7 +16,7 @@ Mature miRNA names are turned into the gene they come from: `hsa-miR-21-5p`, `mi
 
 | Type | Recognised from |
 |---|---|
-| miRNA | `MIR…`, `miR-…`, `let-7…`, with or without `hsa-`/`mmu-`/`rno-` |
+| miRNA | `MIR…`, `miR-…`, `let-7…`, with or without a miRBase species prefix (`hsa-`, `mmu-`, `dre-`, `cel-` …) |
 | lncRNA | `LINC…`, `…-AS1`, `…-IT1`, `…-OT1`, `…-DT`, `SNHG…`, `MIR…HG`, and well-known names such as MALAT1, NEAT1, XIST, HOTAIR, H19, MEG3, GAS5, PVT1 |
 | snoRNA / snRNA | `SNORD…`, `SNORA…`, `SCARNA…`, `RNU…`, `U6`, `7SK` |
 | rRNA | `18S`, `28S`, `5.8S`, `RNA18SN…`, `RNA45SN…`, `MT-RNR1/2` |
@@ -25,18 +25,59 @@ Mature miRNA names are turned into the gene they come from: `hsa-miR-21-5p`, `mi
 
 `MT-…` genes are marked as mitochondrial.
 
-**Species.** Human unless the name says otherwise, and the panel tells you it assumed human. `hsa-`, `mmu-` and `rno-` prefixes and TaqMan IDs (`Hs…`, `Mm…`, `Rn…`) set the species. A name written like `Gapdh` gets a note that it looks like a mouse or rat symbol, but I don't change the species for you.
+**Species.** Human unless the name says otherwise, and the panel tells you it assumed human. You can pick any of these:
 
-**Symbol check.** Human symbols are checked against HGNC style: upper-case letters, digits and hyphens, starting with a letter (`C1orf112`-style names are allowed). Mouse and rat symbols are expected in MGI/RGD style (`Actb`, `Mir21a`).
+| Species | NCBI taxonomy ID | Guessed from |
+|---|---|---|
+| Human | 9606 | `hsa-`, TaqMan `Hs…` |
+| Mouse | 10090 | `mmu-`, TaqMan `Mm…` |
+| Rat | 10116 | `rno-`, TaqMan `Rn…` |
+| Zebrafish | 7955 | `dre-` |
+| Fruit fly (*D. melanogaster*) | 7227 | `dme-`, FlyBase CG numbers (`CG1234`) |
+| *C. elegans* | 6239 | `cel-` |
+| Budding yeast (*S. cerevisiae* S288C) | 559292 | `sce-`, systematic names (`YFL039C`) |
+| *Arabidopsis thaliana* | 3702 | `ath-`, AGI loci (`AT3G18780`) |
+| Chicken | 9031 | `gga-` |
+| Pig | 9823 | `ssc-` |
+| Cow | 9913 | `bta-` |
+| Dog | 9615 | `cfa-` |
+| Rhesus macaque | 9544 | `mml-` |
+| *Xenopus tropicalis* | 8364 | `xtr-` |
+| Other | the ID you type | nothing |
+
+I checked each taxonomy ID against MyGene.info in November 2026: a query for that species' actin gene with the ID as the species came back with the right gene (actb1, Act5C, act-1, ACT1, ACT2, ACTB, actb). Yeast is filed under the S288C reference strain (559292), not the species ID 4932, because that is where NCBI keeps the S. cerevisiae genes.
+
+A species that comes from a prefix or an ID pattern is a guess, and the panel says so ("zebrafish, guessed from the "dre-" prefix"). Check it, then click **OK** to confirm or change it. `cel-miR-39` is usually a spike-in added to human or mouse samples; it is still a *C. elegans* sequence, so it is marked as *C. elegans*. A name written like `Gapdh` gets a note that it looks like a mouse or rat symbol, and an all-lower-case name with a digit (`sox10b`) gets a note that it looks like a zebrafish or Xenopus symbol, but I don't change the species for you.
+
+For **Other**, type the NCBI taxonomy ID (digits only; look it up at https://www.ncbi.nlm.nih.gov/taxonomy). Without it the gene isn't looked up.
+
+**Symbol check.** Each species has its own nomenclature, so the check follows it:
+
+| Species | Style | Examples |
+|---|---|---|
+| Human, chicken, pig, cow, dog, rhesus macaque | HGNC style: upper-case letters, digits and hyphens (`C1orf112`-style names allowed) | ACTB, MIR21, MIRLET7A |
+| Mouse, rat | MGI/RGD style: capital then lower case | Actb, Mir21a |
+| Zebrafish, *Xenopus* | ZFIN and Xenbase: all lower case | actb1, sox10, mir21-1, mirlet7a-1 |
+| *C. elegans* | a lower-case class, a hyphen and a number, or a sequence name; upper case is the protein | act-1, unc-54, mir-39, F53A9.10 |
+| Yeast | standard name in upper case (lower case is a mutant allele), or the systematic name | ACT1, YFL039C |
+| *Arabidopsis* | upper case (lower case is a mutant), or the AGI locus | ACT2, FLC, AT3G18780, MIR156a |
+| Fruit fly | FlyBase symbols are case-sensitive in ways a pattern can't check, so any symbol is accepted | Act5C, w, dpp, CG1234, mir-1 |
+| Other | not checked beyond the characters allowed in any symbol | |
+
+The suggested symbol follows the same style: `SOX10` becomes sox10 for zebrafish, `ACT-1` becomes act-1 for a worm, `act1` becomes ACT1 for yeast. The list of lab nicknames (b-actin → ACTB and so on) is only applied to human-style species and to mouse and rat. For a fly, a worm, yeast or Arabidopsis the name is kept as written, because the human nicknames don't carry over.
+
+miRNA gene symbols also differ, and I checked the patterns in MyGene.info: `dre-miR-21` becomes mir21 (and the lookup also tries mir21-1), `dme-miR-276a-3p` mir-276a, `cel-let-7` let-7, `ath-miR156` MIR156 (also tries MIR156a), `gga-miR-21-5p` MIR21.
 
 You can change the symbol, species and type of any target, or click **OK** (or **Confirm all**) if the guess is right. Every change goes into the run's history with your name.
 
 ## Looking genes up
 
-The **Look up genes** button asks a public gene database for the Entrez Gene ID, Ensembl gene ID, HGNC ID (MGI or RGD for mouse and rat), the gene type and a one-line description.
+The **Look up genes** button asks a public gene database for the Entrez Gene ID, Ensembl gene ID, the species' own nomenclature ID (HGNC, MGI, RGD, ZFIN, FlyBase, WormBase, SGD, TAIR or Xenbase), the gene type and a one-line description. For fly, worm, yeast and Arabidopsis genes the "Ensembl" ID is the FlyBase, WormBase, SGD or TAIR ID, since Ensembl uses those.
 
-- **What is sent:** only the gene symbols in the Symbol column, one per request, for example `ACTB` or `MIR21`, plus the species. Sample names, Ct values, well data, file names and file contents are never sent. Targets that aren't genes (GFP, IgG, a promoter region, circBase IDs) aren't sent at all, and anything that doesn't look like a gene symbol is refused before a request is made.
-- **To whom:** [MyGene.info](https://mygene.info) (run by the Su and Wu labs at Scripps Research). If MyGene.info can't be reached and the gene is human, the same symbol goes to the [HGNC REST service](https://www.genenames.org/help/rest/) instead. Both allow requests straight from the browser, so there is no PlateCheck server in between. No cookies are sent with these requests.
+Yeast systematic names and Arabidopsis loci are asked for as locus tags, so `YFL039C` comes back as ACT1 and `AT3G18780` as ACT2; the panel shows it the same way as an alias, and the locus is kept with the IDs.
+
+- **What is sent:** only the gene symbols in the Symbol column, one per request, for example `ACTB` or `MIR21`, plus the species: `human`, `mouse` or `rat` by name, every other species by its NCBI taxonomy ID (for example `7955` for zebrafish). Sample names, Ct values, well data, file names and file contents are never sent. Targets that aren't genes (GFP, IgG, a promoter region, circBase IDs) aren't sent at all, and anything that doesn't look like a gene symbol is refused before a request is made.
+- **To whom:** [MyGene.info](https://mygene.info) (run by the Su and Wu labs at Scripps Research). If MyGene.info can't be reached and the gene is human, the same symbol goes to the [HGNC REST service](https://www.genenames.org/help/rest/) instead. HGNC only names human genes, so for every other species there is no fallback and you'll see the error. Both allow requests straight from the browser, so there is no PlateCheck server in between. No cookies are sent with these requests.
 - **When:** only when you press the button. Opening the page, importing a file or editing targets sends nothing.
 - **What comes back** is saved with the run: symbol, IDs, gene name, the first sentence of the RefSeq summary (left out when it is the same text for a whole family, as for miRNAs), the database name and the date. It isn't asked for again unless you change the symbol or press the button when everything has already been looked up.
 
@@ -59,5 +100,8 @@ The panel shows short notes for the RNA types in your run. In brief:
 
 - The alias list covers common reference genes and lab nicknames, not every name in use. The database lookup catches many more (it searches aliases too).
 - A mature miRNA's gene symbol names one locus; the qPCR assay can't tell loci apart when they give the same mature sequence.
-- Species other than human, mouse and rat aren't looked up.
+- Fourteen species are named in the list; anything else needs its taxonomy ID typed in. A species guessed from a prefix or an ID pattern is only a guess.
+- Fly symbols aren't checked, and the checks for the other species catch case mistakes, not misspellings. The lookup is the real check.
+- MyGene.info coverage differs between species: RefSeq summaries (the one-line description) mostly exist for human and mouse, so for other species you'll usually get only the gene name.
+- *Xenopus laevis* is not in the list. Its symbols carry .L and .S suffixes for the two subgenomes; use Other with taxonomy ID 8355 if you need it.
 - The RNA type is used by three low-severity checks (a miRNA normalised to an mRNA reference or the other way round, miRNAs with no small-RNA reference on the plate, lncRNAs with no no-RT control). Where you haven't set a type, they use the guess from the name, and the finding says so. See [rules.md](rules.md) and [thresholds.md](thresholds.md#rna-type-notes).

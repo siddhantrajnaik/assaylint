@@ -1,6 +1,6 @@
 # Assay calculations
 
-Many experiments end in a qPCR plate: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR and more. They look different at the bench, but most of them come down to one of six calculations. PlateCheck does those six. You pick the experiment under **More → Assay calculations**, mark which wells are IP, input, IgG and so on, and it shows a table, a chart and anything that looks off. The same section goes into the report.
+Many experiments end in a qPCR plate: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR, 4sU labelling and more. They look different at the bench, but most of them come down to one of a few calculations, and PlateCheck does those. You pick the experiment under **More → Assay calculations**, mark which wells are IP, input, IgG and so on, and it shows a table, a chart and anything that looks off. The same section goes into the report.
 
 The code is in `web/assays.js` (the maths) and `web/ui-assays.js` (the page). The tests in `tests/assays.test.mjs` use the worked examples below.
 
@@ -17,6 +17,8 @@ PlateCheck's own roles (sample, NTC, positive control, no-RT, standard, not used
 | 3C library, Control template (BAC) | 3C-qPCR |
 | Fraction (with a number or a name) | Polysome profiling, TRAP |
 | Test sample, Blank | Immuno-PCR, PLA, PEA |
+| Thiol-treated (NEM), Mock-treated | 4sU labelling, treated vs mock |
+| IP / pulldown, Input | 4sU labelling, biotin pulldown vs total |
 
 Each labelled well also has a **set**: the chromatin, DNA or lysate it came from. The IP, input and IgG of one chromatin share a set, and that's how they're matched. The set starts as the well's group (for example the Bio-Rad "Biological Set Name" column), or, if there's no group, the sample name with words like "input", "IgG", "mock" or "HpaII" taken out, so "WT input" and "WT IP" both become "WT". You can change it.
 
@@ -28,12 +30,46 @@ Why a separate layer and not new roles in `core.js`: the existing rules treat ro
 
 - Technical replicates (same set, label, target and fraction) are averaged as Ct values first, the same way as PlateCheck's replicate table. Every well with a numeric Ct counts; wells without one are left out of the mean, and that's flagged.
 - A replicate SD above your threshold (Method details and thresholds) is flagged, as is a mean Ct above 35 for wells that should amplify.
-- A Ct difference becomes a ratio as 2^ΔCt, which assumes every primer pair doubles each cycle (100% efficiency). If your primer pairs differ a lot in efficiency, the numbers are off by that much. Haring et al. (2007) use a calibration line per primer pair for this reason.
+- A Ct difference becomes a ratio as E^ΔCt, where E = 1 + the PCR efficiency of that primer pair. By default E = 2 (every copy doubles each cycle, 100% efficiency), so results don't change unless you set an efficiency. The formulas below are written with 2; read 2 as E. See "PCR efficiency" below.
 - Nothing is clipped. A % methylation of 140% is shown as 140% with a note, because that number tells you something went wrong.
+
+## PCR efficiency
+
+Haring et al. (2007) use a calibration line per primer pair because primer pairs don't all amplify equally well, and the ENGL acceptance range for an assay is 90–110% (sources in docs/thresholds.md). A pair at 90% instead of 100% turns a 6.6-cycle difference into 1.9^6.6 = 69-fold instead of 2^6.6 = 97-fold, so the efficiency matters most where the ΔCt is large (input dilution, IgG, digested vs mock).
+
+On the Assay calculations page, under **PCR efficiency per primer pair**, each target in the labelled wells can be set to:
+
+- **100% (assumed)**, the default.
+- **Standard curve on this plate**: the efficiency PlateCheck already fits for the run checks (wells with the Standard role and a quantity; efficiency = 10^(−1/slope) − 1). Only offered when there is a curve for that target. If the curve later disappears (the results file is replaced, or the standards are relabelled), the calculation falls back to 100% and says so.
+- **Typed in**: a percentage from your own assay validation, between 50 and 150.
+
+A standard curve on the plate is never applied by itself; you pick it. The efficiency used is shown for every row of the results table and listed in the report, with the slope, R² and number of levels when it came from a curve. An efficiency outside 90–110% is flagged, but still used.
+
+Where each efficiency goes:
+
+| Calculation | With efficiencies |
+|---|---|
+| % input, fold over IgG | E(region)^ΔCt; the input dilution comes off the input Ct as log_E(100 / input %) |
+| Fold over negative region | ratio of the two % inputs, each with its own E; IP-only: E(region)^−Ct ÷ E(negative)^−Ct |
+| MSRE | E(region)^−ΔCt, divided by E(no-site)^−ΔCt and by the fully methylated control's value |
+| PMR | 100 × E(gene)^(Ct ref − Ct sample) × E(control)^(Ct sample − Ct ref) |
+| Accessibility | E(region)^d ÷ E(closed)^d(closed) (or the inverse for enriched DNA); % left = E(region)^−d |
+| 3C | E(pair)^−(Ct library − Ct template) × E(loading)^(loading Ct − mean loading Ct) |
+| Fractions | amount ∝ E(RNA)^−Ct, divided by E(spike-in)^−Ct(spike-in) |
+| Signal over blank | E^ΔCt |
+| 4sU labelling | E(RNA)^−d for treated vs mock; total % × E(RNA)^−(Ct pulldown − Ct total) |
+
+With every E = 2 each line is exactly the formula given in its section.
+
+**Worked example (% input).** IP 24, 1% input 26, at 90% efficiency (E = 1.9): % input = 1% × 1.9^2 = 3.61%, against 4% at 100%. Fold over an IgG at Ct 30: 1.9^6 = 47.0 instead of 64.
+
+**Worked example (MSRE).** Mock 24, digested 25, at 95% (E = 1.95): 100 × 1.95^−1 = 51.3% methylated with a sensitive enzyme, 48.7% with a dependent one. With a no-site region that moved 0.5 cycles at 100% and the region at 90% after 1.5 cycles: 1.9^−1.5 ÷ 2^−0.5 = 0.540, so 54.0%.
+
+**Caveat.** This corrects the slope part of the error only. Ratios between different primer pairs (fold over the negative region from IP alone, PMR, accessibility against a closed region, spike-in-corrected fractions) also depend on where each pair crosses the threshold, which an efficiency can't fix. That is why Haring et al., Hagège et al. and the MethyLight papers use a standard curve per primer pair and read quantities off it.
 
 ## 1. % input and fold enrichment
 
-**Experiments:** ChIP, CUT&RUN, CUT&Tag, RIP / IP, CLIP, eCLIP, ChIRP, RAP, CHART, MeDIP, hMeDIP, MBD, MeRIP / m6A-RIP, acRIP, EU nascent-RNA capture.
+**Experiments:** ChIP, CUT&RUN, CUT&Tag, RIP / IP, CLIP, iCLIP, eCLIP, ChIRP, RAP, CHART, MeDIP, hMeDIP, MBD, MeRIP / m6A-RIP, acRIP, EU nascent-RNA capture.
 
 **Plate:** for every primer pair (region) and every chromatin: IP wells, input wells, and preferably IgG (or no-antibody, mock, beads-only) wells, in technical replicate. A negative control region that your protein or mark shouldn't bind. NTC for each primer pair. CUT&RUN and CUT&Tag usually have no input, so the comparison is with IgG and the negative region.
 
@@ -104,7 +140,7 @@ With a region without a cut site, its ΔCt is subtracted from each region's ΔCt
 - Campan M, Weisenberger DJ, Trinh B, Laird PW. MethyLight. *Methods Mol Biol* 2009;507:325–337. https://doi.org/10.1007/978-1-59745-522-0_23
 - Weisenberger DJ, Campan M, Long TI, et al. Analysis of repetitive element DNA methylation by MethyLight. *Nucleic Acids Res* 2005;33:6823–6836. https://doi.org/10.1093/nar/gki987
 
-**Caveats.** The papers calculate PMR from standard curves; the ΔΔCt form here is the same ratio if both reactions are 100% efficient. PMR can be above 100.
+**Caveats.** The papers calculate PMR from standard curves; the ΔΔCt form here is the same ratio if both reactions are 100% efficient, or if you set each reaction's efficiency. PMR can be above 100.
 
 ## 3. Accessibility relative to a closed region (DNase, MNase, ATAC, FAIRE)
 
@@ -153,7 +189,7 @@ There are two directions, and you choose which:
 
 - Hagège H, Klous P, Braem C, et al. Quantitative analysis of chromosome conformation capture assays (3C-qPCR). *Nat Protoc* 2007;2:1722–1733. https://doi.org/10.1038/nprot.2007.243
 
-**Caveats.** The protocol uses a standard curve of the control template for every primer pair; PlateCheck uses one template level and 100% efficiency. Put several template dilutions on the plate as standards if you want the efficiency checked (the standard-curve check on the Review page will do it).
+**Caveats.** The protocol uses a standard curve of the control template for every primer pair; PlateCheck uses one template level. Put several template dilutions on the plate as standards and the standard-curve check fits an efficiency per primer pair, which you can then pick under PCR efficiency.
 
 ## 5. Distribution across fractions (polysome profiling, TRAP)
 
@@ -201,8 +237,57 @@ Optionally, the share in the polysome fractions (from a fraction number you give
 
 **Caveats.** The SD multiplier is a choice: Lundberg et al. used 2 SD, Armbruster and Pry define the limit of blank as mean + 1.645 SD (in concentration units) and the LOD from low-concentration samples as well. PlateCheck works in Ct, not concentration, and uses k = 3 unless you change it. Commercial PEA panels (NPX values) use extension and inter-plate controls that PlateCheck doesn't model.
 
+## 7. New RNA after 4sU labelling (Roadblock-qPCR, 4sU-tagging, "SLAM-qPCR")
+
+**What exists and what doesn't.** SLAM-seq (Herzog et al. 2017) labels new RNA with 4-thiouridine (4sU), alkylates it with iodoacetamide, and reads the label as T-to-C changes in sequencing reads. That change doesn't stop reverse transcription, so ordinary qPCR primers can't see it. I looked for a published qPCR version of SLAM and didn't find one (PubMed, November 2026). There are two published ways to read 4sU labelling out by qPCR, and PlateCheck does both:
+
+- **Treated vs mock (Roadblock-qPCR, Watson et al. 2021).** Total RNA is treated with N-ethylmaleimide (NEM), which modifies 4sU so that reverse transcriptase stops there. New transcripts carry 4sU and drop out of the cDNA; what is left is the RNA made before the label. The same RNA without NEM is the mock.
+- **Pulldown vs total (4sU-tagging, Dölken et al. 2008, Rädle et al. 2013).** The 4sU RNA is biotinylated and pulled down on streptavidin beads; qPCR on the pulldown and on total RNA.
+
+**Plate:** for every sample (set) and RNA: treated and mock wells, or pulldown and total wells, in technical replicate. Cells grown without 4sU and taken through exactly the same steps, as their own set. NTC per primer pair.
+
+**Formula, treated vs mock**
+
+    d = Ct(treated) − Ct(mock)
+    with no-4sU control cells:  d is replaced by d − d(no-4sU)
+    % made before the label = 100 × 2^(−d)
+    % new                   = 100 − % made before the label
+
+**Formula, pulldown vs total**
+
+    % in pulldown = total % × 2^(Ct(total) − Ct(pulldown))
+    with no-4sU control cells:  % new = % in pulldown − % in the no-4sU pulldown
+                                over background = % in pulldown / % in the no-4sU pulldown
+
+"Total %" is how much total RNA you kept compared with what went into one pulldown, exactly like the input % in ChIP.
+
+**My own adaptation.** The no-4sU background correction and the "% new" read-out are my choices, not a published qPCR method. Watson et al. use NEM-treated RNA to follow the pre-existing RNA over time and get half-lives; the single-time-point "% new" is my reading of the same numbers. Taking the no-4sU ΔCt off is the same idea as the no-cut-site correction in MSRE: anything the treatment does to RNA without 4sU isn't the label. For the pulldown, subtracting the no-4sU pulldown treats it like an IgG. Check the numbers against your own controls before relying on them.
+
+**Worked example (treated vs mock).** 4sU cells: NEM 26, mock 25, so d = 1. No-4sU cells: NEM 25.2, mock 25, so d = 0.2. Corrected d = 0.8, so 100 × 2^−0.8 = 57.4% was made before the label and 42.6% is new. Without the no-4sU cells it would read 50% new.
+
+**Worked example (pulldown).** Total kept 10%. 4sU cells: total 25, pulldown 27, so 10% × 2^−2 = 2.5%. No-4sU cells: total 25, pulldown 32, so 0.078%. Background-corrected 2.42%, and the pulldown is 32-fold over background.
+
+**What gets flagged:** no no-4sU set; no-4sU cells whose Ct moved more than half a cycle with NEM (the compound is doing something besides blocking at 4sU); treated RNA coming up earlier than mock; a pulldown less than 2-fold over the no-4sU pulldown; wells labelled for the other read-out.
+
+**Sources**
+
+- Watson MJ, Park Y, Thoreen CC. Roadblock-qPCR: a simple and inexpensive strategy for targeted measurements of mRNA stability. *RNA* 2021;27:335–342. https://doi.org/10.1261/rna.076885.120
+- Dölken L, Ruzsics Z, Rädle B, et al. High-resolution gene expression profiling for simultaneous kinetic parameter analysis of RNA synthesis and decay. *RNA* 2008;14:1959–1972. https://doi.org/10.1261/rna.1136108
+- Rädle B, Rutkowski AJ, Ruzsics Z, Friedel CC, Koszinowski UH, Dölken L. Metabolic labeling of newly transcribed RNA for high resolution gene expression profiling of RNA synthesis, processing and decay in cell culture. *J Vis Exp* 2013;(78):50195. https://doi.org/10.3791/50195
+- Herzog VA, Reichholf B, Neumann T, et al. Thiol-linked alkylation of RNA to assess expression dynamics. *Nat Methods* 2017;14:1198–1204. https://doi.org/10.1038/nmeth.4435 (SLAM-seq; cited for the chemistry, not for a qPCR read-out)
+
+I checked all four on PubMed in November 2026.
+
+**Caveats.** A transcript only drops out of the NEM-treated cDNA if the RT runs over at least one 4sU, so short amplicons on RNA with few uridines, or short labelling times, under-count new RNA. The pulldown never captures every labelled molecule, so "% new" from a pulldown is a lower bound and is best compared between conditions, not read as an absolute fraction. Neither read-out is a half-life; for that you need a time course.
+
+## iCLIP and eCLIP
+
+iCLIP (König et al. 2010) and eCLIP are listed with RIP and CLIP under % input and fold enrichment. Both are normally read out by sequencing; if you check a few targets by qPCR, the size-matched input is the input and the IgG or no-crosslink sample is the background.
+
+- König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. *Nat Struct Mol Biol* 2010;17:909–915. https://doi.org/10.1038/nsmb.1838
+
 ## Not covered yet
 
-- SLAM-qPCR and other conversion-based readouts.
-- Efficiency-corrected versions of these calculations (standard curve per primer pair).
+- Allele-specific qPCR for SLAM-seq T-to-C conversions. Nobody has published it as far as I could find, and it would need primers designed over each converted position.
+- Reading quantities straight off a standard curve per primer pair (as the 3C and MethyLight protocols do), rather than correcting ΔCt with an efficiency.
 - Statistics across biological replicates; the Analysis module (roadmap workstream 2) will take these numbers as input.

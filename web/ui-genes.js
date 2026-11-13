@@ -4,9 +4,9 @@ import * as G from "./genes.js";
 
 let busy = null; // { id, done, total } while a lookup runs
 const lastError = new Map(); // experiment id → message from the last lookup
-const memo = new Map(); // "species|symbol" → result, so one session doesn't ask twice
+const memo = new Map(); // "species|taxid|symbol" → result, so one session doesn't ask twice
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "geneName", "description", "dbType", "source", "checkedAt", "status", "asked"];
+const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "locus", "geneName", "description", "dbType", "source", "checkedAt", "status", "asked"];
 
 // ctx: { h, card, exp, rows, actor, change, flash, rerender, current }
 //   change(action, detail, fn) logs, re-analyses, saves and re-renders (app.js change()).
@@ -24,9 +24,12 @@ export function targetsPanel(ctx) {
     onchange: ev => setSymbol(ctx, r, ev.target.value) });
   const typeSel = r => h("select", { "aria-label": `RNA type for ${r.name}`, onchange: ev => save(ctx, r, { type: ev.target.value }, `${r.name}: RNA type set to ${G.RNA_TYPE_LABEL[ev.target.value]}`) },
     G.RNA_TYPES.map(([k, l]) => h("option", { value: k, selected: k === r.type }, l)));
-  const speciesSel = r => h("select", { "aria-label": `Species for ${r.name}`, onchange: ev => save(ctx, r, { species: ev.target.value, ...clearLookup() }, `${r.name}: species set to ${G.SPECIES_LABEL[ev.target.value]}`) },
-    G.SPECIES.map(([k, l]) => h("option", { value: k, selected: k === r.species }, l)));
-  const ids = r => [r.saved.entrez && `Entrez ${r.saved.entrez}`, r.saved.ensembl, r.saved.hgncId].filter(Boolean).join(" · ") || "—";
+  const speciesSel = r => [h("select", { "aria-label": `Species for ${r.name}`, onchange: ev => save(ctx, r, { species: ev.target.value, ...clearLookup() }, `${r.name}: species set to ${G.SPECIES_LABEL[ev.target.value]}`) },
+    G.SPECIES.map(([k, l]) => h("option", { value: k, selected: k === r.species }, k === "other" ? "Other (enter taxonomy ID)" : l))),
+    // "Other": the NCBI taxonomy ID is what gets sent with the symbol, so it has to be digits.
+    r.species === "other" && h("input", { type: "text", inputmode: "numeric", value: r.saved.taxid || "", placeholder: "Taxonomy ID", "aria-label": `NCBI taxonomy ID for ${r.name}`, style: "width:7em;display:block;margin-top:4px",
+      onchange: ev => setTaxid(ctx, r, ev.target.value) })];
+  const ids = r => G.idList(r.saved, " · ") || "—";
   const status = r => {
     const s = r.saved, bits = [], day = (s.checkedAt || "").slice(0, 10), src = s.source || "the database";
     if (s.status === "found") bits.push(`Found in ${src}${day ? `, ${day}` : ""}.`);
@@ -41,12 +44,12 @@ export function targetsPanel(ctx) {
 
   return card(
     h("div", { class: "head" }, h("div", null, h("h2", null, "Targets"),
-      h("p", { class: "muted", style: "margin:4px 0 0" }, "What each target is. I guess the RNA type and gene symbol from the name in your file; change anything that's wrong, or click OK if it's right. Human symbols follow HGNC (ACTB, MIR21, SNORD44); mouse and rat ones are written Actb, Mir21a.")),
+      h("p", { class: "muted", style: "margin:4px 0 0" }, "What each target is. I guess the RNA type and gene symbol from the name in your file; change anything that's wrong, or click OK if it's right. Each species writes symbols its own way: human ACTB, MIR21; mouse and rat Actb, Mir21a; zebrafish actb1, mir21-1; worm act-1; yeast ACT1 or YFL039C; Arabidopsis ACT2 or AT3G18780. A species guessed from a prefix such as dre- or ath- is only a guess, so check it.")),
       h("div", { class: "row" },
         unconfirmed.length > 0 && h("button", { class: "btn", type: "button", onclick: () => confirmAll(ctx, unconfirmed) }, `Confirm all (${unconfirmed.length})`),
         h("button", { class: "btn primary", type: "button", disabled: running || !toLook.length, onclick: () => lookUp(ctx) },
           running ? `Looking up ${busy.done + 1} of ${busy.total}…` : "Look up genes"))),
-    h("p", { class: "fine" }, "“Look up genes” sends only the gene symbols below (for example ACTB or MIR21) to MyGene.info, and to HGNC if MyGene.info can't be reached, to get the Entrez and Ensembl IDs and a one-line description. Nothing else leaves your browser: no sample names, Ct values or file contents. Nothing is sent until you press the button."),
+    h("p", { class: "fine" }, "“Look up genes” sends only the gene symbols below (for example ACTB or MIR21) and their species to MyGene.info, and, for human genes only, to HGNC if MyGene.info can't be reached, to get the Entrez and Ensembl IDs and a one-line description. Nothing else leaves your browser: no sample names, Ct values or file contents. Nothing is sent until you press the button."),
     err && h("p", { class: "error" }, err),
     h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
       h("thead", null, h("tr", null, ["Target in file", "Gene symbol", "Species", "RNA type", "IDs", "Description", "Status", ""].map(x => h("th", null, x)))),
@@ -80,6 +83,12 @@ function setSymbol(ctx, r, raw) {
   if (v && (v.length > 40 || /[^A-Za-z0-9.-]/.test(v))) { ctx.flash(`“${v.slice(0, 40)}” can't be a gene symbol: use only letters, digits and hyphens.`, true); ctx.rerender(); return; }
   save(ctx, r, { symbol: v, ...clearLookup() }, `${r.name}: gene symbol “${r.symbol || ""}” → “${v}”`);
 }
+function setTaxid(ctx, r, raw) {
+  const v = raw.trim();
+  if (v === (r.saved.taxid || "")) return;
+  if (v && !/^\d{1,9}$/.test(v)) { ctx.flash(`“${v.slice(0, 20)}” isn't an NCBI taxonomy ID; use digits only (for example 4932 for S. cerevisiae).`, true); ctx.rerender(); return; }
+  save(ctx, r, { taxid: v, ...clearLookup() }, `${r.name}: taxonomy ID ${v ? `set to ${v}` : "cleared"}`);
+}
 function confirmAll(ctx, rows) {
   ctx.change("targets.confirm", `Confirmed ${rows.length} target(s): ${rows.map(r => `${r.name} = ${r.symbol || "no symbol"} (${G.RNA_TYPE_LABEL[r.type]})`).join("; ")}`,
     () => { for (const r of rows) G.putTarget(ctx.exp.targets, r.name, record(ctx, r, {})); });
@@ -97,10 +106,10 @@ async function lookUp(ctx) {
   const results = [];
   let failures = 0, error = "";
   for (const r of rows) {
-    const key = `${r.species}|${r.symbol}`;
+    const key = `${r.species}|${r.taxid}|${r.symbol}`;
     let res = memo.get(key);
     if (!res || !fresh.length) {
-      try { res = await G.lookupGene(r.symbol, { species: r.species, extra: r.symbol === r.guess.symbol ? r.guess.extra : [] }); }
+      try { res = await G.lookupGene(r.symbol, { species: r.species, taxid: r.taxid, extra: r.symbol === r.guess.symbol ? r.guess.extra : [] }); }
       catch (e) { res = { status: "error", error: String(e?.message || e) }; }
       if (res.status !== "error") memo.set(key, res);
     }
@@ -119,7 +128,7 @@ async function lookUp(ctx) {
       const cur = own(exp.targets, r.name) ? exp.targets[r.name] : {};
       const patch = x.status === "not_found"
         ? { ...clearLookup(), status: "not_found", source: x.source, checkedAt: x.checkedAt, asked: x.asked }
-        : { ...clearLookup(), symbol: x.symbol, entrez: x.entrez, ensembl: x.ensembl, hgncId: x.hgncId, geneName: x.geneName, description: x.description,
+        : { ...clearLookup(), symbol: x.symbol, entrez: x.entrez, ensembl: x.ensembl, hgncId: x.hgncId, locus: x.locus, geneName: x.geneName, description: x.description,
           dbType: x.dbType, source: x.source, checkedAt: x.checkedAt, status: x.status, asked: x.asked || r.symbol,
           // The user's own choice of type wins; otherwise take the database's.
           type: cur.confirmedBy && cur.type ? cur.type : x.type || r.type };

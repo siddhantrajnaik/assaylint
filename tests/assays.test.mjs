@@ -207,3 +207,127 @@ test("sample-data files: ChIP and MSRE runs give the planted results", () => {
     assert.match(A.assayReportHtml(exp, res.rows, s => String(s)), /Assay calculation/);
   }
 });
+
+test("4sU labelling, treated vs mock (Roadblock-style): % new with and without a no-4sU background", () => {
+  // 4sU cells: NEM-treated 26, mock 25, so d = 1. No-4sU cells: 25.2 vs 25, d = 0.2.
+  const w = [["4sU", "blocked", "MYC", 26], ["4sU", "unblocked", "MYC", 25], ["no4sU", "blocked", "MYC", 25.2], ["no4sU", "unblocked", "MYC", 25]];
+  const out = run("slam", w, { backgroundSet: "no4sU" });
+  const r = find(out, { set: "4sU", target: "MYC" });
+  close(r.d, 1); close(r.dBg, 0.2, 1e-9);
+  close(r.pctOld, 100 * 2 ** -0.8); // 57.43%: made before the label
+  close(r.pctNew, 100 - 100 * 2 ** -0.8); // 42.57% new
+  close(r.pctOld, 57.4349177, 1e-6);
+  assert.equal(find(out, { set: "no4sU" }).note, "No-4sU background");
+  assert.ok(!out.chart.bars.some(b => b.series === "no4sU"));
+  // Without the background: 100 × 2^−1 = 50% before the label, 50% new, and a reminder.
+  const plain = run("slam", w.slice(0, 2));
+  close(find(plain, { target: "MYC" }).pctNew, 50);
+  assert.ok(warned(plain, /No no-4sU control set/));
+  // The no-4sU cells moving more than half a cycle is flagged.
+  const moved = run("slam", [...w.slice(0, 2), ["no4sU", "blocked", "MYC", 26], ["no4sU", "unblocked", "MYC", 25]], { backgroundSet: "no4sU" });
+  assert.ok(warned(moved, /without 4sU the treatment moved the Ct by 1\.00/));
+});
+
+test("4sU labelling, pulldown vs total: % in pulldown minus the no-4sU pulldown", () => {
+  // 10% total kept. 4sU: total 25, pulldown 27 → 10 × 2^−2 = 2.5%. No-4sU: total 25, pulldown 32 → 10 × 2^−7 = 0.078125%.
+  const out = run("foursu", [["4sU", "ip", "MYC", 27], ["4sU", "input", "MYC", 25], ["no4sU", "ip", "MYC", 32], ["no4sU", "input", "MYC", 25]],
+    { backgroundSet: "no4sU", totalPercent: 10 });
+  const r = find(out, { set: "4sU", target: "MYC" });
+  close(r.pctPull, 2.5); close(r.pctBg, 0.078125); close(r.pctNew, 2.421875); close(r.overBg, 32);
+  const weak = run("foursu", [["4sU", "ip", "X", 27], ["4sU", "input", "X", 25], ["no4sU", "ip", "X", 27.5], ["no4sU", "input", "X", 25]], { backgroundSet: "no4sU" });
+  assert.ok(warned(weak, /only 1\.41-fold over the no-4sU pulldown/));
+  assert.equal(A.guessAssayRole("4sU 1h NEM", "labelling").role, "blocked");
+  assert.equal(A.guessAssayRole("4sU 1h mock", "labelling").role, "unblocked");
+  assert.equal(A.guessAssayRole("4sU biotin pulldown", "labelling").role, "ip");
+  assert.equal(A.guessAssayRole("4sU total", "labelling").role, "input");
+});
+
+test("iCLIP is named in the catalogue next to eCLIP", () => {
+  const rip = A.assayById("rip");
+  assert.ok(rip.covers.includes("iCLIP") && rip.covers.includes("eCLIP"));
+  assert.match(rip.name, /iCLIP \/ eCLIP/);
+});
+
+// ---------------------------------------------------------------- PCR efficiency
+function runEff(type, wells, params, eff, stdCurves) {
+  const { rows, labels } = plate(wells);
+  return A.runAssay({ assaySetup: { type, params, wells: labels, eff }, ruleset: { values: { sdThreshold: 0.3 } } }, rows, { stdCurves });
+}
+
+test("efficiency: defaults stay at 100% (E = 2) and the table says so", () => {
+  const w = [["WT", "ip", "R1", 24], ["WT", "input", "R1", 26]];
+  const plain = run("chip", w, { inputPercent: 1 });
+  const r = find(plain, { target: "R1" });
+  close(r.pctInput, 4);
+  assert.equal(r.eff, "100.0% (assumed)");
+  assert.deepEqual(plain.columns.at(-1), ["eff", "Efficiency used"]);
+  assert.deepEqual(plain.efficiencies.map(e => [e.target, e.pct, e.E, e.source]), [["R1", 100, 2, "assumed"]]);
+  // A standard curve on the plate is not used unless the user picks it.
+  const notPicked = runEff("chip", w, { inputPercent: 1 }, undefined, [{ target: "R1", efficiency: 90, slope: -3.587, r2: 0.999, levels: 5 }]);
+  close(find(notPicked, { target: "R1" }).pctInput, 4);
+});
+
+test("efficiency-corrected % input and fold over IgG, by hand", () => {
+  // 90% efficiency, E = 1.9. 1% input: % input = 1 × 1.9^(26 − 24) = 3.61%. IgG 30: fold = 1.9^(30 − 24) = 47.045881.
+  const w = [["WT", "ip", "R1", 24], ["WT", "input", "R1", 26], ["WT", "igg", "R1", 30]];
+  const typed = runEff("chip", w, { inputPercent: 1 }, { R1: 90 });
+  const r = find(typed, { target: "R1" });
+  close(r.pctInput, 3.61); close(r.foldIgG, 47.045881);
+  close(r.adjInput, 26 - Math.log(100) / Math.log(1.9));
+  assert.equal(r.eff, "90.0% (typed in)");
+  // Same number from a standard curve with that efficiency.
+  const curve = runEff("chip", w, { inputPercent: 1 }, { R1: "curve" }, [{ target: "R1", efficiency: 90, slope: -3.587, r2: 0.999, levels: 5 }]);
+  close(find(curve, { target: "R1" }).pctInput, 3.61);
+  assert.equal(find(curve, { target: "R1" }).eff, "90.0% (standard curve)");
+  assert.ok(!warned(curve, /outside 90–110%/)); // 90 is inside the range
+  // "Standard curve" with no curve on the plate: 100% and a warning.
+  const missing = runEff("chip", w, { inputPercent: 1 }, { R1: "curve" }, []);
+  close(find(missing, { target: "R1" }).pctInput, 4);
+  assert.ok(warned(missing, /no standard curve for it on this plate, so 100% was used/));
+  assert.ok(warned(runEff("chip", w, { inputPercent: 1 }, { R1: 80 }), /80\.0% is outside 90–110%/));
+});
+
+test("efficiency-corrected MSRE, by hand", () => {
+  // E = 1.95. Mock 24, digested 25: sensitive 100 × 1.95^−1 = 51.282051%; dependent 48.717949%.
+  const w = [["S", "digested", "H19", 25], ["S", "mock", "H19", 24]];
+  close(find(runEff("msre", w, { enzyme: "sensitive" }, { H19: 95 }), { target: "H19" }).pctMeth, 51.282051);
+  close(find(runEff("msre", w, { enzyme: "dependent" }, { H19: 95 }), { target: "H19" }).pctMeth, 48.717949);
+  // With a no-site region at its own efficiency: T moved 1.5 cycles at E = 1.9, NoSite 0.5 cycles at E = 2.
+  // left = 1.9^−1.5 / 2^−0.5 = 0.381830 / 0.707107 = 0.539996, so 54.00%.
+  const ns = runEff("msre", [["S", "digested", "T", 25.5], ["S", "mock", "T", 24], ["S", "digested", "NoSite", 24.5], ["S", "mock", "NoSite", 24]],
+    { noSiteTarget: "NoSite" }, { T: 90 });
+  close(find(ns, { target: "T" }).pctMeth, 100 * 1.9 ** -1.5 / 2 ** -0.5);
+  close(find(ns, { target: "T" }).pctMeth, 53.9996, 1e-3);
+});
+
+test("efficiency-corrected accessibility, 3C, fractions, signal and 4sU labelling reduce to E^ΔCt", () => {
+  const acc = runEff("dnase", [["C", "treated", "HS2", 27], ["C", "untreated", "HS2", 24], ["C", "treated", "Closed", 24.5], ["C", "untreated", "Closed", 24]],
+    { closedTarget: "Closed" }, { HS2: 90 });
+  close(find(acc, { target: "HS2" }).pctLeft, 100 * 1.9 ** -3);
+  close(find(acc, { target: "HS2" }).index, 1.9 ** 3 / 2 ** 0.5);
+  const sig = runEff("ipcr", [["Blank", "blank", "IL6", 35], ["Blank", "blank", "IL6", 35], ["S1", "test", "IL6", 30]], {}, { IL6: 95 });
+  close(find(sig, { set: "S1" }).fold, 1.95 ** 5);
+  const fr = runEff("polysome", [["C", "fraction", "ACTB", 25, "1"], ["C", "fraction", "ACTB", 24, "2"]], {}, { ACTB: 90 });
+  close(find(fr, { fraction: "1" }).pct, 100 / (1 + 1.9)); // 1 : 1.9
+  const slam = runEff("slam", [["4sU", "blocked", "MYC", 26], ["4sU", "unblocked", "MYC", 25]], {}, { MYC: 90 });
+  close(find(slam, { target: "MYC" }).pctNew, 100 - 100 / 1.9);
+  const c3 = runEff("threec", [["A", "library", "F19", 30], ["X", "template", "F19", 25], ["A", "library", "Gapdh", 20]], { loadingTarget: "Gapdh" }, { F19: 90 });
+  close(find(c3, { target: "F19" }).signal, 1.9 ** -5);
+});
+
+test("efficiency from the demo run's real standard curve, and the setting survives a save", () => {
+  const exp = C.newExperiment({ title: "eff" });
+  exp.source = { text: readFileSync(new URL("../examples/demo_results.csv", import.meta.url), "utf8"), sha256: "x", name: "demo.csv" };
+  const res = C.analyze(exp);
+  const curve = res.stdCurves.find(c => c.target === "GENE1");
+  assert.ok(curve && curve.efficiency > 90 && curve.efficiency < 105);
+  const out = runEff("chip", [["WT", "ip", "GENE1", 24], ["WT", "input", "GENE1", 26]], { inputPercent: 1 }, { GENE1: "curve" }, res.stdCurves);
+  close(find(out, { target: "GENE1" }).pctInput, (1 + curve.efficiency / 100) ** 2);
+  const s = A.normalizeAssaySetup(JSON.parse(JSON.stringify({ type: "chip", eff: { GENE1: "curve", R2: 95, bad: 500, worse: "x", "": 90 } })));
+  assert.deepEqual(s.eff, { GENE1: "curve", R2: 95 });
+  const p = A.normalizeAssaySetup(JSON.parse('{"type":"chip","eff":{"__proto__":92}}'));
+  assert.equal(Object.getPrototypeOf(p.eff), Object.prototype);
+  assert.equal(Object.getOwnPropertyDescriptor(p.eff, "__proto__").value, 92);
+  const html = A.assayReportHtml({ ...exp, assaySetup: { type: "chip", params: { inputPercent: 1 }, eff: { GENE1: "curve" }, wells: {} } }, res.rows, x => String(x), res.stdCurves);
+  assert.match(html, /E\^ΔCt/);
+});

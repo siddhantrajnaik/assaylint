@@ -114,7 +114,7 @@ ${table(["Biological unit", "Group", "Target", "Wells", "Ct/Cq as exported", "Me
 <p class="sub small">Wells sharing a biological unit and target. They are technical repeats, not separate biological samples. Biological units per group: ${esc(res.bioSummary.map(b => `${b.group || "no group"} / ${b.target}: ${b.units.length}`).join("; ") || "none")}.</p>
 
 ${analysisReportHtml(exp, res, esc) /* analysis module: empty unless switched on */}
-${exp.assaySetup?.type ? assayReportHtml(exp, res.rows, esc) /* workstream 4 */ : ""}
+${exp.assaySetup?.type ? assayReportHtml(exp, res.rows, esc, res.stdCurves) /* workstream 4; stdCurves: per-target efficiency for assay ratios */ : ""}
 
 ${res.stdCurves.length ? `<h2>Standard curves</h2>${table(["Target", "Efficiency", "R²", "Slope", "Intercept", "Levels"], res.stdCurves.map(c => [c.target, num(c.efficiency, 1) + "%", num(c.r2, 4), num(c.slope, 3), num(c.intercept), c.levels]))}` : ""}
 

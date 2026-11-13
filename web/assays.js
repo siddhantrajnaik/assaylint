@@ -27,15 +27,21 @@ export const REFS = {
   niemeyer2007: { cite: "Niemeyer CM, Adler M, Wacker R. Detecting antigens by quantitative immuno-PCR. Nat Protoc 2007;2:1918–1930.", doi: "10.1038/nprot.2007.267" },
   gullberg2004: { cite: "Gullberg M, Gústafsdóttir SM, Schallmeiner E, et al. Cytokine detection by antibody-based proximity ligation. Proc Natl Acad Sci USA 2004;101:8420–8424.", doi: "10.1073/pnas.0400552101" },
   lundberg2011: { cite: "Lundberg M, Eriksson A, Tran B, Assarsson E, Fredriksson S. Homogeneous antibody-based proximity extension assays provide sensitive and specific detection of low-abundant proteins in human blood. Nucleic Acids Res 2011;39:e102.", doi: "10.1093/nar/gkr424" },
+  herzog2017: { cite: "Herzog VA, Reichholf B, Neumann T, et al. Thiol-linked alkylation of RNA to assess expression dynamics. Nat Methods 2017;14:1198–1204.", doi: "10.1038/nmeth.4435" },
+  dolken2008: { cite: "Dölken L, Ruzsics Z, Rädle B, et al. High-resolution gene expression profiling for simultaneous kinetic parameter analysis of RNA synthesis and decay. RNA 2008;14:1959–1972.", doi: "10.1261/rna.1136108" },
+  radle2013: { cite: "Rädle B, Rutkowski AJ, Ruzsics Z, Friedel CC, Koszinowski UH, Dölken L. Metabolic labeling of newly transcribed RNA for high resolution gene expression profiling of RNA synthesis, processing and decay in cell culture. J Vis Exp 2013;(78):50195.", doi: "10.3791/50195" },
+  watson2021: { cite: "Watson MJ, Park Y, Thoreen CC. Roadblock-qPCR: a simple and inexpensive strategy for targeted measurements of mRNA stability. RNA 2021;27:335–342.", doi: "10.1261/rna.076885.120" },
+  konig2010: { cite: "König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. Nat Struct Mol Biol 2010;17:909–915.", doi: "10.1038/nsmb.1838" },
   armbruster2008: { cite: "Armbruster DA, Pry T. Limit of blank, limit of detection and limit of quantitation. Clin Biochem Rev 2008;29 Suppl 1:S49–S52.", doi: null, pmid: "18852857" },
 };
 
 // ---------------------------------------------------------------- well labels for assays
-export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank"];
+export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank", "blocked", "unblocked"];
 export const ASSAY_ROLE_LABEL = {
   ip: "IP / pulldown", input: "Input", igg: "IgG / mock IP", digested: "Digested", mock: "Mock-digested",
   meth_ref: "Fully methylated reference", test: "Test sample", treated: "Treated / enriched", untreated: "Untreated / naked DNA",
   library: "3C library", template: "Control template (BAC)", fraction: "Fraction", blank: "Blank (no antigen)",
+  blocked: "Thiol-treated (NEM)", unblocked: "Mock-treated",
 };
 export const ASSAY_ROLE_HELP = {
   ip: "DNA or RNA recovered with the specific antibody or probe.",
@@ -51,6 +57,8 @@ export const ASSAY_ROLE_HELP = {
   template: "BAC or PAC DNA cut and religated so every ligation product is present at equal amounts.",
   fraction: "One fraction of the gradient (give it a number), or a bound / unbound fraction.",
   blank: "A reaction with no antigen (buffer only). Defines the background.",
+  blocked: "Total RNA from 4sU-labelled (or unlabelled control) cells, treated with a thiol-reactive compound such as N-ethylmaleimide that stops reverse transcription at 4sU.",
+  unblocked: "The same RNA taken through the treatment without the compound.",
 };
 
 // ---------------------------------------------------------------- calculation families
@@ -71,29 +79,42 @@ const P = {
   spikeTarget: { key: "spikeTarget", label: "Spike-in RNA (optional)", type: "target", def: "", hint: "An RNA added in equal amount to every fraction. Each fraction's Ct is taken relative to it." },
   polysomeFrom: { key: "polysomeFrom", label: "Polysome fractions start at fraction (optional)", type: "number", def: "", step: 1, hint: "Adds up the share of the RNA in this fraction and later ones." },
   sdMultiplier: { key: "sdMultiplier", label: "Limit of detection: blank mean minus this many SD", type: "number", def: 3, step: 0.5 },
+  readout: { key: "readout", label: "How the labelled RNA is read out", type: "select", def: "block",
+    options: [["block", "Chemistry on total RNA that stops RT at 4sU (Roadblock-qPCR, NEM): treated vs mock"], ["pulldown", "Biotin pulldown of the 4sU RNA (4sU-tagging): pulldown vs total"]] },
+  backgroundSet: { key: "backgroundSet", label: "No-4sU control cells (set, optional)", type: "set", def: "",
+    hint: "Cells grown without 4sU and taken through the same steps. Their signal is the background and is taken off every other set." },
+  totalPercent: { key: "totalPercent", label: "Total RNA kept, as % of the RNA going into one pulldown", type: "number", def: 10, step: 1,
+    hint: "Used only for the pulldown readout, like the input % in ChIP." },
   maxCycles: { key: "maxCycles", label: "Cycles run (used when the blank never comes up)", type: "number", def: 40, step: 1 },
 };
 export const FAMILIES = {
   enrichment: { name: "% input and fold enrichment", roles: ["ip", "input", "igg"], params: [P.inputPercent, P.negTarget],
-    formula: ["Adjusted input Ct = Ct(input) − log2(100 / input %)", "% input = 100 × 2^(adjusted input Ct − Ct(IP))", "Fold over IgG = 2^(Ct(IgG) − Ct(IP))", "Fold over negative region = % input(region) / % input(negative region)"],
+    formula: ["Adjusted input Ct = Ct(input) − log_E(100 / input %)", "% input = 100 × E^(adjusted input Ct − Ct(IP))", "Fold over IgG = E^(Ct(IgG) − Ct(IP))", "Fold over negative region = % input(region) / % input(negative region)"],
     refs: ["haring2007", "solomon2021", "mukhopadhyay2008"] },
   msre: { name: "% methylation from digested vs mock", roles: ["digested", "mock"], params: [P.enzyme, P.noSiteTarget, P.calibratorSet],
-    formula: ["ΔCt = Ct(digested) − Ct(mock)", "Methylation-sensitive enzyme: % methylated = 100 × 2^(−ΔCt)", "Methylation-dependent enzyme: % methylated = 100 × (1 − 2^(−ΔCt))", "With a fully methylated control: ΔCt is replaced by ΔCt(sample) − ΔCt(control)"],
+    formula: ["ΔCt = Ct(digested) − Ct(mock)", "Methylation-sensitive enzyme: % methylated = 100 × E^(−ΔCt)", "Methylation-dependent enzyme: % methylated = 100 × (1 − E^(−ΔCt))", "With a fully methylated control: ΔCt is replaced by ΔCt(sample) − ΔCt(control)"],
     refs: ["oakes2006", "redshaw2014"] },
   pmr: { name: "Percent of methylated reference (PMR)", roles: ["test", "meth_ref"], params: [P.controlTargetPmr],
-    formula: ["ΔCt = Ct(methylation reaction) − Ct(control reaction), in the same DNA", "PMR = 100 × 2^−(ΔCt(sample) − ΔCt(fully methylated reference))"],
+    formula: ["ΔCt = Ct(methylation reaction) − Ct(control reaction), in the same DNA", "PMR = 100 × E^−(ΔCt(sample) − ΔCt(fully methylated reference))"],
     refs: ["eads2000", "campan2009", "weisenberger2005"] },
   accessibility: { name: "Accessibility relative to a closed region", roles: ["treated", "untreated"], params: [P.direction, P.closedTarget],
-    formula: ["d = Ct(treated) − Ct(untreated), for the region and for the closed control region", "Digested chromatin: accessibility = 2^(d(region) − d(closed)) (how much more the region was lost)", "Enriched DNA: enrichment = 2^(d(closed) − d(region))", "% left after digestion = 100 × 2^(−d)"],
+    formula: ["d = Ct(treated) − Ct(untreated), for the region and for the closed control region", "Digested chromatin: accessibility = E^(d(region) − d(closed)) (how much more the region was lost)", "Enriched DNA: enrichment = E^(d(closed) − d(region))", "% left after digestion = 100 × E^(−d)"],
     refs: ["mcarthur2001", "simon2012"] },
   threec: { name: "Relative crosslinking frequency", roles: ["library", "template"], params: [P.loadingTarget, P.controlTarget3c],
-    formula: ["Signal = 2^−(Ct(3C library) − Ct(control template)), per primer pair", "Loading-corrected = signal × 2^(Ct(loading, this sample) − mean Ct(loading, all samples))", "Relative to the control interaction = loading-corrected / loading-corrected(control pair)"],
+    formula: ["Signal = E^−(Ct(3C library) − Ct(control template)), per primer pair", "Loading-corrected = signal × E^(Ct(loading, this sample) − mean Ct(loading, all samples))", "Relative to the control interaction = loading-corrected / loading-corrected(control pair)"],
     refs: ["hagege2007"] },
   fractions: { name: "Distribution across fractions", roles: ["fraction"], params: [P.spikeTarget, P.polysomeFrom],
-    formula: ["Relative amount in fraction i = 2^−(Ct_i − lowest Ct) (with a spike-in: Ct_i − Ct(spike-in)_i)", "% of total in fraction i = 100 × relative_i / sum of relative over all fractions"],
+    formula: ["Relative amount in fraction i = E^−(Ct_i − lowest Ct) (with a spike-in: Ct_i − Ct(spike-in)_i)", "% of total in fraction i = 100 × relative_i / sum of relative over all fractions"],
     refs: ["panda2017", "gandin2014", "heiman2014"] },
+  labelling: { name: "New RNA after 4sU labelling", roles: ["blocked", "unblocked", "ip", "input"], params: [P.readout, P.backgroundSet, P.totalPercent],
+    formula: ["Treated vs mock (RT stopped at 4sU): d = Ct(treated) − Ct(mock), per set and RNA",
+      "With no-4sU control cells: d is replaced by d − d(no-4sU)",
+      "% still unlabelled (made before the label) = 100 × E^(−d); % new = 100 − that",
+      "Pulldown vs total: % in pulldown = total % × E^(Ct(total) − Ct(pulldown))",
+      "With no-4sU control cells: background-corrected % = % in pulldown − % in the no-4sU pulldown; over background = ratio of the two"],
+    refs: ["watson2021", "dolken2008", "radle2013", "herzog2017"] },
   signal: { name: "Signal over blank and limit of detection", roles: ["test", "blank"], params: [P.sdMultiplier, P.maxCycles],
-    formula: ["ΔCt = mean Ct(blank) − Ct(sample)", "Fold over blank = 2^ΔCt", "Limit of detection (as a Ct) = mean Ct(blank) − k × SD(blank); a sample is above it if its Ct is lower"],
+    formula: ["ΔCt = mean Ct(blank) − Ct(sample)", "Fold over blank = E^ΔCt", "Limit of detection (as a Ct) = mean Ct(blank) − k × SD(blank); a sample is above it if its Ct is lower"],
     refs: ["niemeyer2007", "lundberg2011", "armbruster2008"] },
 };
 
@@ -101,10 +122,10 @@ export const FAMILIES = {
 export const ASSAYS = [
   { id: "chip", name: "ChIP-qPCR", family: "enrichment", covers: ["ChIP"], require: ["ip", "input"], note: "IgG or no-antibody control recommended for every primer pair." },
   { id: "cutrun", name: "CUT&RUN / CUT&Tag-qPCR", family: "enrichment", covers: ["CUT&RUN", "CUT&Tag"], require: ["ip"], note: "There is usually no input. Compare with IgG and a negative region; add input wells if you kept some." },
-  { id: "rip", name: "RIP / CLIP / ChIRP / RAP / CHART-qPCR", family: "enrichment", covers: ["RIP", "IP", "CLIP", "eCLIP", "ChIRP", "RAP", "CHART"], require: ["ip", "input"], note: "For RNA, the input and IP must go through the same reverse transcription." },
+  { id: "rip", name: "RIP / CLIP / iCLIP / eCLIP / ChIRP / RAP / CHART-qPCR", family: "enrichment", covers: ["RIP", "IP", "CLIP", "iCLIP", "eCLIP", "ChIRP", "RAP", "CHART"], require: ["ip", "input"], note: "For RNA, the input and IP must go through the same reverse transcription." },
   { id: "medip", name: "MeDIP / hMeDIP / MBD-qPCR", family: "enrichment", covers: ["MeDIP", "hMeDIP", "MBD"], require: ["ip", "input"] },
   { id: "merip", name: "MeRIP / m6A / acRIP-qPCR", family: "enrichment", covers: ["MeRIP", "m6A-RIP", "acRIP"], require: ["ip", "input"] },
-  { id: "capture", name: "Nascent RNA capture (EU)-qPCR", family: "enrichment", covers: ["EU-RNA capture"], require: ["ip", "input"], note: "Use the unlabelled-cell pulldown as the IgG / mock. SLAM-qPCR relies on base conversion and is not covered." },
+  { id: "capture", name: "Nascent RNA capture (EU)-qPCR", family: "enrichment", covers: ["EU-RNA capture"], require: ["ip", "input"], note: "Use the unlabelled-cell pulldown as the IgG / mock. For 4sU labelling, use the 4sU labelling entries instead." },
   { id: "msre", name: "MSRE-qPCR", family: "msre", covers: ["MSRE-qPCR", "MDRE-qPCR"], require: ["digested", "mock"] },
   { id: "methylight", name: "MethyLight / MS-qPCR (PMR)", family: "pmr", covers: ["MethyLight", "MS-qPCR"], require: ["test", "meth_ref"] },
   { id: "dnase", name: "DNase-qPCR", family: "accessibility", covers: ["DNase I sensitivity"], require: ["treated", "untreated"], defaults: { direction: "loss" } },
@@ -114,6 +135,11 @@ export const ASSAYS = [
   { id: "threec", name: "3C-qPCR", family: "threec", covers: ["3C"], require: ["library", "template"] },
   { id: "polysome", name: "Polysome profiling + RT-qPCR", family: "fractions", covers: ["Polysome profiling"], require: ["fraction"] },
   { id: "trap", name: "TRAP-qPCR (bound vs unbound)", family: "fractions", covers: ["TRAP"], require: ["fraction"], note: "Label the bound and unbound fractions as fractions named “bound” and “unbound”." },
+  { id: "slam", name: "4sU labelling, treated vs mock (Roadblock-qPCR, “SLAM-qPCR”)", family: "labelling", covers: ["4sU metabolic labelling", "Roadblock-qPCR", "SLAM-type chemistry read by qPCR"],
+    require: ["blocked", "unblocked"], defaults: { readout: "block" },
+    note: "The SLAM-seq chemistry (iodoacetamide) changes the base read at 4sU but doesn't stop reverse transcription, so ordinary qPCR can't see it. The qPCR-readable version uses a compound such as N-ethylmaleimide that blocks reverse transcription at 4sU." },
+  { id: "foursu", name: "4sU labelling, biotin pulldown vs total (4sU-tagging)", family: "labelling", covers: ["4sU-tagging", "4sU pulldown"], require: ["ip", "input"], defaults: { readout: "pulldown" },
+    note: "Label the streptavidin pulldown as IP / pulldown and the total RNA as Input." },
   { id: "ipcr", name: "Immuno-PCR", family: "signal", covers: ["immuno-PCR"], require: ["test", "blank"] },
   { id: "pla", name: "PLA-qPCR", family: "signal", covers: ["Proximity ligation assay"], require: ["test", "blank"] },
   { id: "pea", name: "PEA-qPCR", family: "signal", covers: ["Proximity extension assay"], require: ["test", "blank"] },
@@ -123,10 +149,20 @@ export const assayById = id => ASSAYS.find(a => a.id === id) || null;
 // ---------------------------------------------------------------- the saved setup
 const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const str = v => (typeof v === "string" ? v.slice(0, 200) : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
+// PCR efficiency per primer pair, kept in exp.assaySetup.eff = { [target]: "curve" | percent }. Missing means 100%.
+export const EFF_MIN = 50, EFF_MAX = 150; // a typed value outside this is refused; 90–110% is the usual acceptance range
+const cleanEff = v => (v === "curve" ? "curve" : typeof v === "number" && Number.isFinite(v) && v >= EFF_MIN && v <= EFF_MAX ? v : null);
+// Sets a key safely even when a target is literally called "__proto__".
+const putKey = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
 // Cleans exp.assaySetup (it may be missing, from an older version, or edited by hand). Never throws.
 export function normalizeAssaySetup(x) {
   const out = { type: "", sourceSha: "", params: {}, wells: {} };
   if (!isObj(x)) return out;
+  if (isObj(x.eff)) {
+    const eff = {};
+    for (const [t, v] of Object.entries(x.eff).slice(0, 500)) if (t && t.length <= 200 && cleanEff(v) !== null) putKey(eff, t, cleanEff(v));
+    if (Object.keys(eff).length) out.eff = eff;
+  }
   out.type = assayById(x.type) ? x.type : "";
   out.sourceSha = str(x.sourceSha);
   if (isObj(x.params)) for (const [k, v] of Object.entries(x.params)) {
@@ -139,6 +175,24 @@ export function normalizeAssaySetup(x) {
   }
   return out;
 }
+// The efficiency used for each target: what the user chose, or 100% (E = 2). "curve" takes the efficiency of the
+// standard curve that core.analyze() fitted for that target on this plate (res.stdCurves); without one it stays 100%.
+export function efficiencies(setup, stdCurves, targetNames) {
+  const curves = new Map((Array.isArray(stdCurves) ? stdCurves : []).filter(c => c && fin(c.efficiency)).map(c => [c.target, c]));
+  const chosen = isObj(setup?.eff) ? setup.eff : {};
+  const out = new Map();
+  for (const t of targetNames) {
+    const v = Object.prototype.hasOwnProperty.call(chosen, t) ? chosen[t] : null, c = curves.get(t);
+    let pct = 100, source = "assumed", note = "";
+    if (v === "curve" && c && c.efficiency > -100) { pct = c.efficiency; source = "curve"; note = `slope ${c.slope.toFixed(3)}, R² ${c.r2.toFixed(3)}, ${c.levels} levels`; }
+    else if (v === "curve") { source = "missing"; note = "no standard curve for this target on the plate"; }
+    else if (typeof v === "number") { pct = v; source = "typed"; }
+    out.set(t, { target: t, pct, E: 1 + pct / 100, source, note, curve: c ? c.efficiency : null });
+  }
+  return out;
+}
+export const effLabel = e => !e ? "100% (assumed)" : `${fmtNum(e.pct, 1)}% (${{ assumed: "assumed", curve: "standard curve", typed: "typed in", missing: "assumed: no standard curve" }[e.source]})`;
+
 // Parameters with the assay's and family's defaults filled in.
 export function assayParams(setup) {
   const a = assayById(setup?.type);
@@ -178,6 +232,12 @@ export function guessAssayRole(sample, family) {
       const b = /\b(unbound|bound|flow[\s_-]?through|supernatant)\b/i.exec(s);
       return b ? { role: "fraction", fraction: b[1].toLowerCase() } : null;
     }
+    case "labelling":
+      if (has(s, /\binput\b|\btotal\b/i)) return { role: "input" };
+      if (has(s, /pull[\s_-]?down|\bbiotin|streptavidin|\bpd\b|\bnew\b|\beluate\b/i)) return { role: "ip" };
+      if (has(s, /\bmock\b|no[\s_-]?(nem|iaa|chem)|untreated|\bdmso\b|\bminus\b/i)) return { role: "unblocked" };
+      if (has(s, /\bnem\b|ethylmaleimide|\biaa\b|treated|\balkyl/i)) return { role: "blocked" };
+      return null;
     case "signal":
       return has(s, /\bblank\b|\bbuffer\b|no[\s_-]?antigen|\bzero\b|\bbackground\b|\bneg(ative)?\b/i) ? { role: "blank" } : { role: "test" };
     default: return null;
@@ -185,7 +245,7 @@ export function guessAssayRole(sample, family) {
 }
 // The default set for a well: its group if it has one, otherwise the sample name with the role words taken out
 // ("WT input" and "WT IP" both become "WT").
-const ROLE_WORDS = /\b(input|inp|total|igg|mock|no[\s_-]?ab|ip|chip|digested|undigested|uncut|cut|hpaii|hhai|acii?|mcrbc|fspei|blank|fraction|fr|bac|template|library|treated|untreated|naked)\b/gi;
+const ROLE_WORDS = /\b(input|inp|total|igg|mock|no[\s_-]?ab|ip|chip|digested|undigested|uncut|cut|hpaii|hhai|acii?|mcrbc|fspei|blank|fraction|fr|bac|template|library|treated|untreated|naked|nem|iaa|pull[\s_-]?down|biotin|eluate)\b/gi;
 export function defaultSet(row) {
   if (row.group) return String(row.group).trim();
   const s = String(row.sample ?? "").replace(ROLE_WORDS, " ").replace(/\s+/g, " ").replace(/^[\s_-]+|[\s_-]+$/g, "");
@@ -218,9 +278,9 @@ export function replicate(rs) {
   return { n: rs.length, nNum: vals.length, mean: vals.length ? mean(vals) : null, sd: sdOf(vals), wells: rs.map(r => r.key || r.well), raw: rs.map(r => r.ct) };
 }
 const fin = x => typeof x === "number" && Number.isFinite(x);
-const pow2 = x => (fin(x) ? 2 ** x : null);
+// E^x for an amplification factor E (2 = 100% efficiency). Every Ct difference in this file becomes a ratio this way.
+const powE = (E, x) => (fin(x) && fin(E) ? E ** x : null);
 export const fmtNum = (x, d = 2) => (fin(x) ? (Math.abs(x) >= 1e5 ? x.toExponential(2) : x.toFixed(d)) : "—");
-const log2 = Math.log2;
 
 // Collects replicate groups and their warnings: wide spread, undetermined or late wells.
 function makeGroups(lr, opts, keyFn, warn) {
@@ -243,10 +303,11 @@ const DEFAULT_OPTS = { sdThreshold: 0.3, lateCt: 35 };
 
 // ---------------------------------------------------------------- (a) % input and fold enrichment
 export function calcEnrichment(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const pct = Number(params.inputPercent);
   const dfOk = fin(pct) && pct > 0 && pct <= 100;
   if (!dfOk) warn("high", `Input % must be a number above 0 and up to 100 (it is “${params.inputPercent}”), so % input wasn't worked out.`);
-  const logDf = dfOk ? log2(100 / pct) : null;
+  const lnDf = dfOk ? Math.log(100 / pct) : null; // the input Ct comes down by log_E(100 / input %)
   const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const get = (s, role, t) => G.get(`${s}\u0000${role}\u0000${t}`);
   const out = [];
@@ -260,12 +321,12 @@ export function calcEnrichment(lr, params, opts, warn) {
     if (!inp && ip) warn("medium", `${at}: no input wells, so % input can't be worked out.`, ip.wells);
     else if (inp && inp.mean === null) warn("high", `${at}: the input did not amplify, so % input can't be worked out. Check the input DNA and the primers.`, inp.wells);
     if (dfOk && inp?.mean != null) {
-      row.adjInput = inp.mean - logDf;
-      if (ip?.mean != null) row.pctInput = 100 * pow2(row.adjInput - ip.mean);
-      if (igg?.mean != null) row.pctInputIgG = 100 * pow2(row.adjInput - igg.mean);
+      row.adjInput = inp.mean - lnDf / Math.log(E(t));
+      if (ip?.mean != null) row.pctInput = 100 * powE(E(t), row.adjInput - ip.mean);
+      if (igg?.mean != null) row.pctInputIgG = 100 * powE(E(t), row.adjInput - igg.mean);
     }
     if (ip?.mean != null && igg?.mean != null) {
-      row.foldIgG = pow2(igg.mean - ip.mean);
+      row.foldIgG = powE(E(t), igg.mean - ip.mean);
       if (igg.mean <= ip.mean) warn("high", `${at}: IgG comes up at Ct ${igg.mean.toFixed(2)}, ${igg.mean < ip.mean ? "earlier than" : "the same as"} the IP (Ct ${ip.mean.toFixed(2)}). The background is at least as high as the signal.`, [...ip.wells, ...igg.wells]);
     }
     if (ip?.mean != null && igg && igg.mean === null) warn("low", `${at}: IgG did not amplify, so fold over IgG can't be given as a number (the background is below detection).`, igg.wells);
@@ -282,10 +343,10 @@ export function calcEnrichment(lr, params, opts, warn) {
       // The negative region is 1 against itself only when it can serve as the reference: it has a % input, or the whole set has no input (IP-only).
       if (row === n) { row.foldNeg = row.pctInput !== null || (row.ctIP !== null && !out.some(o => o.set === row.set && o.ctInput !== null)) ? 1 : null; continue; }
       if (row.pctInput !== null && n.pctInput) row.foldNeg = row.pctInput / n.pctInput;
-      else if (row.ctInput === null && n.ctInput === null && row.ctIP !== null && n.ctIP !== null) { row.foldNeg = pow2(n.ctIP - row.ctIP); ipOnly = true; } // no input at all (CUT&RUN)
+      else if (row.ctInput === null && n.ctInput === null && row.ctIP !== null && n.ctIP !== null) { row.foldNeg = Math.exp(n.ctIP * Math.log(E(neg)) - row.ctIP * Math.log(E(row.target))); ipOnly = true; } // no input at all (CUT&RUN)
       else if (row.pctInput !== null && !noted.has(row.set)) { noted.add(row.set); warn("medium", `${row.set}: the negative region ${neg} has no % input in this set, so fold over it isn't given.`); }
     }
-    if (ipOnly) warn("low", "Fold over the negative region was worked out from IP Ct values alone (no input), which assumes both primer pairs amplify equally well.");
+    if (ipOnly) warn("low", "Fold over the negative region was worked out from IP Ct values alone (no input). That assumes both primer pairs reach the threshold at the same amount of DNA, which their efficiencies don't tell you.");
     if (!out.some(r => r.target === neg)) warn("medium", `The negative region “${neg}” isn't among the labelled targets.`);
   }
   const hasInput = out.some(r => r.pctInput !== null);
@@ -299,11 +360,14 @@ export function calcEnrichment(lr, params, opts, warn) {
 
 // ---------------------------------------------------------------- (b) MSRE-qPCR % methylation
 export function calcMsre(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const dep = params.enzyme === "dependent";
   const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const get = (s, role, t) => G.get(`${s}\u0000${role}\u0000${t}`);
   const dct = (s, t) => { const d = get(s, "digested", t), m = get(s, "mock", t); return d?.mean != null && m?.mean != null ? d.mean - m.mean : null; };
   const corr = (s, t) => { const x = dct(s, t); if (x === null || !params.noSiteTarget) return x; const c = dct(s, params.noSiteTarget); return c === null ? null : x - c; };
+  // Fraction of the DNA left after digestion, each primer pair with its own efficiency, corrected by the no-site region.
+  const left = (s, t) => { const x = dct(s, t); if (x === null) return null; if (!params.noSiteTarget) return powE(E(t), -x); const c = dct(s, params.noSiteTarget); return c === null ? null : powE(E(t), -x) / powE(E(params.noSiteTarget), -c); };
   let cal = params.calibratorSet;
   if (cal && !lr.some(r => r.aset === cal)) { warn("medium", `The fully methylated set “${cal}” has no labelled wells, so results are not scaled to it.`); cal = ""; }
   const out = [];
@@ -320,17 +384,18 @@ export function calcMsre(lr, params, opts, warn) {
     else if (m.mean === null) warn("high", `${at}: the mock digest did not amplify.`, m.wells);
     if (!d) warn("high", `${at}: no digested wells.`, row.wells);
     else if (d.mean === null && m?.mean != null) {
-      const bound = 100 * pow2(-((opts.maxCycles ?? 40) - m.mean));
+      const bound = 100 * powE(E(t), -((opts.maxCycles ?? 40) - m.mean));
       row.note = dep ? "Digested did not amplify: close to 100%" : `Digested did not amplify: below ${bound < 0.01 ? "0.01" : fmtNum(bound, 2)}%`;
       warn("low", `${at}: the digested DNA did not amplify, so it was cut completely (${row.note.split(": ")[1]} methylated).`, d.wells);
     }
-    let x = corr(s, t);
+    const x = corr(s, t);
+    let f = left(s, t);
     if (x !== null && cal && s !== cal) {
       const c = corr(cal, t);
       if (c === null) { warn("medium", `${at}: the fully methylated set has no usable ${t} result, so this value isn't scaled to it.`); }
-      else { row.ddCt = x - c; x = row.ddCt; }
+      else { row.ddCt = x - c; f = f / left(cal, t); }
     }
-    if (x !== null) row.pctMeth = dep ? 100 * (1 - pow2(-x)) : 100 * pow2(-x);
+    if (f !== null) row.pctMeth = dep ? 100 * (1 - f) : 100 * f;
     if (row.pctMeth !== null && (row.pctMeth > 100.5 || row.pctMeth < -0.5))
       warn("medium", `${at}: ${fmtNum(row.pctMeth, 1)}% is outside 0–100%. It is shown as calculated, not clipped. Usually the digested and mock wells don't hold the same amount of DNA, or the digest was incomplete.`, row.wells);
     out.push(row);
@@ -342,6 +407,7 @@ export function calcMsre(lr, params, opts, warn) {
 
 // ---------------------------------------------------------------- (b) MethyLight PMR
 export function calcPmr(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const ctl = params.controlTarget;
   const G = makeGroups(lr, opts, r => `${r.arole === "meth_ref" ? "\u0001ref" : r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const out = [];
@@ -360,7 +426,8 @@ export function calcPmr(lr, params, opts, warn) {
       if (g && g.mean === null) row.note = "Methylated reaction did not amplify (not detected)";
       if (row.ctGene !== null && row.ctControl !== null) row.dCt = row.ctGene - row.ctControl;
       if (row.refGene !== null && row.refControl !== null) row.dCtRef = row.refGene - row.refControl;
-      if (row.dCt !== null && row.dCtRef !== null) row.pmr = 100 * pow2(-(row.dCt - row.dCtRef));
+      // PMR = 100 × [gene / control in the sample] / [gene / control in the reference], each reaction with its own efficiency.
+      if (row.dCt !== null && row.dCtRef !== null) row.pmr = 100 * powE(E(t), row.refGene - row.ctGene) * powE(E(ctl), row.ctControl - row.refControl);
       out.push(row);
     }
   }
@@ -371,6 +438,7 @@ export function calcPmr(lr, params, opts, warn) {
 
 // ---------------------------------------------------------------- (c) accessibility vs a closed region
 export function calcAccessibility(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const closed = params.closedTarget, loss = params.direction !== "enrichment";
   const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const d = (s, t) => { const a = G.get(`${s}\u0000treated\u0000${t}`), b = G.get(`${s}\u0000untreated\u0000${t}`); return a?.mean != null && b?.mean != null ? a.mean - b.mean : null; };
@@ -387,8 +455,8 @@ export function calcAccessibility(lr, params, opts, warn) {
         wells: [a, b].filter(Boolean).flatMap(g => g.wells) };
       if (!b) warn("high", `${at}: no untreated wells, so this region can't be normalised.`, row.wells);
       if (a && a.mean === null) { row.note = loss ? "Treated did not amplify: fully digested" : "Treated did not amplify: not enriched"; warn("low", `${at}: ${row.note.toLowerCase()}.`, a.wells); }
-      if (row.d !== null) row.pctLeft = 100 * pow2(-row.d);
-      if (row.d !== null && dc !== null) row.index = loss ? pow2(row.d - dc) : pow2(dc - row.d);
+      if (row.d !== null) row.pctLeft = 100 * powE(E(t), -row.d);
+      if (row.d !== null && dc !== null) row.index = loss ? powE(E(t), row.d) / powE(E(closed), dc) : powE(E(closed), dc) / powE(E(t), row.d);
       out.push(row);
     }
   }
@@ -400,6 +468,7 @@ export function calcAccessibility(lr, params, opts, warn) {
 
 // ---------------------------------------------------------------- (d) 3C relative crosslinking frequency
 export function calc3C(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const load = params.loadingTarget, ctl = params.controlTarget;
   const G = makeGroups(lr, opts, r => `${r.arole === "template" ? "\u0001tpl" : r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const lib = lr.filter(r => r.arole === "library");
@@ -410,9 +479,9 @@ export function calc3C(lr, params, opts, warn) {
   for (const [s, v] of loadCt) if (load && v === null) warn("high", `${s}: no loading-control Ct, so this sample can't be corrected for DNA amount.`);
   const signal = (s, t) => {
     const a = G.get(`${s}\u0000library\u0000${t}`), b = G.get(`\u0001tpl\u0000template\u0000${t}`);
-    return { a, b, q: a?.mean != null && b?.mean != null ? pow2(-(a.mean - b.mean)) : null };
+    return { a, b, q: a?.mean != null && b?.mean != null ? powE(E(t), -(a.mean - b.mean)) : null };
   };
-  const corrected = (s, t) => { const { q } = signal(s, t), L = loadCt.get(s); return q !== null && L != null && refLoad !== null ? q * pow2(L - refLoad) : null; };
+  const corrected = (s, t) => { const { q } = signal(s, t), L = loadCt.get(s); return q !== null && L != null && refLoad !== null ? q * powE(E(load), L - refLoad) : null; };
   for (const s of sets(lib)) for (const t of targets(lib.filter(r => r.aset === s))) {
     if (t === load) continue;
     const { a, b, q } = signal(s, t), at = `${s} / ${t}`;
@@ -439,6 +508,7 @@ export function calc3C(lr, params, opts, warn) {
 // ---------------------------------------------------------------- (e) distribution across fractions
 const fracOrder = (a, b) => { const x = Number(a), y = Number(b); return fin(x) && fin(y) && a !== "" && b !== "" ? x - y : String(a).localeCompare(String(b)); };
 export function calcFractions(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const spike = params.spikeTarget, from = Number(params.polysomeFrom);
   const fr = lr.filter(r => r.arole === "fraction");
   const noLabel = fr.filter(r => !r.afraction);
@@ -455,10 +525,14 @@ export function calcFractions(lr, params, opts, warn) {
       if (spike) { c = g.mean !== null && sp?.mean != null ? g.mean - sp.mean : null; if (g.mean !== null && sp?.mean == null) warn("high", `${s} / fraction ${f}: no spike-in Ct, so this fraction can't be spike-corrected and is left out of the total.`, g.wells); }
       return { f, g, c, sp };
     });
-    const ok = items.filter(i => i.c !== null), lo = ok.length ? Math.min(...ok.map(i => i.c)) : null;
+    // Amount in fraction i ∝ E(RNA)^−Ct_i, divided by E(spike)^−Ct(spike)_i when there is a spike-in. Worked in logs
+    // and scaled to the largest fraction, which cancels when the shares are taken.
+    const lnT = Math.log(E(t)), lnS = spike ? Math.log(E(spike)) : 0;
+    for (const i of items) i.lv = i.c === null ? null : -i.g.mean * lnT + (spike ? i.sp.mean * lnS : 0);
+    const ok = items.filter(i => i.lv !== null), top = ok.length ? Math.max(...ok.map(i => i.lv)) : null;
     const zero = items.filter(i => i.g.mean === null);
     if (zero.length) warn("low", `${s} / ${t}: fraction(s) ${zero.map(i => i.f).join(", ")} did not amplify and count as 0%.`, zero.flatMap(i => i.g.wells));
-    for (const i of items) i.rel = i.g.mean === null ? 0 : i.c === null ? null : pow2(-(i.c - lo));
+    for (const i of items) i.rel = i.g.mean === null ? 0 : i.lv === null ? null : Math.exp(i.lv - top);
     const total = items.reduce((a, i) => a + (i.rel ?? 0), 0);
     for (const i of items) out.push({ set: s, target: t, fraction: i.f, ct: i.g.mean, ctSpike: i.sp?.mean ?? null, rel: i.rel, pct: total > 0 && i.rel !== null ? (100 * i.rel) / total : null, wells: i.g.wells });
     if (fin(from) && params.polysomeFrom !== "") {
@@ -474,6 +548,7 @@ export function calcFractions(lr, params, opts, warn) {
 
 // ---------------------------------------------------------------- (f) signal over blank, limit of detection
 export function calcSignal(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
   const k = fin(Number(params.sdMultiplier)) ? Number(params.sdMultiplier) : 3, maxC = fin(Number(params.maxCycles)) ? Number(params.maxCycles) : 40;
   const G = makeGroups(lr, opts, r => `${r.arole === "blank" ? "\u0001blank" : r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const out = [], lods = [];
@@ -491,7 +566,7 @@ export function calcSignal(lr, params, opts, warn) {
       const row = { set: s, target: t, ct: g.mean, blankCt: bMean, dCt: null, fold: null, lod, detected: "", wells: g.wells };
       if (g.mean === null) row.detected = "Not detected";
       else if (bMean !== null) {
-        row.dCt = bMean - g.mean; row.fold = pow2(row.dCt);
+        row.dCt = bMean - g.mean; row.fold = powE(E(t), row.dCt);
         row.detected = lod === null ? "No LOD" : g.mean < lod ? "Above LOD" : "Below LOD";
         if (row.dCt < 0) warn("medium", `${s} / ${t}: the sample comes up later than the blank (ΔCt ${row.dCt.toFixed(2)}).`, g.wells);
       }
@@ -503,16 +578,74 @@ export function calcSignal(lr, params, opts, warn) {
     chart: { yLabel: "ΔCt over blank", refLine: 0, bars: out.map(r => ({ group: r.target, series: r.set, value: r.dCt })) } };
 }
 
-const CALC = { enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
+// ---------------------------------------------------------------- (g) 4sU labelling: new RNA
+// Treated vs mock follows Roadblock-qPCR (Watson et al. 2021): the compound stops RT on 4sU-containing RNA, so what is
+// left after treatment is the RNA made before the label. Pulldown vs total is % input applied to a 4sU-tagging pulldown
+// (Dölken 2008, Rädle 2013). Subtracting a no-4sU control set and the "% new" read-out are my own adaptation, not a
+// published qPCR method; docs/assays.md says so.
+export function calcLabelling(lr, params, opts, warn) {
+  const E = opts.E || (() => 2);
+  const pull = params.readout === "pulldown", bg = params.backgroundSet;
+  const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
+  const get = (s, role, t) => G.get(`${s}\u0000${role}\u0000${t}`);
+  const [rA, rB] = pull ? ["ip", "input"] : ["blocked", "unblocked"];
+  const use = lr.filter(r => r.arole === rA || r.arole === rB);
+  const other = lr.filter(r => r.arole !== rA && r.arole !== rB);
+  if (other.length) warn("low", `${other.length} well(s) are labelled for the other read-out (${pull ? "treated / mock" : "pulldown / total"}) and were left out.`, other.map(r => r.key || r.well));
+  let bgSet = bg;
+  if (bgSet && !use.some(r => r.aset === bgSet)) { warn("medium", `The no-4sU set “${bgSet}” has no labelled wells for this read-out, so no background was taken off.`); bgSet = ""; }
+  const pct = Number(params.totalPercent), pctOk = fin(pct) && pct > 0 && pct <= 100;
+  if (pull && !pctOk) warn("high", `Total RNA % must be a number above 0 and up to 100 (it is “${params.totalPercent}”).`);
+  const d = (s, t) => { const a = get(s, rA, t), b = get(s, rB, t); return a?.mean != null && b?.mean != null ? a.mean - b.mean : null; };
+  const pctPull = (s, t) => { const x = d(s, t); return pull && pctOk && x !== null ? pct * powE(E(t), -x) : null; }; // d = Ct(pulldown) − Ct(total)
+  const out = [];
+  for (const s of sets(use)) for (const t of targets(use.filter(r => r.aset === s))) {
+    const a = get(s, rA, t), b = get(s, rB, t), at = `${s} / ${t}`, isBg = !!bgSet && s === bgSet;
+    const row = { set: s, target: t, ctA: a?.mean ?? null, ctB: b?.mean ?? null, d: d(s, t), dBg: null, pctOld: null, pctNew: null, pctPull: null, pctBg: null, overBg: null,
+      note: isBg ? "No-4sU background" : "", wells: [a, b].filter(Boolean).flatMap(g => g.wells) };
+    if (!b) warn("high", `${at}: no ${ASSAY_ROLE_LABEL[rB].toLowerCase()} wells to compare with.`, row.wells);
+    else if (b.mean === null) warn("high", `${at}: the ${ASSAY_ROLE_LABEL[rB].toLowerCase()} RNA did not amplify.`, b.wells);
+    if (!a) warn("high", `${at}: no ${ASSAY_ROLE_LABEL[rA].toLowerCase()} wells.`, row.wells);
+    else if (a.mean === null && b?.mean != null) { row.note = pull ? "Pulldown did not amplify: no labelled RNA detected" : "Treated did not amplify: little or no RNA made before the label"; warn("low", `${at}: ${row.note.toLowerCase()}.`, a.wells); }
+    if (bgSet && !isBg) {
+      row.dBg = d(bgSet, t);
+      if (row.dBg === null) warn("medium", `${at}: the no-4sU set has no usable ${t} result, so no background was taken off this one.`);
+    }
+    if (pull) {
+      row.pctPull = pctPull(s, t);
+      if (bgSet && !isBg) row.pctBg = pctPull(bgSet, t);
+      if (row.pctPull !== null && row.pctBg !== null) { row.pctNew = row.pctPull - row.pctBg; row.overBg = row.pctBg > 0 ? row.pctPull / row.pctBg : null; }
+      else if (row.pctPull !== null && !bgSet) row.pctNew = row.pctPull;
+      if (row.overBg !== null && row.overBg < 2) warn("medium", `${at}: the pulldown is only ${fmtNum(row.overBg, 2)}-fold over the no-4sU pulldown, so most of it may be background.`, row.wells);
+    } else if (row.d !== null) {
+      const x = row.dBg !== null ? row.d - row.dBg : row.d;
+      if (!bgSet || isBg || row.dBg !== null) { row.pctOld = 100 * powE(E(t), -x); row.pctNew = 100 - row.pctOld; }
+      if (isBg && Math.abs(row.d) > 0.5) warn("medium", `${at}: in cells without 4sU the treatment moved the Ct by ${row.d.toFixed(2)} cycles. Expect about 0; the compound may be affecting the RNA or the RT in other ways.`, row.wells);
+      if (x < -0.5) warn("medium", `${at}: the treated RNA comes up ${(-x).toFixed(2)} cycles earlier than the mock, which the method can't explain. Check that equal amounts went into each RT.`, row.wells);
+    }
+    if (!pull && !bgSet && !isBg) row.note ||= "No no-4sU control, background not taken off";
+    out.push(row);
+  }
+  if (!bg) warn("low", "No no-4sU control set was chosen. Without it there's no way to tell how much of the signal comes from the treatment or the pulldown itself.");
+  const cols = pull
+    ? [["set", "Set"], ["target", "RNA"], ["ctA", "Pulldown Ct", 2], ["ctB", "Total Ct", 2], ["pctPull", "% of total in pulldown", 3], ...(bgSet ? [["pctBg", "% in no-4sU pulldown", 3], ["overBg", "Over no-4sU", 2]] : []), ["pctNew", bgSet ? "% new (background taken off)" : "% new (no background taken off)", 2], ["note", "Note"]]
+    : [["set", "Set"], ["target", "RNA"], ["ctA", "Treated Ct", 2], ["ctB", "Mock Ct", 2], ["d", "ΔCt", 2], ...(bgSet ? [["dBg", "ΔCt no-4sU", 2]] : []), ["pctOld", "% made before the label", 1], ["pctNew", "% new", 1], ["note", "Note"]];
+  return { rows: out, columns: cols,
+    chart: { yLabel: "% new RNA", bars: out.filter(r => !(bgSet && r.set === bgSet)).map(r => ({ group: r.target, series: r.set, value: r.pctNew })) } };
+}
+
+const CALC = { labelling: calcLabelling, enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
 
 // ---------------------------------------------------------------- one call for the app and the report
 // exp: the experiment (uses exp.assaySetup, exp.source and exp.ruleset); rows: core.effectiveRows output.
+// extra.stdCurves: res.stdCurves from core.analyze(), for targets whose efficiency is set to "standard curve".
 export function runAssay(exp, rows, extra = {}) {
   const setup = normalizeAssaySetup(exp?.assaySetup);
   const assay = assayById(setup.type);
   if (!assay) return null;
   const family = FAMILIES[assay.family], params = assayParams(setup);
-  const opts = { ...DEFAULT_OPTS, sdThreshold: exp?.ruleset?.values?.sdThreshold ?? DEFAULT_OPTS.sdThreshold, maxCycles: Number(params.maxCycles) || 40, ...extra };
+  const { stdCurves, ...rest } = extra;
+  const opts = { ...DEFAULT_OPTS, sdThreshold: exp?.ruleset?.values?.sdThreshold ?? DEFAULT_OPTS.sdThreshold, maxCycles: Number(params.maxCycles) || 40, ...rest };
   const warnings = [];
   const warn = (level, text, wells = []) => warnings.push({ level, text, wells });
   const stale = !!(setup.sourceSha && exp?.source?.sha256 && setup.sourceSha !== exp.source.sha256);
@@ -524,16 +657,25 @@ export function runAssay(exp, rows, extra = {}) {
   if (offFamily.length) warn("low", `${offFamily.length} well(s) carry a label that ${assay.name} doesn't use (${[...new Set(offFamily.map(r => ASSAY_ROLE_LABEL[r.arole]))].join(", ")}); they were left out.`, offFamily.map(r => r.key || r.well));
   for (const r of assay.require) if (!counts[r]) warn("high", `No wells are labelled “${ASSAY_ROLE_LABEL[r]}”, which ${assay.name} needs.`);
   for (const p of family.params) if (p.type === "target" && params[p.key] && !lr.some(r => r.target === params[p.key])) warn("medium", `${p.label.replace(/ \(optional\)$/, "")}: “${params[p.key]}” is not a target in the labelled wells.`);
+  const effs = efficiencies(setup, stdCurves, targets(lr));
+  opts.E = t => effs.get(t)?.E ?? 2;
+  for (const e of effs.values()) {
+    if (e.source === "missing") warn("medium", `${e.target}: efficiency is set to come from the standard curve, but there is no standard curve for it on this plate, so 100% was used.`);
+    else if (e.source !== "assumed" && (e.pct < 90 || e.pct > 110)) warn("low", `${e.target}: efficiency ${fmtNum(e.pct, 1)}% is outside 90–110%. The corrected numbers use it, but an assay this far off is worth redesigning.`);
+  }
   const r = CALC[assay.family](lr.filter(x => family.roles.includes(x.arole)), params, opts, warn);
+  // The efficiency behind every row, so the table says what was assumed.
+  for (const row of r.rows || []) row.eff = effLabel(effs.get(row.target));
+  if (r.columns?.length) r.columns.push(["eff", "Efficiency used"]);
   const order = { high: 0, medium: 1, low: 2 };
   warnings.sort((a, b) => order[a.level] - order[b.level]);
-  return { assay, family, params, counts, labelled: lr.length, warnings, ...r };
+  return { assay, family, params, counts, labelled: lr.length, warnings, efficiencies: [...effs.values()], ...r };
 }
 
 // ---------------------------------------------------------------- report section (HTML string, no DOM)
-export function assayReportHtml(exp, rows, esc) {
+export function assayReportHtml(exp, rows, esc, stdCurves) {
   let out;
-  try { out = runAssay(exp, rows); } catch (e) { return `<h2>Assay calculation</h2><p>The assay calculation could not run: ${esc(e.message)}</p>`; }
+  try { out = runAssay(exp, rows, { stdCurves }); } catch (e) { return `<h2>Assay calculation</h2><p>The assay calculation could not run: ${esc(e.message)}</p>`; }
   if (!out) return "";
   const { assay, family, params } = out;
   const cell = (r, [k, , d]) => (typeof r[k] === "number" ? fmtNum(r[k], d ?? 2) : r[k] ?? "");
@@ -550,5 +692,5 @@ ${ps.length ? `<p class="sub">${esc(ps.join(". "))}.</p>` : ""}
 <div class="ev">${family.formula.map(esc).join("\n")}</div>
 ${tbl}${summary}
 ${out.warnings.length ? `<p><b>Things to check</b></p><ul>${out.warnings.map(w => `<li><span class="sev ${w.level}">${esc(w.level[0].toUpperCase() + w.level.slice(1))}</span>${esc(w.text)}</li>`).join("")}</ul>` : "<p>Nothing to flag in the assay calculation.</p>"}
-<p class="sub small">Ct differences are turned into ratios assuming 100% PCR efficiency for every primer pair. Sources: ${family.refs.map(k => esc(REFS[k].cite) + (REFS[k].doi ? ` doi:${esc(REFS[k].doi)}` : ` PMID ${esc(REFS[k].pmid)}`)).join(" ")}</p>`;
+<p class="sub small">Ct differences are turned into ratios as E^ΔCt, where E = 1 + efficiency for that primer pair. ${esc(out.efficiencies.length ? `Efficiency used: ${out.efficiencies.map(e => `${e.target} ${effLabel(e)}${e.source === "curve" ? ` [${e.note}]` : ""}`).join("; ")}.` : "")} Where no efficiency was set, 100% (E = 2) is assumed. Sources: ${family.refs.map(k => esc(REFS[k].cite) + (REFS[k].doi ? ` doi:${esc(REFS[k].doi)}` : ` PMID ${esc(REFS[k].pmid)}`)).join(" ")}</p>`;
 }
