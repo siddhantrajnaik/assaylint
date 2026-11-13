@@ -6,7 +6,7 @@ import * as A from "./assays.js";
 // Okabe–Ito colours: readable with the common kinds of colour blindness.
 const SERIES = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#8C7A2B", "#4D4D4D"];
 const ROLE_TONE = { ip: "#0072B2", input: "#9AA59F", igg: "#E69F00", digested: "#CC79A7", mock: "#9AA59F", meth_ref: "#0B6B5C", test: "#0072B2",
-  treated: "#009E73", untreated: "#9AA59F", library: "#0072B2", template: "#E69F00", fraction: "#56B4E9", blank: "#9AA59F" };
+  treated: "#009E73", untreated: "#9AA59F", library: "#0072B2", template: "#E69F00", fraction: "#56B4E9", blank: "#9AA59F", blocked: "#D55E00", unblocked: "#9AA59F" };
 const NS = "http://www.w3.org/2000/svg";
 function s(tag, attrs, ...kids) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; }
 
@@ -79,7 +79,7 @@ export function assayView(ctx) {
   Object.entries(A.FAMILIES).map(([fid, f]) => h("optgroup", { label: f.name }, A.ASSAYS.filter(a => a.family === fid).map(a => h("option", { value: a.id, selected: a.id === setup.type }, a.name)))));
 
   const out = [card(h("h2", null, "Assay calculations"),
-    h("p", { class: "lede" }, "Many experiments read out by qPCR: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR. Pick yours, mark which wells are IP, input, IgG and so on, and I'll do the standard calculation for it. The run checks on the other pages still apply to every well."),
+    h("p", { class: "lede" }, "Many experiments read out by qPCR: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR, 4sU labelling. Pick yours, mark which wells are IP, input, IgG and so on, and I'll do the standard calculation for it. The run checks on the other pages still apply to every well."),
     h("div", { class: "row" }, h("label", { class: "field" }, h("span", null, "What kind of experiment is this?"), picker)),
     assay && h("p", { class: "fine" }, `Covers ${assay.covers.join(", ")}. Needs wells labelled ${assay.require.map(r => A.ASSAY_ROLE_LABEL[r]).join(" and ")}.`, assay.note ? ` ${assay.note}` : ""))];
   if (!assay) return out;

@@ -1,6 +1,6 @@
 # Assay calculations
 
-Many experiments end in a qPCR plate: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR and more. They look different at the bench, but most of them come down to one of six calculations. PlateCheck does those six. You pick the experiment under **More → Assay calculations**, mark which wells are IP, input, IgG and so on, and it shows a table, a chart and anything that looks off. The same section goes into the report.
+Many experiments end in a qPCR plate: ChIP, CUT&RUN, RIP, MeDIP, MSRE, MethyLight, DNase and ATAC, 3C, polysome profiling, immuno-PCR, 4sU labelling and more. They look different at the bench, but most of them come down to one of a few calculations, and PlateCheck does those. You pick the experiment under **More → Assay calculations**, mark which wells are IP, input, IgG and so on, and it shows a table, a chart and anything that looks off. The same section goes into the report.
 
 The code is in `web/assays.js` (the maths) and `web/ui-assays.js` (the page). The tests in `tests/assays.test.mjs` use the worked examples below.
 
@@ -17,6 +17,8 @@ PlateCheck's own roles (sample, NTC, positive control, no-RT, standard, not used
 | 3C library, Control template (BAC) | 3C-qPCR |
 | Fraction (with a number or a name) | Polysome profiling, TRAP |
 | Test sample, Blank | Immuno-PCR, PLA, PEA |
+| Thiol-treated (NEM), Mock-treated | 4sU labelling, treated vs mock |
+| IP / pulldown, Input | 4sU labelling, biotin pulldown vs total |
 
 Each labelled well also has a **set**: the chromatin, DNA or lysate it came from. The IP, input and IgG of one chromatin share a set, and that's how they're matched. The set starts as the well's group (for example the Bio-Rad "Biological Set Name" column), or, if there's no group, the sample name with words like "input", "IgG", "mock" or "HpaII" taken out, so "WT input" and "WT IP" both become "WT". You can change it.
 
@@ -33,7 +35,7 @@ Why a separate layer and not new roles in `core.js`: the existing rules treat ro
 
 ## 1. % input and fold enrichment
 
-**Experiments:** ChIP, CUT&RUN, CUT&Tag, RIP / IP, CLIP, eCLIP, ChIRP, RAP, CHART, MeDIP, hMeDIP, MBD, MeRIP / m6A-RIP, acRIP, EU nascent-RNA capture.
+**Experiments:** ChIP, CUT&RUN, CUT&Tag, RIP / IP, CLIP, iCLIP, eCLIP, ChIRP, RAP, CHART, MeDIP, hMeDIP, MBD, MeRIP / m6A-RIP, acRIP, EU nascent-RNA capture.
 
 **Plate:** for every primer pair (region) and every chromatin: IP wells, input wells, and preferably IgG (or no-antibody, mock, beads-only) wells, in technical replicate. A negative control region that your protein or mark shouldn't bind. NTC for each primer pair. CUT&RUN and CUT&Tag usually have no input, so the comparison is with IgG and the negative region.
 
@@ -201,8 +203,57 @@ Optionally, the share in the polysome fractions (from a fraction number you give
 
 **Caveats.** The SD multiplier is a choice: Lundberg et al. used 2 SD, Armbruster and Pry define the limit of blank as mean + 1.645 SD (in concentration units) and the LOD from low-concentration samples as well. PlateCheck works in Ct, not concentration, and uses k = 3 unless you change it. Commercial PEA panels (NPX values) use extension and inter-plate controls that PlateCheck doesn't model.
 
+## 7. New RNA after 4sU labelling (Roadblock-qPCR, 4sU-tagging, "SLAM-qPCR")
+
+**What exists and what doesn't.** SLAM-seq (Herzog et al. 2017) labels new RNA with 4-thiouridine (4sU), alkylates it with iodoacetamide, and reads the label as T-to-C changes in sequencing reads. That change doesn't stop reverse transcription, so ordinary qPCR primers can't see it. I looked for a published qPCR version of SLAM and didn't find one (PubMed, November 2026). There are two published ways to read 4sU labelling out by qPCR, and PlateCheck does both:
+
+- **Treated vs mock (Roadblock-qPCR, Watson et al. 2021).** Total RNA is treated with N-ethylmaleimide (NEM), which modifies 4sU so that reverse transcriptase stops there. New transcripts carry 4sU and drop out of the cDNA; what is left is the RNA made before the label. The same RNA without NEM is the mock.
+- **Pulldown vs total (4sU-tagging, Dölken et al. 2008, Rädle et al. 2013).** The 4sU RNA is biotinylated and pulled down on streptavidin beads; qPCR on the pulldown and on total RNA.
+
+**Plate:** for every sample (set) and RNA: treated and mock wells, or pulldown and total wells, in technical replicate. Cells grown without 4sU and taken through exactly the same steps, as their own set. NTC per primer pair.
+
+**Formula, treated vs mock**
+
+    d = Ct(treated) − Ct(mock)
+    with no-4sU control cells:  d is replaced by d − d(no-4sU)
+    % made before the label = 100 × 2^(−d)
+    % new                   = 100 − % made before the label
+
+**Formula, pulldown vs total**
+
+    % in pulldown = total % × 2^(Ct(total) − Ct(pulldown))
+    with no-4sU control cells:  % new = % in pulldown − % in the no-4sU pulldown
+                                over background = % in pulldown / % in the no-4sU pulldown
+
+"Total %" is how much total RNA you kept compared with what went into one pulldown, exactly like the input % in ChIP.
+
+**My own adaptation.** The no-4sU background correction and the "% new" read-out are my choices, not a published qPCR method. Watson et al. use NEM-treated RNA to follow the pre-existing RNA over time and get half-lives; the single-time-point "% new" is my reading of the same numbers. Taking the no-4sU ΔCt off is the same idea as the no-cut-site correction in MSRE: anything the treatment does to RNA without 4sU isn't the label. For the pulldown, subtracting the no-4sU pulldown treats it like an IgG. Check the numbers against your own controls before relying on them.
+
+**Worked example (treated vs mock).** 4sU cells: NEM 26, mock 25, so d = 1. No-4sU cells: NEM 25.2, mock 25, so d = 0.2. Corrected d = 0.8, so 100 × 2^−0.8 = 57.4% was made before the label and 42.6% is new. Without the no-4sU cells it would read 50% new.
+
+**Worked example (pulldown).** Total kept 10%. 4sU cells: total 25, pulldown 27, so 10% × 2^−2 = 2.5%. No-4sU cells: total 25, pulldown 32, so 0.078%. Background-corrected 2.42%, and the pulldown is 32-fold over background.
+
+**What gets flagged:** no no-4sU set; no-4sU cells whose Ct moved more than half a cycle with NEM (the compound is doing something besides blocking at 4sU); treated RNA coming up earlier than mock; a pulldown less than 2-fold over the no-4sU pulldown; wells labelled for the other read-out.
+
+**Sources**
+
+- Watson MJ, Park Y, Thoreen CC. Roadblock-qPCR: a simple and inexpensive strategy for targeted measurements of mRNA stability. *RNA* 2021;27:335–342. https://doi.org/10.1261/rna.076885.120
+- Dölken L, Ruzsics Z, Rädle B, et al. High-resolution gene expression profiling for simultaneous kinetic parameter analysis of RNA synthesis and decay. *RNA* 2008;14:1959–1972. https://doi.org/10.1261/rna.1136108
+- Rädle B, Rutkowski AJ, Ruzsics Z, Friedel CC, Koszinowski UH, Dölken L. Metabolic labeling of newly transcribed RNA for high resolution gene expression profiling of RNA synthesis, processing and decay in cell culture. *J Vis Exp* 2013;(78):50195. https://doi.org/10.3791/50195
+- Herzog VA, Reichholf B, Neumann T, et al. Thiol-linked alkylation of RNA to assess expression dynamics. *Nat Methods* 2017;14:1198–1204. https://doi.org/10.1038/nmeth.4435 (SLAM-seq; cited for the chemistry, not for a qPCR read-out)
+
+I checked all four on PubMed in November 2026.
+
+**Caveats.** A transcript only drops out of the NEM-treated cDNA if the RT runs over at least one 4sU, so short amplicons on RNA with few uridines, or short labelling times, under-count new RNA. The pulldown never captures every labelled molecule, so "% new" from a pulldown is a lower bound and is best compared between conditions, not read as an absolute fraction. Neither read-out is a half-life; for that you need a time course.
+
+## iCLIP and eCLIP
+
+iCLIP (König et al. 2010) and eCLIP are listed with RIP and CLIP under % input and fold enrichment. Both are normally read out by sequencing; if you check a few targets by qPCR, the size-matched input is the input and the IgG or no-crosslink sample is the background.
+
+- König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. *Nat Struct Mol Biol* 2010;17:909–915. https://doi.org/10.1038/nsmb.1838
+
 ## Not covered yet
 
-- SLAM-qPCR and other conversion-based readouts.
+- Allele-specific qPCR for SLAM-seq T-to-C conversions. Nobody has published it as far as I could find, and it would need primers designed over each converted position.
 - Efficiency-corrected versions of these calculations (standard curve per primer pair).
 - Statistics across biological replicates; the Analysis module (roadmap workstream 2) will take these numbers as input.

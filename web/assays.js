@@ -27,15 +27,21 @@ export const REFS = {
   niemeyer2007: { cite: "Niemeyer CM, Adler M, Wacker R. Detecting antigens by quantitative immuno-PCR. Nat Protoc 2007;2:1918–1930.", doi: "10.1038/nprot.2007.267" },
   gullberg2004: { cite: "Gullberg M, Gústafsdóttir SM, Schallmeiner E, et al. Cytokine detection by antibody-based proximity ligation. Proc Natl Acad Sci USA 2004;101:8420–8424.", doi: "10.1073/pnas.0400552101" },
   lundberg2011: { cite: "Lundberg M, Eriksson A, Tran B, Assarsson E, Fredriksson S. Homogeneous antibody-based proximity extension assays provide sensitive and specific detection of low-abundant proteins in human blood. Nucleic Acids Res 2011;39:e102.", doi: "10.1093/nar/gkr424" },
+  herzog2017: { cite: "Herzog VA, Reichholf B, Neumann T, et al. Thiol-linked alkylation of RNA to assess expression dynamics. Nat Methods 2017;14:1198–1204.", doi: "10.1038/nmeth.4435" },
+  dolken2008: { cite: "Dölken L, Ruzsics Z, Rädle B, et al. High-resolution gene expression profiling for simultaneous kinetic parameter analysis of RNA synthesis and decay. RNA 2008;14:1959–1972.", doi: "10.1261/rna.1136108" },
+  radle2013: { cite: "Rädle B, Rutkowski AJ, Ruzsics Z, Friedel CC, Koszinowski UH, Dölken L. Metabolic labeling of newly transcribed RNA for high resolution gene expression profiling of RNA synthesis, processing and decay in cell culture. J Vis Exp 2013;(78):50195.", doi: "10.3791/50195" },
+  watson2021: { cite: "Watson MJ, Park Y, Thoreen CC. Roadblock-qPCR: a simple and inexpensive strategy for targeted measurements of mRNA stability. RNA 2021;27:335–342.", doi: "10.1261/rna.076885.120" },
+  konig2010: { cite: "König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. Nat Struct Mol Biol 2010;17:909–915.", doi: "10.1038/nsmb.1838" },
   armbruster2008: { cite: "Armbruster DA, Pry T. Limit of blank, limit of detection and limit of quantitation. Clin Biochem Rev 2008;29 Suppl 1:S49–S52.", doi: null, pmid: "18852857" },
 };
 
 // ---------------------------------------------------------------- well labels for assays
-export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank"];
+export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank", "blocked", "unblocked"];
 export const ASSAY_ROLE_LABEL = {
   ip: "IP / pulldown", input: "Input", igg: "IgG / mock IP", digested: "Digested", mock: "Mock-digested",
   meth_ref: "Fully methylated reference", test: "Test sample", treated: "Treated / enriched", untreated: "Untreated / naked DNA",
   library: "3C library", template: "Control template (BAC)", fraction: "Fraction", blank: "Blank (no antigen)",
+  blocked: "Thiol-treated (NEM)", unblocked: "Mock-treated",
 };
 export const ASSAY_ROLE_HELP = {
   ip: "DNA or RNA recovered with the specific antibody or probe.",
@@ -51,6 +57,8 @@ export const ASSAY_ROLE_HELP = {
   template: "BAC or PAC DNA cut and religated so every ligation product is present at equal amounts.",
   fraction: "One fraction of the gradient (give it a number), or a bound / unbound fraction.",
   blank: "A reaction with no antigen (buffer only). Defines the background.",
+  blocked: "Total RNA from 4sU-labelled (or unlabelled control) cells, treated with a thiol-reactive compound such as N-ethylmaleimide that stops reverse transcription at 4sU.",
+  unblocked: "The same RNA taken through the treatment without the compound.",
 };
 
 // ---------------------------------------------------------------- calculation families
@@ -71,6 +79,12 @@ const P = {
   spikeTarget: { key: "spikeTarget", label: "Spike-in RNA (optional)", type: "target", def: "", hint: "An RNA added in equal amount to every fraction. Each fraction's Ct is taken relative to it." },
   polysomeFrom: { key: "polysomeFrom", label: "Polysome fractions start at fraction (optional)", type: "number", def: "", step: 1, hint: "Adds up the share of the RNA in this fraction and later ones." },
   sdMultiplier: { key: "sdMultiplier", label: "Limit of detection: blank mean minus this many SD", type: "number", def: 3, step: 0.5 },
+  readout: { key: "readout", label: "How the labelled RNA is read out", type: "select", def: "block",
+    options: [["block", "Chemistry on total RNA that stops RT at 4sU (Roadblock-qPCR, NEM): treated vs mock"], ["pulldown", "Biotin pulldown of the 4sU RNA (4sU-tagging): pulldown vs total"]] },
+  backgroundSet: { key: "backgroundSet", label: "No-4sU control cells (set, optional)", type: "set", def: "",
+    hint: "Cells grown without 4sU and taken through the same steps. Their signal is the background and is taken off every other set." },
+  totalPercent: { key: "totalPercent", label: "Total RNA kept, as % of the RNA going into one pulldown", type: "number", def: 10, step: 1,
+    hint: "Used only for the pulldown readout, like the input % in ChIP." },
   maxCycles: { key: "maxCycles", label: "Cycles run (used when the blank never comes up)", type: "number", def: 40, step: 1 },
 };
 export const FAMILIES = {
@@ -92,6 +106,13 @@ export const FAMILIES = {
   fractions: { name: "Distribution across fractions", roles: ["fraction"], params: [P.spikeTarget, P.polysomeFrom],
     formula: ["Relative amount in fraction i = 2^−(Ct_i − lowest Ct) (with a spike-in: Ct_i − Ct(spike-in)_i)", "% of total in fraction i = 100 × relative_i / sum of relative over all fractions"],
     refs: ["panda2017", "gandin2014", "heiman2014"] },
+  labelling: { name: "New RNA after 4sU labelling", roles: ["blocked", "unblocked", "ip", "input"], params: [P.readout, P.backgroundSet, P.totalPercent],
+    formula: ["Treated vs mock (RT stopped at 4sU): d = Ct(treated) − Ct(mock), per set and RNA",
+      "With no-4sU control cells: d is replaced by d − d(no-4sU)",
+      "% still unlabelled (made before the label) = 100 × 2^(−d); % new = 100 − that",
+      "Pulldown vs total: % in pulldown = total % × 2^(Ct(total) − Ct(pulldown))",
+      "With no-4sU control cells: background-corrected % = % in pulldown − % in the no-4sU pulldown; over background = ratio of the two"],
+    refs: ["watson2021", "dolken2008", "radle2013", "herzog2017"] },
   signal: { name: "Signal over blank and limit of detection", roles: ["test", "blank"], params: [P.sdMultiplier, P.maxCycles],
     formula: ["ΔCt = mean Ct(blank) − Ct(sample)", "Fold over blank = 2^ΔCt", "Limit of detection (as a Ct) = mean Ct(blank) − k × SD(blank); a sample is above it if its Ct is lower"],
     refs: ["niemeyer2007", "lundberg2011", "armbruster2008"] },
@@ -101,10 +122,10 @@ export const FAMILIES = {
 export const ASSAYS = [
   { id: "chip", name: "ChIP-qPCR", family: "enrichment", covers: ["ChIP"], require: ["ip", "input"], note: "IgG or no-antibody control recommended for every primer pair." },
   { id: "cutrun", name: "CUT&RUN / CUT&Tag-qPCR", family: "enrichment", covers: ["CUT&RUN", "CUT&Tag"], require: ["ip"], note: "There is usually no input. Compare with IgG and a negative region; add input wells if you kept some." },
-  { id: "rip", name: "RIP / CLIP / ChIRP / RAP / CHART-qPCR", family: "enrichment", covers: ["RIP", "IP", "CLIP", "eCLIP", "ChIRP", "RAP", "CHART"], require: ["ip", "input"], note: "For RNA, the input and IP must go through the same reverse transcription." },
+  { id: "rip", name: "RIP / CLIP / iCLIP / eCLIP / ChIRP / RAP / CHART-qPCR", family: "enrichment", covers: ["RIP", "IP", "CLIP", "iCLIP", "eCLIP", "ChIRP", "RAP", "CHART"], require: ["ip", "input"], note: "For RNA, the input and IP must go through the same reverse transcription." },
   { id: "medip", name: "MeDIP / hMeDIP / MBD-qPCR", family: "enrichment", covers: ["MeDIP", "hMeDIP", "MBD"], require: ["ip", "input"] },
   { id: "merip", name: "MeRIP / m6A / acRIP-qPCR", family: "enrichment", covers: ["MeRIP", "m6A-RIP", "acRIP"], require: ["ip", "input"] },
-  { id: "capture", name: "Nascent RNA capture (EU)-qPCR", family: "enrichment", covers: ["EU-RNA capture"], require: ["ip", "input"], note: "Use the unlabelled-cell pulldown as the IgG / mock. SLAM-qPCR relies on base conversion and is not covered." },
+  { id: "capture", name: "Nascent RNA capture (EU)-qPCR", family: "enrichment", covers: ["EU-RNA capture"], require: ["ip", "input"], note: "Use the unlabelled-cell pulldown as the IgG / mock. For 4sU labelling, use the 4sU labelling entries instead." },
   { id: "msre", name: "MSRE-qPCR", family: "msre", covers: ["MSRE-qPCR", "MDRE-qPCR"], require: ["digested", "mock"] },
   { id: "methylight", name: "MethyLight / MS-qPCR (PMR)", family: "pmr", covers: ["MethyLight", "MS-qPCR"], require: ["test", "meth_ref"] },
   { id: "dnase", name: "DNase-qPCR", family: "accessibility", covers: ["DNase I sensitivity"], require: ["treated", "untreated"], defaults: { direction: "loss" } },
@@ -114,6 +135,11 @@ export const ASSAYS = [
   { id: "threec", name: "3C-qPCR", family: "threec", covers: ["3C"], require: ["library", "template"] },
   { id: "polysome", name: "Polysome profiling + RT-qPCR", family: "fractions", covers: ["Polysome profiling"], require: ["fraction"] },
   { id: "trap", name: "TRAP-qPCR (bound vs unbound)", family: "fractions", covers: ["TRAP"], require: ["fraction"], note: "Label the bound and unbound fractions as fractions named “bound” and “unbound”." },
+  { id: "slam", name: "4sU labelling, treated vs mock (Roadblock-qPCR, “SLAM-qPCR”)", family: "labelling", covers: ["4sU metabolic labelling", "Roadblock-qPCR", "SLAM-type chemistry read by qPCR"],
+    require: ["blocked", "unblocked"], defaults: { readout: "block" },
+    note: "The SLAM-seq chemistry (iodoacetamide) changes the base read at 4sU but doesn't stop reverse transcription, so ordinary qPCR can't see it. The qPCR-readable version uses a compound such as N-ethylmaleimide that blocks reverse transcription at 4sU." },
+  { id: "foursu", name: "4sU labelling, biotin pulldown vs total (4sU-tagging)", family: "labelling", covers: ["4sU-tagging", "4sU pulldown"], require: ["ip", "input"], defaults: { readout: "pulldown" },
+    note: "Label the streptavidin pulldown as IP / pulldown and the total RNA as Input." },
   { id: "ipcr", name: "Immuno-PCR", family: "signal", covers: ["immuno-PCR"], require: ["test", "blank"] },
   { id: "pla", name: "PLA-qPCR", family: "signal", covers: ["Proximity ligation assay"], require: ["test", "blank"] },
   { id: "pea", name: "PEA-qPCR", family: "signal", covers: ["Proximity extension assay"], require: ["test", "blank"] },
@@ -178,6 +204,12 @@ export function guessAssayRole(sample, family) {
       const b = /\b(unbound|bound|flow[\s_-]?through|supernatant)\b/i.exec(s);
       return b ? { role: "fraction", fraction: b[1].toLowerCase() } : null;
     }
+    case "labelling":
+      if (has(s, /\binput\b|\btotal\b/i)) return { role: "input" };
+      if (has(s, /pull[\s_-]?down|\bbiotin|streptavidin|\bpd\b|\bnew\b|\beluate\b/i)) return { role: "ip" };
+      if (has(s, /\bmock\b|no[\s_-]?(nem|iaa|chem)|untreated|\bdmso\b|\bminus\b/i)) return { role: "unblocked" };
+      if (has(s, /\bnem\b|ethylmaleimide|\biaa\b|treated|\balkyl/i)) return { role: "blocked" };
+      return null;
     case "signal":
       return has(s, /\bblank\b|\bbuffer\b|no[\s_-]?antigen|\bzero\b|\bbackground\b|\bneg(ative)?\b/i) ? { role: "blank" } : { role: "test" };
     default: return null;
@@ -185,7 +217,7 @@ export function guessAssayRole(sample, family) {
 }
 // The default set for a well: its group if it has one, otherwise the sample name with the role words taken out
 // ("WT input" and "WT IP" both become "WT").
-const ROLE_WORDS = /\b(input|inp|total|igg|mock|no[\s_-]?ab|ip|chip|digested|undigested|uncut|cut|hpaii|hhai|acii?|mcrbc|fspei|blank|fraction|fr|bac|template|library|treated|untreated|naked)\b/gi;
+const ROLE_WORDS = /\b(input|inp|total|igg|mock|no[\s_-]?ab|ip|chip|digested|undigested|uncut|cut|hpaii|hhai|acii?|mcrbc|fspei|blank|fraction|fr|bac|template|library|treated|untreated|naked|nem|iaa|pull[\s_-]?down|biotin|eluate)\b/gi;
 export function defaultSet(row) {
   if (row.group) return String(row.group).trim();
   const s = String(row.sample ?? "").replace(ROLE_WORDS, " ").replace(/\s+/g, " ").replace(/^[\s_-]+|[\s_-]+$/g, "");
@@ -503,7 +535,62 @@ export function calcSignal(lr, params, opts, warn) {
     chart: { yLabel: "ΔCt over blank", refLine: 0, bars: out.map(r => ({ group: r.target, series: r.set, value: r.dCt })) } };
 }
 
-const CALC = { enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
+// ---------------------------------------------------------------- (g) 4sU labelling: new RNA
+// Treated vs mock follows Roadblock-qPCR (Watson et al. 2021): the compound stops RT on 4sU-containing RNA, so what is
+// left after treatment is the RNA made before the label. Pulldown vs total is % input applied to a 4sU-tagging pulldown
+// (Dölken 2008, Rädle 2013). Subtracting a no-4sU control set and the "% new" read-out are my own adaptation, not a
+// published qPCR method; docs/assays.md says so.
+export function calcLabelling(lr, params, opts, warn) {
+  const pull = params.readout === "pulldown", bg = params.backgroundSet;
+  const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
+  const get = (s, role, t) => G.get(`${s}\u0000${role}\u0000${t}`);
+  const [rA, rB] = pull ? ["ip", "input"] : ["blocked", "unblocked"];
+  const use = lr.filter(r => r.arole === rA || r.arole === rB);
+  const other = lr.filter(r => r.arole !== rA && r.arole !== rB);
+  if (other.length) warn("low", `${other.length} well(s) are labelled for the other read-out (${pull ? "treated / mock" : "pulldown / total"}) and were left out.`, other.map(r => r.key || r.well));
+  let bgSet = bg;
+  if (bgSet && !use.some(r => r.aset === bgSet)) { warn("medium", `The no-4sU set “${bgSet}” has no labelled wells for this read-out, so no background was taken off.`); bgSet = ""; }
+  const pct = Number(params.totalPercent), pctOk = fin(pct) && pct > 0 && pct <= 100;
+  if (pull && !pctOk) warn("high", `Total RNA % must be a number above 0 and up to 100 (it is “${params.totalPercent}”).`);
+  const d = (s, t) => { const a = get(s, rA, t), b = get(s, rB, t); return a?.mean != null && b?.mean != null ? a.mean - b.mean : null; };
+  const pctPull = (s, t) => { const x = d(s, t); return pull && pctOk && x !== null ? pct * pow2(-x) : null; }; // d = Ct(pulldown) − Ct(total)
+  const out = [];
+  for (const s of sets(use)) for (const t of targets(use.filter(r => r.aset === s))) {
+    const a = get(s, rA, t), b = get(s, rB, t), at = `${s} / ${t}`, isBg = !!bgSet && s === bgSet;
+    const row = { set: s, target: t, ctA: a?.mean ?? null, ctB: b?.mean ?? null, d: d(s, t), dBg: null, pctOld: null, pctNew: null, pctPull: null, pctBg: null, overBg: null,
+      note: isBg ? "No-4sU background" : "", wells: [a, b].filter(Boolean).flatMap(g => g.wells) };
+    if (!b) warn("high", `${at}: no ${ASSAY_ROLE_LABEL[rB].toLowerCase()} wells to compare with.`, row.wells);
+    else if (b.mean === null) warn("high", `${at}: the ${ASSAY_ROLE_LABEL[rB].toLowerCase()} RNA did not amplify.`, b.wells);
+    if (!a) warn("high", `${at}: no ${ASSAY_ROLE_LABEL[rA].toLowerCase()} wells.`, row.wells);
+    else if (a.mean === null && b?.mean != null) { row.note = pull ? "Pulldown did not amplify: no labelled RNA detected" : "Treated did not amplify: little or no RNA made before the label"; warn("low", `${at}: ${row.note.toLowerCase()}.`, a.wells); }
+    if (bgSet && !isBg) {
+      row.dBg = d(bgSet, t);
+      if (row.dBg === null) warn("medium", `${at}: the no-4sU set has no usable ${t} result, so no background was taken off this one.`);
+    }
+    if (pull) {
+      row.pctPull = pctPull(s, t);
+      if (bgSet && !isBg) row.pctBg = pctPull(bgSet, t);
+      if (row.pctPull !== null && row.pctBg !== null) { row.pctNew = row.pctPull - row.pctBg; row.overBg = row.pctBg > 0 ? row.pctPull / row.pctBg : null; }
+      else if (row.pctPull !== null && !bgSet) row.pctNew = row.pctPull;
+      if (row.overBg !== null && row.overBg < 2) warn("medium", `${at}: the pulldown is only ${fmtNum(row.overBg, 2)}-fold over the no-4sU pulldown, so most of it may be background.`, row.wells);
+    } else if (row.d !== null) {
+      const x = row.dBg !== null ? row.d - row.dBg : row.d;
+      if (!bgSet || isBg || row.dBg !== null) { row.pctOld = 100 * pow2(-x); row.pctNew = 100 - row.pctOld; }
+      if (isBg && Math.abs(row.d) > 0.5) warn("medium", `${at}: in cells without 4sU the treatment moved the Ct by ${row.d.toFixed(2)} cycles. Expect about 0; the compound may be affecting the RNA or the RT in other ways.`, row.wells);
+      if (x < -0.5) warn("medium", `${at}: the treated RNA comes up ${(-x).toFixed(2)} cycles earlier than the mock, which the method can't explain. Check that equal amounts went into each RT.`, row.wells);
+    }
+    if (!pull && !bgSet && !isBg) row.note ||= "No no-4sU control, background not taken off";
+    out.push(row);
+  }
+  if (!bg) warn("low", "No no-4sU control set was chosen. Without it there's no way to tell how much of the signal comes from the treatment or the pulldown itself.");
+  const cols = pull
+    ? [["set", "Set"], ["target", "RNA"], ["ctA", "Pulldown Ct", 2], ["ctB", "Total Ct", 2], ["pctPull", "% of total in pulldown", 3], ...(bgSet ? [["pctBg", "% in no-4sU pulldown", 3], ["overBg", "Over no-4sU", 2]] : []), ["pctNew", bgSet ? "% new (background taken off)" : "% new (no background taken off)", 2], ["note", "Note"]]
+    : [["set", "Set"], ["target", "RNA"], ["ctA", "Treated Ct", 2], ["ctB", "Mock Ct", 2], ["d", "ΔCt", 2], ...(bgSet ? [["dBg", "ΔCt no-4sU", 2]] : []), ["pctOld", "% made before the label", 1], ["pctNew", "% new", 1], ["note", "Note"]];
+  return { rows: out, columns: cols,
+    chart: { yLabel: "% new RNA", bars: out.filter(r => !(bgSet && r.set === bgSet)).map(r => ({ group: r.target, series: r.set, value: r.pctNew })) } };
+}
+
+const CALC = { labelling: calcLabelling, enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
 
 // ---------------------------------------------------------------- one call for the app and the report
 // exp: the experiment (uses exp.assaySetup, exp.source and exp.ruleset); rows: core.effectiveRows output.

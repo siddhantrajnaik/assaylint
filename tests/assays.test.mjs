@@ -207,3 +207,43 @@ test("sample-data files: ChIP and MSRE runs give the planted results", () => {
     assert.match(A.assayReportHtml(exp, res.rows, s => String(s)), /Assay calculation/);
   }
 });
+
+test("4sU labelling, treated vs mock (Roadblock-style): % new with and without a no-4sU background", () => {
+  // 4sU cells: NEM-treated 26, mock 25, so d = 1. No-4sU cells: 25.2 vs 25, d = 0.2.
+  const w = [["4sU", "blocked", "MYC", 26], ["4sU", "unblocked", "MYC", 25], ["no4sU", "blocked", "MYC", 25.2], ["no4sU", "unblocked", "MYC", 25]];
+  const out = run("slam", w, { backgroundSet: "no4sU" });
+  const r = find(out, { set: "4sU", target: "MYC" });
+  close(r.d, 1); close(r.dBg, 0.2, 1e-9);
+  close(r.pctOld, 100 * 2 ** -0.8); // 57.43%: made before the label
+  close(r.pctNew, 100 - 100 * 2 ** -0.8); // 42.57% new
+  close(r.pctOld, 57.4349177, 1e-6);
+  assert.equal(find(out, { set: "no4sU" }).note, "No-4sU background");
+  assert.ok(!out.chart.bars.some(b => b.series === "no4sU"));
+  // Without the background: 100 × 2^−1 = 50% before the label, 50% new, and a reminder.
+  const plain = run("slam", w.slice(0, 2));
+  close(find(plain, { target: "MYC" }).pctNew, 50);
+  assert.ok(warned(plain, /No no-4sU control set/));
+  // The no-4sU cells moving more than half a cycle is flagged.
+  const moved = run("slam", [...w.slice(0, 2), ["no4sU", "blocked", "MYC", 26], ["no4sU", "unblocked", "MYC", 25]], { backgroundSet: "no4sU" });
+  assert.ok(warned(moved, /without 4sU the treatment moved the Ct by 1\.00/));
+});
+
+test("4sU labelling, pulldown vs total: % in pulldown minus the no-4sU pulldown", () => {
+  // 10% total kept. 4sU: total 25, pulldown 27 → 10 × 2^−2 = 2.5%. No-4sU: total 25, pulldown 32 → 10 × 2^−7 = 0.078125%.
+  const out = run("foursu", [["4sU", "ip", "MYC", 27], ["4sU", "input", "MYC", 25], ["no4sU", "ip", "MYC", 32], ["no4sU", "input", "MYC", 25]],
+    { backgroundSet: "no4sU", totalPercent: 10 });
+  const r = find(out, { set: "4sU", target: "MYC" });
+  close(r.pctPull, 2.5); close(r.pctBg, 0.078125); close(r.pctNew, 2.421875); close(r.overBg, 32);
+  const weak = run("foursu", [["4sU", "ip", "X", 27], ["4sU", "input", "X", 25], ["no4sU", "ip", "X", 27.5], ["no4sU", "input", "X", 25]], { backgroundSet: "no4sU" });
+  assert.ok(warned(weak, /only 1\.41-fold over the no-4sU pulldown/));
+  assert.equal(A.guessAssayRole("4sU 1h NEM", "labelling").role, "blocked");
+  assert.equal(A.guessAssayRole("4sU 1h mock", "labelling").role, "unblocked");
+  assert.equal(A.guessAssayRole("4sU biotin pulldown", "labelling").role, "ip");
+  assert.equal(A.guessAssayRole("4sU total", "labelling").role, "input");
+});
+
+test("iCLIP is named in the catalogue next to eCLIP", () => {
+  const rip = A.assayById("rip");
+  assert.ok(rip.covers.includes("iCLIP") && rip.covers.includes("eCLIP"));
+  assert.match(rip.name, /iCLIP \/ eCLIP/);
+});
