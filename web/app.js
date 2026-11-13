@@ -6,6 +6,7 @@ import { demoFiles, DEMO_CONTEXT, DEMO_TITLE } from "./demo.js";
 import { plot } from "./charts.js";
 import { CREDIT } from "./credit.js";
 import { readWorkbook } from "./excel.js";
+import { evidenceNote, variabilityCard } from "./ui-variability.js"; // thresholds workstream
 
 const $ = s => document.querySelector(s);
 // File contents are untrusted: the DOM is built with text nodes only (no innerHTML).
@@ -713,10 +714,13 @@ VIEWS.context = () => {
         h("button", { class: "btn", type: "button", onclick: () => saveProfile(true) }, "Save as new profile…"),
         profiles.some(p => p.id === rs.profile.id) && h("button", { class: "btn", type: "button", onclick: () => saveProfile(false) }, "Save as next version"))),
       RULE_GROUPS.map(([title, keys]) => h("div", { class: "rule-group" }, h("h3", null, title),
-        h("div", { class: "rows" }, keys.map(k => C.RULESET_FIELDS.find(f => f.key === k)).map(f => f.type === "bool"
-          ? h("label", { class: "line" }, h("span", { class: "line-l" }, f.label), h("span", { class: "line-c" }, h("input", { type: "checkbox", class: "toggle", checked: !!rs.values[f.key], onchange: ev => setRule(f, ev.target.checked) })))
-          : line(f.label, h("input", { type: "number", class: "num-in", step: f.step, min: 0, value: rs.values[f.key], onchange: ev => setRule(f, ev.target.value) })))))),
-      h("p", { class: "fine" }, "The defaults are common rules of thumb, not reviewed standards, so change them to match your lab. Saving a profile makes a new version; old experiments keep the values they were checked with.")),
+        // Thresholds workstream: each setting is followed by its evidence note (web/ui-variability.js), outside the <label>.
+        h("div", { class: "rows" }, keys.map(k => C.RULESET_FIELDS.find(f => f.key === k)).map(f => h("div", { class: "line" }, h("span", { class: "line-l" }, f.label),
+          h("span", { class: "line-c" }, f.type === "bool"
+            ? h("input", { type: "checkbox", class: "toggle", "aria-label": f.label, checked: !!rs.values[f.key], onchange: ev => setRule(f, ev.target.checked) })
+            : h("input", { type: "number", class: "num-in", "aria-label": f.label, step: f.step, min: 0, value: rs.values[f.key], onchange: ev => setRule(f, ev.target.value) }),
+            evidenceNote(f))))))),
+      h("p", { class: "fine" }, "Each number has a reason and a source under “Why this number”. Some are published acceptance criteria, some are my own rules of thumb, so change them to match your lab. Saving a profile makes a new version; old experiments keep the values they were checked with.")),
     card(h("h2", null, "Expected controls by target"),
       controls.length ? h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
         h("thead", null, h("tr", null, ["Target", "Control", "Expected", "Wells", "Result", "Not applicable because"].map(x => h("th", null, x)))),
@@ -890,6 +894,8 @@ VIEWS.findings = () => {
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
         h("thead", null, h("tr", null, ["Group", "Target", "Biological units", "Units", "Wells"].map(x => h("th", null, x)))),
         h("tbody", null, res.bioSummary.map(b => h("tr", null, h("td", null, b.group || "No group"), h("td", null, b.target), h("td", null, b.units.join(", ")), h("td", { class: "num" }, b.units.length), h("td", { class: "num" }, b.wells))))))),
+    // Thresholds workstream: technical vs biological spread graphs (web/ui-variability.js).
+    variabilityCard(res, st.exp.ruleset.values.sdThreshold, fn => after.push(fn)),
     res.stdCurves.length > 0 && card(h("h2", null, "Standard curves"), res.stdCurves.map(c => {
       const cv = h("canvas", { class: "chart", role: "img", "aria-label": `Standard curve for ${c.target}` });
       after.push(() => plot(cv, { points: c.points.map(p => ({ x: p.x, y: p.y })), line: c, xLabel: "log10 quantity", yLabel: "Ct/Cq" }));

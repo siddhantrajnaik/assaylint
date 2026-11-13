@@ -8,16 +8,20 @@ function ticks(lo, hi, n = 5) {
   return { out, dp: Math.max(0, -Math.floor(Math.log10(step) + 1e-9) + (step / mag === 2.5 ? 1 : 0)) };
 }
 
-export function plot(cv, { series = [], points = [], line = null, hline = null, xLabel = "", yLabel = "", empty = "No data" }) {
+// bars: [{ x0, x1, y }] filled from y = 0 (histograms); vline: x of a dashed vertical line;
+// xTicks: [{ x, label }] to label a categorical x axis instead of numeric ticks.
+export function plot(cv, { series = [], points = [], line = null, hline = null, vline = null, bars = [], xTicks = null, xLabel = "", yLabel = "", empty = "No data" }) {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
   const w = cv.clientWidth || 400, h = cv.clientHeight || 220;
   cv.width = w * dpr; cv.height = h * dpr;
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   g.font = '11px "IBM Plex Sans", system-ui, sans-serif';
-  const all = [...series.flatMap(s => s.pts), ...points.map(p => [p.x, p.y])];
+  const all = [...series.flatMap(s => s.pts), ...points.map(p => [p.x, p.y]), ...bars.flatMap(b => [[b.x0, 0], [b.x1, b.y]])];
   if (!all.length) { g.fillStyle = "#5b6762"; g.fillText(empty, 12, 22); return; }
   let [x0, x1] = extent(all.map(p => p[0])), [y0, y1] = extent(all.map(p => p[1]));
   if (hline != null) { y0 = Math.min(y0, hline); y1 = Math.max(y1, hline); }
+  if (vline != null) { x0 = Math.min(x0, vline); x1 = Math.max(x1, vline); }
+  if (xTicks?.length) { x0 = Math.min(x0, xTicks[0].x - 0.5); x1 = Math.max(x1, xTicks.at(-1).x + 0.5); }
   if (x0 === x1) { x0 -= 1; x1 += 1; }
   if (y0 === y1) { y0 -= 1; y1 += 1; }
   const py = (y1 - y0) * 0.06; y0 -= py; y1 += py;
@@ -27,7 +31,10 @@ export function plot(cv, { series = [], points = [], line = null, hline = null, 
   const ty = ticks(y0, y1), tx = ticks(x0, x1, 6);
   for (const yv of ty.out) { g.beginPath(); g.moveTo(L, Y(yv)); g.lineTo(w - R, Y(yv)); g.stroke(); g.textAlign = "right"; g.fillText(yv.toFixed(ty.dp), L - 6, Y(yv) + 4); }
   g.textAlign = "center";
-  for (const xv of tx.out) g.fillText(xv.toFixed(tx.dp), X(xv), h - B + 14);
+  if (xTicks) for (const t of xTicks) g.fillText(t.label.length > 12 ? t.label.slice(0, 11) + "…" : t.label, X(t.x), h - B + 14);
+  else for (const xv of tx.out) g.fillText(xv.toFixed(tx.dp), X(xv), h - B + 14);
+  for (const b of bars) { g.fillStyle = b.color || "#9fc7bd"; g.fillRect(X(b.x0) + 0.5, Y(b.y), Math.max(1, X(b.x1) - X(b.x0) - 1), Y(0) - Y(b.y)); }
+  g.fillStyle = "#5b6762";
   g.fillText(xLabel, (L + w - R) / 2, h - 6);
   g.save(); g.translate(12, (T + h - B) / 2); g.rotate(-Math.PI / 2); g.fillText(yLabel, 0, 0); g.restore();
   for (const s of series) {
@@ -36,6 +43,7 @@ export function plot(cv, { series = [], points = [], line = null, hline = null, 
   }
   g.globalAlpha = 1;
   if (hline != null) { g.setLineDash([5, 4]); g.strokeStyle = "#b42318"; g.beginPath(); g.moveTo(L, Y(hline)); g.lineTo(w - R, Y(hline)); g.stroke(); g.setLineDash([]); }
+  if (vline != null) { g.setLineDash([5, 4]); g.strokeStyle = "#b42318"; g.beginPath(); g.moveTo(X(vline), T); g.lineTo(X(vline), h - B); g.stroke(); g.setLineDash([]); }
   if (line) { g.strokeStyle = "#17201c"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(X(x0), Y(line.intercept + line.slope * x0)); g.lineTo(X(x1), Y(line.intercept + line.slope * x1)); g.stroke(); }
   for (const p of points) { g.fillStyle = p.color || "#0b6b5c"; g.beginPath(); g.arc(X(p.x), Y(p.y), 4, 0, Math.PI * 2); g.fill(); }
 }

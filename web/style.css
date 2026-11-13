@@ -269,6 +269,13 @@ dialog form { margin-top: 16px; }
 .line-c .num-in { width: 7.5rem; }
 .line .toggle { width: 18px; height: 18px; margin-top: 7px; accent-color: var(--accent); }
 .rule-group h3 { margin: 22px 0 6px; }
+/* thresholds workstream: evidence beside each setting (web/ui-variability.js) */
+.why { display: grid; gap: 2px; max-width: 62ch; }
+.why small { color: var(--muted); font-size: .8rem; }
+.why summary { cursor: pointer; color: var(--accent); font-size: .8rem; width: max-content; }
+.why details p, .why details li { font-size: .8rem; color: var(--ink); margin: 6px 0 0; }
+.why details ul { margin: 4px 0 0; padding-left: 18px; }
+.why details a { color: var(--accent); overflow-wrap: anywhere; }
 @media (max-width: 700px) { .line { grid-template-columns: 1fr; } .line-l { padding-top: 0; } }
 
 /* review: groups and decisions */
