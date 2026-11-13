@@ -1,6 +1,7 @@
 // PlateCheck core: parsers, rules, analysis and run comparison.
 // Pure functions with no DOM access; shared by the web app, the Node CLI (cli.mjs) and the tests.
 // Raw input is never modified: parsed values keep their original strings and the source text is stored verbatim.
+import { cleanTargets } from "./genes.js"; // genes and RNA types per target
 
 export const TOOL = "PlateCheck";
 export const APP_VERSION = "0.3.0";
@@ -628,6 +629,7 @@ export function normalizeExperiment(exp) {
       by: asStr(r.by) || "unknown", at: asStr(r.at) || now, rule: asStr(r.rule), rule_version: asStr(r.rule_version), title: asStr(r.title), description: asStr(r.description) };
   }
   exp.reviews = reviews;
+  exp.targets = cleanTargets(exp.targets); // genes and RNA types per target (web/genes.js)
   exp.audit = Array.isArray(exp.audit) ? exp.audit.filter(isObj).map(a => ({ at: asStr(a.at) || now, actor: asStr(a.actor) || "unknown", action: asStr(a.action) || "note", detail: asStr(a.detail) })) : [];
   const rs = isObj(exp.ruleset) ? exp.ruleset : {}, pr = isObj(rs.profile) ? rs.profile : {};
   exp.ruleset = { profile: { id: asStr(pr.id) || DEFAULT_PROFILE.id, name: asStr(pr.name) || DEFAULT_PROFILE.name, version: Number.isFinite(pr.version) ? pr.version : 1 },
