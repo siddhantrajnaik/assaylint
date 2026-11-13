@@ -54,4 +54,6 @@ Four workstreams, each in its own files so they can be built at the same time an
 
 Shared files (`web/app.js`, `web/core.js`, `web/report.js`, `web/style.css`) get only small, marked hooks from each workstream; they are merged by hand. Every workstream ships tests (`tests/*.test.mjs`), keeps the monkey test passing, and writes in the same plain first-person voice as the rest of the site.
 
-Later (after 1.0): ComBat-style batch correction for high-throughput panels, GSEA (better suited to RNA-seq than to qPCR panels), the plate image idea once its meaning is clear.
+Built since: ComBat batch correction for larger panels, more statistical tests (Student, paired, one-sample, Tukey, Dunnett, Mann–Whitney, Kruskal–Wallis + Dunn), four extra checks, RNA-type checks, 14 species in the gene lookup, 4sU labelling and efficiency correction in the assay calculations.
+
+Later: GSEA (better suited to RNA-seq than to qPCR panels), the plate image idea once its meaning is clear.
