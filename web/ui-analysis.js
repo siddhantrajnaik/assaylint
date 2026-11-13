@@ -49,6 +49,14 @@ function scale(values, log, extra = 0.16) {
   return { lo: 0, hi, map: x => x, ticks };
 }
 
+// What the p on the graphs is, in a few words: the test and how it was adjusted.
+export function pNote(a) {
+  const s = a.settings, T = A.TESTS[s.test], nt = new Set(a.summary.filter(r => !r.isControl).map(r => r.target)).size;
+  if (!T.withinTarget) return `${T.short} on ΔCt vs control, ${CORR[s.correction]}-adjusted`;
+  const within = s.test === "kruskal" ? `Dunn's test vs control after Kruskal–Wallis, ${CORR[s.correction]}-adjusted within each gene` : `${T.short} on ΔCt vs control (adjusted within each gene)`;
+  return nt > 1 ? `${within}, then ${CORR[s.correction]} across genes` : within;
+}
+
 // ---------------------------------------------------------------- fold-change figure
 // One panel per target; groups along x. Large blue dots: biological replicates (mean of their technical replicates).
 // Small orange dots: individual technical replicates. Black line and whiskers: mean ± SD or SEM. Above each group: adjusted p.
@@ -57,7 +65,7 @@ export function foldChart(a, { title = "" } = {}) {
   const groups = a.groups, gw = 66, pw = 58 + groups.length * gw, ph = 310, cols = Math.min(4, Math.max(1, targets.length));
   const rowsN = Math.ceil(targets.length / cols), W = Math.max(cols * pw + 20, 420), top = title ? 26 : 6;
   // The method note is wrapped to the figure width (about 5.2 px per character at 9.5 px) instead of being cut off.
-  const note = wrapWords(`Fold change = 2^−ΔΔCt vs ${a.control}; reference: ${a.refs.join(" + ")}${s.efficiency ? "; efficiency-corrected" : ""}. p: Welch t-test on ΔCt vs control, ${CORR[s.correction]}-adjusted. *** < 0.001, ** < 0.01, * < 0.05.`, Math.floor((W - 20) / 5.2));
+  const note = wrapWords(`Fold change = 2^−ΔΔCt vs ${a.control}; reference: ${a.refs.join(" + ")}${s.efficiency ? "; efficiency-corrected" : ""}. p: ${pNote(a)}. *** < 0.001, ** < 0.01, * < 0.05.`, Math.floor((W - 20) / 5.2));
   const H = top + rowsN * ph + 66 + note.length * 13;
   const tilt = groups.some(gr => gr.length > 8); // tilt every group name, or none, so the axis reads evenly
   const svg = el("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": FONT, role: "img", "aria-label": title || "Fold change by target and group" });
@@ -116,10 +124,12 @@ export function foldChart(a, { title = "" } = {}) {
   return svg;
 }
 
-// Volcano plot: one point per comparison with the control. x = log2 fold change, y = −log10 p (unadjusted);
+// Volcano plot: one point per comparison with the control. x = log2 fold change, y = −log10 p (unadjusted for
+// two-group tests; for Tukey, Dunnett and Dunn the p already adjusted within the gene);
 // points significant after correction are drawn in vermillion and labelled.
 export function volcano(a) {
   const comps = a.summary.filter(r => !r.isControl && fin(r.p) && r.p > 0 && fin(r.log2fc));
+  const tst = A.TESTS[a.settings.test], which = tst.withinTarget ? `${tst.short} p, adjusted within each gene` : "unadjusted";
   const W = 460, H = 340, L = 54, R = W - 16, T = 20, B = H - 48;
   const svg = el("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": FONT, role: "img", "aria-label": "Volcano plot" });
   svg.append(el("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
@@ -131,16 +141,16 @@ export function volcano(a) {
   for (let v = 0; v <= ym; v += sy) svg.append(el("line", { x1: L - 4, x2: L, y1: Y(v), y2: Y(v), stroke: COLORS.ink }), txt(L - 7, Y(v) + 3.5, String(+v.toFixed(3)), { size: 10, anchor: "end" }));
   svg.append(el("line", { x1: L, x2: R, y1: B, y2: B, stroke: COLORS.ink }), el("line", { x1: L, x2: L, y1: T, y2: B, stroke: COLORS.ink }),
     el("line", { x1: L, x2: R, y1: Y(-Math.log10(A.ALPHA)), y2: Y(-Math.log10(A.ALPHA)), stroke: COLORS.mute, "stroke-dasharray": "4 3" }),
-    txt(R, Y(-Math.log10(A.ALPHA)) - 4, "p = 0.05 (unadjusted)", { anchor: "end", size: 9, fill: "#555555" }),
+    txt(R, Y(-Math.log10(A.ALPHA)) - 4, `p = 0.05 (${which})`, { anchor: "end", size: 9, fill: "#555555" }),
     el("line", { x1: X(0), x2: X(0), y1: T, y2: B, stroke: COLORS.grid }),
-    txt((L + R) / 2, H - 14, "log2 fold change", { size: 11 }), txt(16, (T + B) / 2, "−log10 p", { size: 11, rotate: -90 }));
+    txt((L + R) / 2, H - 14, "log2 fold change", { size: 11 }), txt(16, (T + B) / 2, `−log10 p (${tst.short})`, { size: 11, rotate: -90 }));
   const many = a.groups.length > 2;
   comps.forEach(r => {
     const sig = fin(r.pAdj) && r.pAdj < A.ALPHA, x = X(r.log2fc), y = Y(-Math.log10(r.p));
     svg.append(el("circle", { cx: x, cy: y, r: sig ? 4.5 : 3.5, fill: sig ? COLORS.sig : COLORS.mute, "fill-opacity": 0.9 }, el("title", {}, `${r.target}${many ? ` (${r.group})` : ""}`)));
     if (sig) svg.append(txt(x + 6, y - 5, clip(r.target + (many ? ` (${r.group})` : ""), 22), { anchor: "start", size: 9.5, italic: true }));
   });
-  svg.append(txt(L + 4, T + 4, `Coloured: ${CORR[a.settings.correction]}-adjusted p < 0.05`, { anchor: "start", size: 9, fill: "#555555" }));
+  svg.append(txt(L + 4, T + 4, `Coloured: ${tst.withinTarget && new Set(comps.map(r => r.target)).size < 2 ? `${tst.short}` : CORR[a.settings.correction]}-adjusted p < 0.05`, { anchor: "start", size: 9, fill: "#555555" }));
   return svg;
 }
 
@@ -244,9 +254,14 @@ function settingsPanel(ax, s, info, set) {
       : h("p", { class: "warn" }, "No sample has a group label yet. Add groups (for example control and treated) on the Plate step, or in your file."),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.efficiency, disabled: !info.hasCurves && !s.efficiency, onchange: e => set({ efficiency: e.target.checked }, `Efficiency correction ${e.target.checked ? "on" : "off"}`) }),
       "Correct for amplification efficiency (Pfaffl)", h("small", { class: "muted" }, info.hasCurves ? " uses the standard curves on the plate" : " needs a standard curve; none on this plate")),
+    h("label", { class: "field" }, h("span", null, "Statistical test"),
+      h("select", { "aria-label": "Statistical test", onchange: e => set({ test: e.target.value }, `Statistical test: ${A.TESTS[e.target.value]?.label ?? e.target.value}`) },
+        Object.entries(A.TESTS).map(([v, t]) => h("option", { value: v, selected: v === s.test }, t.label))),
+      h("small", null, A.TESTS[s.test].help),
+      A.TESTS[s.test].rank && h("small", { class: "muted" }, " Rank tests only look at the order of the values. With 3 to 5 replicates per group they have little power: a real difference will often come out as not significant.")),
     h("div", { class: "row wrap" },
       sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"]], "error", "Error bars"),
-      sel("p value shown on graphs", s.correction, [["bh", "Benjamini–Hochberg adjusted"], ["bonferroni", "Bonferroni adjusted"]], "correction", "Graph correction"),
+      sel(s.test === "kruskal" ? "Correction for Dunn (within a gene, then across genes)" : A.TESTS[s.test].withinTarget ? "Correction across genes" : "p value shown on graphs", s.correction, [["bh", "Benjamini–Hochberg adjusted"], ["bonferroni", "Bonferroni adjusted"]], "correction", "Graph correction"),
       sel("Fold-change axis", s.scale, [["log2", "Log scale"], ["linear", "Linear"]], "scale", "Axis")),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.skipOmitted, onchange: e => set({ skipOmitted: e.target.checked }, `Leave out wells marked Omit: ${e.target.checked ? "yes" : "no"}`) }), "Leave out wells marked Omit in the instrument software"),
     info.excluded !== false && h("label", { class: "field" }, h("span", null, "Other wells to leave out"),
@@ -266,7 +281,8 @@ function resultsBlock(ax, a, base) {
     return [card(h("h2", null, "Results"), a.needs.map(n => h("p", null, need[n])), a.warnings.length > 0 && h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w))))];
   }
   const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
-  const err = a.settings.error === "sem" ? "SEM" : "SD";
+  const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test];
+  const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method === "exact" ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
   const out = [];
   if (a.warnings.length) out.push(card(h("h2", null, "Worth knowing before you use these numbers"), h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w)))));
   out.push(card(h("h2", null, "Fold change"),
@@ -274,16 +290,26 @@ function resultsBlock(ax, a, base) {
       : h("p", { class: "muted" }, "Nothing to plot yet."),
     a.targets.length >= 6 && h("div", null, h("h3", null, "Volcano plot"), figure(ax, volcano(a), `${base}-volcano`, "Every gene and group compared with the control. Hover a point for its name."))));
   out.push(card(h("h2", null, "Results table"),
-    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", `Fold range (± ${err})`, "Welch t (df)", "p", "p (BH)", "p (Bonferroni)"],
+    h("p", { class: "lede" }, `Test: ${T.label.replace(" (default)", "")}. The p column is the ${T.short} p` +
+      (T.withinTarget ? (a.settings.test === "kruskal" ? `, adjusted within each gene (${CORR[a.settings.correction]}); BH and Bonferroni then adjust across genes.` : ", already adjusted within each gene; BH and Bonferroni adjust across genes only.") : "; BH and Bonferroni adjust across every comparison in the table.") +
+      ` Graphs show ${a.settings.test !== "kruskal" && T.withinTarget && new Set(a.summary.filter(r => !r.isControl).map(r => r.target)).size < 2 ? `the ${T.short} p` : `the ${CORR[a.settings.correction]} column`}.`),
+    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", `Fold range (± ${err})`, `${T.short} statistic`, `p (${T.short})`, "p (BH)", "p (Bonferroni)"],
       a.summary.map(r => h("tr", { class: !r.isControl && fin(r.pAdj) && r.pAdj < A.ALPHA ? "diff" : "" },
         h("td", null, r.target), h("td", null, r.group, r.isControl ? " (control)" : ""), h("td", { class: "num" }, r.n), h("td", { class: "num" }, fmt(r.meanDct)),
         h("td", { class: "num" }, fmt(a.settings.error === "sem" ? r.semDct : r.sdDct, 3)), h("td", { class: "num" }, fmt(r.meanDdct)), h("td", { class: "num" }, fmtFold(r.fold)),
         h("td", { class: "num" }, fin(r.foldLow) ? `${fmtFold(r.foldLow)}–${fmtFold(r.foldHigh)}` : "—"),
-        h("td", { class: "num" }, r.isControl ? "" : fin(r.t) ? `${fmt(r.t)} (${fmt(r.df, 1)})` : r.testNote || "—"),
+        h("td", { class: "num" }, r.isControl ? "" : statCell(r)),
         h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.p)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBH)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBonferroni))))),
     a.anova.length > 0 && h("div", null, h("h3", null, "One-way ANOVA (all groups)"),
       tbl(["Target", "Groups", "F", "df", "p", "p (BH)", "p (Bonferroni)"], a.anova.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.F) ? fmt(x.F) : x.note || "—"),
         h("td", { class: "num" }, `${x.df1}, ${x.df2}`), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
+    a.kruskal.length > 0 && h("div", null, h("h3", null, "Kruskal–Wallis (all groups)"),
+      tbl(["Target", "Groups", "H", "df", "p", "p (BH)", "p (Bonferroni)"], a.kruskal.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.H) ? fmt(x.H) : x.note || "—"),
+        h("td", { class: "num" }, x.df), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
+    a.pairwise.length > 0 && h("div", null, h("h3", null, "Tukey HSD: every pair of groups"),
+      h("p", { class: "fine" }, "p is adjusted for all pairs within the gene. Fold change is the first group relative to the second."),
+      tbl(["Target", "Groups", "Fold change", "q (df)", "p (Tukey)"], a.pairwise.map(x => h("tr", { class: fin(x.p) && x.p < A.ALPHA ? "diff" : "" }, h("td", null, x.target), h("td", null, `${x.a} vs ${x.b}`),
+        h("td", { class: "num" }, fmtFold(x.fold)), h("td", { class: "num" }, `${fmt(x.q)} (${x.df})`), h("td", { class: "num" }, A.fmtP(x.p)))))),
     h("p", { class: "fine" }, a.method),
     h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => ax.download(`${base}-analysis.csv`, A.resultsCsv(a), "text/csv") }, "Download table (CSV)"))));
   out.push(card(h("h2", null, "Reference gene check"),

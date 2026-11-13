@@ -1,6 +1,6 @@
 # Analysis: fold change, statistics and combining plates
 
-The Analysis step works out relative expression from a checked plate: ΔCt against reference genes, ΔΔCt against a control group, fold change, t-tests with corrected p values, and graphs. It's off until you switch it on. Everything runs in your browser, like the rest of PlateCheck.
+The Analysis step works out relative expression from a checked plate: ΔCt against reference genes, ΔΔCt against a control group, fold change, a statistical test of your choice with corrected p values, and graphs. It's off until you switch it on. Everything runs in your browser, like the rest of PlateCheck.
 
 It never picks reference genes for you. It marks targets whose names are often used as references (GAPDH, ACTB, B2M, 18S/RN18S1, HPRT1, TBP, U6/RNU6, RNU44, RNU48 and a few more), but whether a gene is stable in your samples is your call.
 
@@ -12,6 +12,7 @@ Code: `web/analysis.js` (calculations), `web/stats.js` (statistics), `web/combat
 - Wells marked Omit in the instrument software are left out by default (you can switch that off), and so are any wells you list under "Other wells to leave out". Only the analysis skips them; they stay in the data, the checks and the report.
 - Wells with no Ct (Undetermined and the like) are left out and listed in the notes. If a gene didn't amplify because it isn't expressed, leaving those wells out makes its level look higher than it is, so the note says so.
 - Technical replicates are averaged (arithmetic mean of Ct) per biological unit and target. From then on the biological unit is the unit of analysis; technical replicates are never counted as n.
+- For the paired t-test only: a pair label per biological unit (the optional `pair` field). Set it on the Plate step (More options, "Pair (for the paired t-test)") or give your file or plate-map template a column called Pair, Pair ID or Pairing. Units in different groups with the same pair label are matched (for example the same mouse before and after, or one donor's cells split into control and treated).
 
 ## Formulas
 
@@ -37,16 +38,68 @@ and with several references it is the qBase normalised relative quantity on the 
 
 ## Statistics
 
-- Tests run on ΔCt (log scale), with biological units as n. ΔΔCt differs from ΔCt by a constant, so the tests are the same either way.
-- Each group against the control: Welch's t-test (Welch 1947), two-sided. I use Welch rather than Student's t because it doesn't assume equal variances, and with groups of 3 to 6 you can't check that assumption.
-- More than two groups: one-way ANOVA across all groups per target, reported alongside. The group-vs-control comparisons are still Welch t-tests with a multiple-testing correction, not Dunnett's test.
-- Multiple testing: Benjamini–Hochberg (1995) false discovery rate and Bonferroni, both computed across every group-vs-control comparison of every target in the analysis, and both shown in the table and the CSV. You choose which one goes on the graphs. ANOVA p values are corrected across targets in the same way.
-- Fewer than 3 biological replicates in a group: a warning. With one replicate there is no p value at all.
-- p values come from the Student t and F distributions through the regularised incomplete beta function (continued fraction, modified Lentz method; log-gamma by the Lanczos approximation).
+- Tests run on ΔCt (log scale), with biological units as n. ΔΔCt differs from ΔCt by a constant, so the tests are the same either way. All tests are two-sided.
+- You choose the test in the analysis settings. The default is Welch's t-test, as before. Under each choice the app says in one line when to use it.
+
+### The tests
+
+| Choice | What it compares | Statistic and p |
+| --- | --- | --- |
+| Welch t-test (default) | each group with the control | `t = (m₁ − m₀) / sqrt(s₁²/n₁ + s₀²/n₀)`, Welch–Satterthwaite df (Welch 1947) |
+| Student t-test | each group with the control | `t = (m₁ − m₀) / sqrt(s_p² (1/n₁ + 1/n₀))`, `s_p²` pooled from the two groups, df = n₁ + n₀ − 2 (Student 1908) |
+| Paired t-test | each group with the control, unit by unit | one-sample t-test of the differences `d = ΔCt(unit) − ΔCt(its control partner)` against 0: `t = mean(d) / (sd(d)/sqrt(n))`, df = pairs − 1 |
+| One-way ANOVA + Tukey | every pair of groups | `q = |mᵢ − mⱼ| / sqrt(MSE/2 · (1/nᵢ + 1/nⱼ))`, MSE pooled over all k groups, p = P(Q ≥ q) for the studentized range with k groups and N − k df (Tukey 1949; Kramer 1956 for unequal n) |
+| One-way ANOVA + Dunnett vs control | each group with the control | `tᵢ = (mᵢ − m₀) / sqrt(MSE (1/nᵢ + 1/n₀))`, p = P(maxⱼ |Tⱼ| ≥ |tᵢ|) under the multivariate t with N − k df (Dunnett 1955) |
+| Mann–Whitney (non-parametric) | each group with the control | U of the group from the ranks of both groups together; exact or normal approximation (Mann & Whitney 1947) |
+| Kruskal–Wallis + Dunn | all groups, then each group with the control | `H = [12/(N(N+1)) Σ Rᵢ²/nᵢ − 3(N+1)] / (1 − Σ(t³ − t)/(N³ − N))`, chi-square with k − 1 df (Kruskal & Wallis 1952); then Dunn's z for each group against the control (Dunn 1964) |
+
+Details:
+
+- **Welch vs Student.** I keep Welch as the default because it doesn't assume equal variances, and with groups of 3 to 6 you can't check that assumption. When the variances really are equal the two give nearly the same p.
+- **Paired t-test.** Units are matched by their pair label. A unit without a label, or whose label has no partner in the other group, is left out and named in the notes. A label used twice in one group can't be paired; those are named too. If no unit in the analysis has a pair label, the app works out no p values and says why, instead of quietly running an unpaired test. Fold changes and error bars are still the group means; only the test is paired.
+- **Tukey.** All k(k − 1)/2 pairs are tested; the results table shows each group against the control, and a second table lists every pair. The studentized range CDF is a port of R's `ptukey` (Copenhaver & Holland 1988): Gauss–Legendre quadrature of Hartley's form for the range of k normals, integrated over the distribution of the variance estimate. R's routine needs at least 2 df; for 1 df I integrate the same range CDF over the density of `s/σ` directly.
+- **Dunnett.** The correlation between the comparisons i and j is `ρᵢⱼ = λᵢλⱼ` with `λᵢ = sqrt(nᵢ/(nᵢ + n₀))`, also with unequal n. Because of this product form the multivariate t probability is exactly a two-dimensional integral: given the standard normal Y shared through the control mean and `u = s/σ`, the comparisons are independent, so `P(all |Tᵢ| < c) = ∫ f(u) ∫ φ(y) Πᵢ [Φ((cu − λᵢy)/sqrt(1 − λᵢ²)) − Φ((−cu − λᵢy)/sqrt(1 − λᵢ²))] dy du`, where f is the density of u (`u² = χ²_df/df`). I integrate it with 16-point Gauss–Legendre on 6 panels over y in [0, 8.6] (the integrand is even in y) and 8 panels over u (12 when df < 3) covering all but a negligible part of f. Doubling the panels changes the result by less than 2e-14. This handles unequal n exactly, with no approximation beyond the quadrature. SciPy's `dunnett` computes the same probability by quasi-Monte Carlo (`multivariate_t.cdf`), which is why its p moves in the fourth decimal from one random seed to the next.
+- **Mann–Whitney.** As `scipy.stats.mannwhitneyu(method="auto")`: the exact distribution of U when there are no ties and at least one group has 8 or fewer units (counted by the usual recursion), otherwise the normal approximation with the tie correction `σ² = n₁n₀/12 · ((N + 1) − Σ(t³ − t)/(N(N − 1)))` and a continuity correction of 0.5. With 3 units in each group the smallest possible two-sided p is 2/20 = 0.1, so the test can never reach 0.05. The app works out the smallest possible p for each comparison and warns when it is above 0.05.
+- **Kruskal–Wallis + Dunn.** Ranks are taken over all groups of a target together (ties get the mean rank). Dunn's `z = (R̄ᵢ − R̄₀) / sqrt((N(N+1)/12 − Σ(t³ − t)/(12(N − 1))) · (1/nᵢ + 1/n₀))`, p from the normal distribution. Only the comparisons with the control are tested (k − 1 of them), and their p values are adjusted within the target by Benjamini–Hochberg or Bonferroni, whichever you chose. The Kruskal–Wallis H for each target is shown in its own table.
+- **ANOVA alongside.** For the t-tests, Tukey and Dunnett, a target with more than two groups also gets the one-way ANOVA F test in a separate table. For the two rank tests it gets Kruskal–Wallis instead.
+- **Small groups.** Fewer than 3 biological replicates in a group gives a warning. With one replicate there is no p value at all. Rank tests use only the order of the values, so with 3 to 5 replicates per group they have very little power: a real difference will often come out as not significant. The app says so next to the choice and in the notes.
+
+### Multiple testing
+
+- Welch, Student, paired and Mann–Whitney: each p is for one comparison. Benjamini–Hochberg (1995) and Bonferroni are applied across every group-vs-control comparison of every target in the analysis, as before.
+- Tukey, Dunnett and Dunn: the p already accounts for the several comparisons within a target, so I don't correct within the target a second time. When there are several targets, BH and Bonferroni are applied across targets only, separately for each comparison (for example "drug A vs control" across all genes). With one target the BH and Bonferroni columns equal the test's own p.
+- You choose which correction goes on the graphs. ANOVA and Kruskal–Wallis p values are corrected across targets in the same way.
+- The results table, the CSV, the graph note and the report all name the test and say which p is shown.
+
+### Distributions
+
+- Student t and F: the regularised incomplete beta function (continued fraction, modified Lentz method; log-gamma by the Lanczos approximation).
+- Normal and chi-square: the regularised incomplete gamma function (series below a + 1, continued fraction above), with `erfc(x) = Q(1/2, x²)`.
+- Studentized range and Dunnett's multivariate t: Gauss–Legendre quadrature as described above.
 
 ### Checked against SciPy
 
-`testdata/make-stats-reference.py` runs SciPy (`ttest_ind(equal_var=False)`, `f_oneway`, `false_discovery_control`, `t.sf`, `t.cdf`, `f.sf`) and NumPy on fixed cases: n = 2, n = 1, tied values, very unequal variances, identical groups (p = 1), huge t (p around 1e-13), fractional degrees of freedom. The results are in `tests/fixtures/stats-reference.json`, and `tests/stats.test.mjs` requires agreement to a relative error of 1e-10. The worst disagreement on the current file is about 1e-11.
+`testdata/make-stats-reference.py` runs SciPy and NumPy on fixed cases and writes `tests/fixtures/stats-reference.json`; `tests/stats.test.mjs` compares every function with it. The earlier cases (Welch, ANOVA, the corrections, t and F tails) are unchanged. Cases include n = 1 and 2, ties, all values tied, identical groups, very unequal variances, tiny p, unequal n, 1 and 2 df, and seeded random data.
+
+| Function | Compared with | Required | Worst on the current file |
+| --- | --- | --- | --- |
+| Welch, ANOVA, BH, Bonferroni, t and F tails | `ttest_ind(equal_var=False)`, `f_oneway`, `false_discovery_control`, `t`, `f` | relative 1e-10 | about 1e-11 |
+| Student, one-sample, paired t-test | `ttest_ind`, `ttest_1samp`, `ttest_rel` | relative 1e-10 | 6e-15 |
+| Normal and chi-square tails | `norm.sf`, `chi2.sf` | relative 1e-10 | 2e-14 |
+| Studentized range tail | `studentized_range.sf` | absolute 1e-6 | 1.5e-9 |
+| Tukey HSD p | `tukey_hsd` | absolute 1e-6 | 4.8e-7 |
+| Dunnett p | `dunnett` (mean over 16 QMC seeds) | absolute 1e-4 | 5.3e-5 |
+| Dunnett with one comparison | Student's t (exact equivalent) | absolute 1e-9 | 2.7e-12 |
+| Mann–Whitney U and p, exact and normal | `mannwhitneyu(method="auto")` | relative 1e-10 | 4e-15 |
+| Kruskal–Wallis H and p | `kruskal` | relative 1e-10 | 6e-15 |
+| Dunn z, p, BH, Bonferroni | the formula written with `rankdata` and `norm.sf` | relative 1e-10 | 4e-15 |
+
+Notes on the comparison:
+
+- The Tukey error (about 5e-7 at most) is the accuracy of the R algorithm I ported; SciPy integrates the studentized range more precisely. It is far below anything that matters for a p value.
+- SciPy's Dunnett p comes from a quasi-Monte Carlo estimate. On these cases its standard deviation between random seeds is up to 1.7e-4, so a single SciPy run is not a precise reference. The fixture stores the mean of 16 seeds and their spread. My values differ from that mean by at most 5.3e-5, which is within the seed-to-seed noise. As an exact check, Dunnett's test with a single treated group must equal Student's t-test with the same pooled variance, and it does to 3e-12.
+- SciPy has no Dunn test, so the Dunn reference is the formula above written out in Python with SciPy's ranking and normal distribution. It checks the arithmetic (ranks, ties, standard error, adjustment), not the choice of formula; that comes from Dunn (1964).
+- The tests print the worst disagreement per function (`node --test tests/stats.test.mjs`).
 
 To regenerate (in a throwaway virtual environment outside the repository):
 
@@ -55,6 +108,8 @@ python -m venv /tmp/platecheck-statsref
 /tmp/platecheck-statsref/bin/python -m pip install scipy numpy
 /tmp/platecheck-statsref/bin/python testdata/make-stats-reference.py
 ```
+
+The file in the repository was made with SciPy 1.18.1.
 
 ## Reference gene check
 
@@ -140,20 +195,22 @@ python -m venv /tmp/platecheck-combatref
 
 ## Graphs
 
-- Fold change: one panel per target, groups along the x axis. Large blue dots are biological replicates (the mean of their technical replicates); small orange dots are the individual technical replicates; the black line and whiskers are mean ± SD (or SEM). Above each group: stars and the adjusted p against the control (*** < 0.001, ** < 0.01, * < 0.05, ns otherwise). The fold-change axis is log scale by default (fold changes are ratios, so 0.5 and 2 are the same distance from 1); a linear axis is available.
-- Volcano plot, when there are 6 or more target genes: log2 fold change against −log10 of the unadjusted p, with points that stay significant after correction coloured and labelled.
+- Fold change: one panel per target, groups along the x axis. Large blue dots are biological replicates (the mean of their technical replicates); small orange dots are the individual technical replicates; the black line and whiskers are mean ± SD (or SEM). Above each group: stars and the adjusted p against the control (*** < 0.001, ** < 0.01, * < 0.05, ns otherwise). The note under the figure names the test and the adjustment. The fold-change axis is log scale by default (fold changes are ratios, so 0.5 and 2 are the same distance from 1); a linear axis is available.
+- Volcano plot, when there are 6 or more target genes: log2 fold change against −log10 p, with points that stay significant after correction coloured and labelled. For the two-group tests the y axis is the unadjusted p; for Tukey, Dunnett and Dunn it is their p, already adjusted within each gene. The axis label says which.
 - Colours are from a colour-blind safe palette (blue #0072B2, orange #E69F00, vermillion #D55E00). Text is Arial/Helvetica, which journals usually ask for. Gene names are in italics.
 - Downloads: SVG (editable in Illustrator or Inkscape) and PNG at 300 dpi (the file carries the 300 dpi setting). The results table downloads as CSV, with a second block listing every biological unit.
 
 ## In the report
 
-When the analysis is on, the HTML report gets an Analysis section: the method in words, the reference genes, the control group, n per group, the test, both corrections and the notes.
+When the analysis is on, the HTML report gets an Analysis section: the method in words, the reference genes, the control group, the test used, n per group, the test's p with both corrections, the Tukey pairs or Kruskal–Wallis results when those were chosen, and the notes.
 
 ## Known limits
 
 - Technical replicates are averaged with equal weight; the spread between them is not carried into the error bars (the usual approach when biological replicates are n).
 - Fold change uses the arithmetic mean of control ΔCt, so the control group's own units scatter around 1 rather than sitting at exactly 1.
-- No Dunnett's or Tukey's post-hoc tests, no non-parametric tests, no paired or blocked designs, no confidence intervals yet.
+- No blocked or two-way designs (for example several plates as blocks, or treatment × time), no Wilcoxon signed-rank test for paired data, no Games–Howell for unequal variances with many groups, and no confidence intervals yet.
+- Tukey and Dunnett assume equal variances across all groups of a target (the pooled MSE). With very unequal spreads, Welch t-tests with a correction are safer.
+- The paired test pairs units only through the pair label. It doesn't check that the label means what you intend.
 - Wells with no Ct are dropped rather than given a value such as 40.
 
 ## References
@@ -163,5 +220,13 @@ When the analysis is on, the HTML report gets an Analysis section: the method in
 - Vandesompele J, De Preter K, Pattyn F, Poppe B, Van Roy N, De Paepe A, Speleman F (2002). Accurate normalization of real-time quantitative RT-PCR data by geometric averaging of multiple internal control genes. *Genome Biology* 3(7):research0034. doi:10.1186/gb-2002-3-7-research0034
 - Hellemans J, Mortier G, De Paepe A, Speleman F, Vandesompele J (2007). qBase relative quantification framework and software for management and automated analysis of real-time quantitative PCR data. *Genome Biology* 8(2):R19. doi:10.1186/gb-2007-8-2-r19
 - Benjamini Y, Hochberg Y (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society, Series B* 57(1):289–300. doi:10.2307/2346101
+- Student (1908). The probable error of a mean. *Biometrika* 6(1):1–25. doi:10.1093/biomet/6.1.1
+- Tukey JW (1949). Comparing individual means in the analysis of variance. *Biometrics* 5(2):99–114. doi:10.2307/3001913
+- Kramer CY (1956). Extension of multiple range tests to group means with unequal numbers of replications. *Biometrics* 12(3):307–310. doi:10.2307/3001469
+- Dunnett CW (1955). A multiple comparison procedure for comparing several treatments with a control. *Journal of the American Statistical Association* 50(272):1096–1121. doi:10.1080/01621459.1955.10501294
+- Mann HB, Whitney DR (1947). On a test of whether one of two random variables is stochastically larger than the other. *Annals of Mathematical Statistics* 18(1):50–60. doi:10.1214/aoms/1177730491
+- Kruskal WH, Wallis WA (1952). Use of ranks in one-criterion variance analysis. *Journal of the American Statistical Association* 47(260):583–621. doi:10.1080/01621459.1952.10483441
+- Dunn OJ (1964). Multiple comparisons using rank sums. *Technometrics* 6(3):241–252. doi:10.1080/00401706.1964.10490181
+- Copenhaver MD, Holland BS (1988). Computation of the distribution of the maximum studentized range statistic with application to multiple significance testing of simple effects. *Journal of Statistical Computation and Simulation* 30(1):1–15. doi:10.1080/00949658808811082
 - Johnson WE, Li C, Rabinovic A (2007). Adjusting batch effects in microarray expression data using empirical Bayes methods. *Biostatistics* 8(1):118–127. doi:10.1093/biostatistics/kxj037 (published online in 2006, so sometimes cited as 2006)
 - Welch BL (1947). The generalization of "Student's" problem when several different population variances are involved. *Biometrika* 34(1–2):28–35. doi:10.1093/biomet/34.1-2.28
