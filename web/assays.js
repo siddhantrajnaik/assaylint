@@ -279,7 +279,8 @@ export function calcEnrichment(lr, params, opts, warn) {
     for (const row of out) {
       const n = out.find(x => x.set === row.set && x.target === neg);
       if (!n) { if (!noted.has(row.set)) warn("medium", `${row.set}: the negative region ${neg} has no wells in this set.`); noted.add(row.set); continue; }
-      if (row === n) { row.foldNeg = row.pctInput !== null || row.ctIP !== null ? 1 : null; continue; }
+      // The negative region is 1 against itself only when it can serve as the reference: it has a % input, or the whole set has no input (IP-only).
+      if (row === n) { row.foldNeg = row.pctInput !== null || (row.ctIP !== null && !out.some(o => o.set === row.set && o.ctInput !== null)) ? 1 : null; continue; }
       if (row.pctInput !== null && n.pctInput) row.foldNeg = row.pctInput / n.pctInput;
       else if (row.ctInput === null && n.ctInput === null && row.ctIP !== null && n.ctIP !== null) { row.foldNeg = pow2(n.ctIP - row.ctIP); ipOnly = true; } // no input at all (CUT&RUN)
       else if (row.pctInput !== null && !noted.has(row.set)) { noted.add(row.set); warn("medium", `${row.set}: the negative region ${neg} has no % input in this set, so fold over it isn't given.`); }

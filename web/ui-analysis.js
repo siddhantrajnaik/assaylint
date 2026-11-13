@@ -21,6 +21,7 @@ function el(tag, attrs = {}, ...kids) {
 }
 const txt = (x, y, s, o = {}) => el("text", { x, y, "font-size": o.size || 11, "text-anchor": o.anchor || "middle", fill: o.fill || COLORS.ink,
   "font-style": o.italic ? "italic" : null, "font-weight": o.bold ? "bold" : null, transform: o.rotate ? `rotate(${o.rotate} ${x} ${y})` : null }, s);
+const wrapWords = (text, n) => text.split(" ").reduce((lines, w) => { const last = lines[lines.length - 1]; if (last && (last + " " + w).length <= n) lines[lines.length - 1] = last + " " + w; else lines.push(w); return lines; }, []);
 const clip = (s, n = 18) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 // ---------------------------------------------------------------- axis scales
@@ -54,7 +55,11 @@ function scale(values, log, extra = 0.16) {
 export function foldChart(a, { title = "" } = {}) {
   const s = a.settings, log = s.scale !== "linear", targets = a.targets.filter(t => a.summary.some(r => r.target === t));
   const groups = a.groups, gw = 66, pw = 58 + groups.length * gw, ph = 310, cols = Math.min(4, Math.max(1, targets.length));
-  const rowsN = Math.ceil(targets.length / cols), W = Math.max(cols * pw + 20, 420), top = title ? 26 : 6, H = top + rowsN * ph + 78;
+  const rowsN = Math.ceil(targets.length / cols), W = Math.max(cols * pw + 20, 420), top = title ? 26 : 6;
+  // The method note is wrapped to the figure width (about 5.2 px per character at 9.5 px) instead of being cut off.
+  const note = wrapWords(`Fold change = 2^−ΔΔCt vs ${a.control}; reference: ${a.refs.join(" + ")}${s.efficiency ? "; efficiency-corrected" : ""}. p: Welch t-test on ΔCt vs control, ${CORR[s.correction]}-adjusted. *** < 0.001, ** < 0.01, * < 0.05.`, Math.floor((W - 20) / 5.2));
+  const H = top + rowsN * ph + 66 + note.length * 13;
+  const tilt = groups.some(gr => gr.length > 8); // tilt every group name, or none, so the axis reads evenly
   const svg = el("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": FONT, role: "img", "aria-label": title || "Fold change by target and group" });
   svg.append(el("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
   if (title) svg.append(txt(10, 18, title, { anchor: "start", size: 13, bold: true }));
@@ -75,7 +80,7 @@ export function foldChart(a, { title = "" } = {}) {
     if (ti % cols === 0) g.append(txt(x0 + 10, (T + B) / 2, log ? "Fold change (log scale)" : "Fold change", { rotate: -90, size: 11 }));
     groups.forEach((gr, gi) => {
       const cx = L + gw * gi + gw / 2, r = sum.find(x => x.group === gr), units = rows.filter(x => x.group === gr);
-      const long = gr.length > 8;
+      const long = tilt;
       g.append(txt(cx, B + 14, `n = ${r ? r.n : 0}`, { size: 9.5, fill: COLORS.mute }),
         txt(long ? cx + 4 : cx, B + 28, clip(gr), { size: 11, anchor: long ? "end" : "middle", rotate: long ? -35 : 0 }));
       if (!r) return;
@@ -107,7 +112,7 @@ export function foldChart(a, { title = "" } = {}) {
   svg.append(el("circle", { cx: 18, cy: ly, r: 4.6, fill: COLORS.bio }), txt(28, ly + 4, "Biological replicate (mean of its technical replicates)", { anchor: "start", size: 10.5 }),
     el("circle", { cx: 18, cy: ly + 18, r: 2.1, fill: COLORS.tech }), txt(28, ly + 22, "Technical replicate", { anchor: "start", size: 10.5 }),
     el("line", { x1: 11, x2: 25, y1: ly + 36, y2: ly + 36, stroke: COLORS.ink, "stroke-width": 2.2 }), txt(28, ly + 40, `Mean ± ${s.error === "sem" ? "SEM" : "SD"}`, { anchor: "start", size: 10.5 }));
-  svg.append(txt(10, ly + 60, clip(`Fold change = 2^−ΔΔCt vs ${a.control}; reference: ${a.refs.join(" + ")}${s.efficiency ? "; efficiency-corrected" : ""}. p: Welch t-test on ΔCt vs control, ${CORR[s.correction]}-adjusted. *** < 0.001, ** < 0.01, * < 0.05.`, 170), { anchor: "start", size: 9.5, fill: "#555555" }));
+  note.forEach((line, k) => svg.append(txt(10, ly + 60 + k * 13, line, { anchor: "start", size: 9.5, fill: COLORS.mute })));
   return svg;
 }
 
