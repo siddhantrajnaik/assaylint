@@ -203,8 +203,9 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
     const r = S.tukeyHsd(byGroup.map(x => x.v));
     all(r);
     for (const pr of r.pairs) {
-      const a = byGroup[pr.i].g, b = byGroup[pr.j].g;
-      base.pairwise.push({ target: t, a, b, diff: pr.diff, fold: 2 ** -pr.diff, q: pr.q, df: r.df, p: pr.p });
+      // a pair with the control is listed as "group vs control", so its fold change matches the main table
+      const flip = byGroup[pr.i].g === control, a = byGroup[flip ? pr.j : pr.i].g, b = byGroup[flip ? pr.i : pr.j].g, diff = flip ? -pr.diff : pr.diff;
+      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: r.df, p: pr.p });
       const other = a === control ? b : b === control ? a : null;
       if (other !== null) set(other, { stat: pr.q, statName: "q", df: r.df, p: pr.p });
     }

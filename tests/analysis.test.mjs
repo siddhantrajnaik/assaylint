@@ -343,6 +343,8 @@ test("Student, Tukey, Dunnett, Mann–Whitney and Kruskal–Wallis + Dunn give t
   near(tk.summary.find(x => x.group === "drugA").p, ref.pairs.find(p => p.i === 0 && p.j === 1).p, 1e-12, "Tukey vs control");
   assert.equal(tk.pairwise.length, 3, "all three pairs are listed");
   assert.ok(tk.pairwise.some(p => p.a === "drugA" && p.b === "drugB"));
+  const vsC = tk.pairwise.find(p => p.a === "drugA" && p.b === "control");
+  near(vsC.fold, tk.summary.find(x => x.group === "drugA").fold, 1e-12, "a pair with the control is listed as group vs control");
   assert.equal(tk.anova.length, 1, "ANOVA is shown with Tukey");
   // one target: no second correction on top of Tukey's own
   for (const r of tk.summary.filter(x => !x.isControl)) { assert.equal(r.pBH, r.p); assert.equal(r.pBonferroni, r.p); assert.equal(r.pAdj, r.p); }
