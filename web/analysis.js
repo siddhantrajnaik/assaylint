@@ -274,7 +274,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     if (u.groups.size > 1) warnings.push(`Biological unit ${u.unit} has different groups on different plates (${[...u.groups].join(", ")}). I used ${u.group}.`);
   }
   const multi = [...units.values()].filter(u => u.plates.size > 1);
-  if (plates.length > 1 && multi.length) warnings.push(`${multi.length} biological unit(s) appear on more than one plate (${list(multi.map(u => u.unit))}). Units with the same name are treated as the same biological sample and their plates are averaged.`);
+  if (plates.length > 1 && multi.length) warnings.push(`${multi.length} biological unit(s) appear on more than one plate (${list(multi.map(u => u.unit))}). Units with the same name are treated as the same biological sample: after any plate correction their values are averaged across plates, so each counts once (not once per plate) in n and in the tests.`);
 
   const allTargets = uniq(records.map(r => r.target));
   const groupsSeen = uniq(records.map(r => r.group).filter(Boolean));
@@ -479,15 +479,51 @@ export function analysisReportHtml(exp, res, esc) {
   let a;
   try { a = analyzeRun(exp, res); } catch (e) { return `<h2>Analysis</h2><p>The analysis couldn't be worked out: ${esc(e.message)}</p>`; }
   if (!a.ok) return `<h2>Analysis</h2><p>The analysis is switched on, but ${esc([a.needs.includes("refs") && "no reference gene", a.needs.includes("control") && "no control group", a.needs.includes("targets") && "no target gene besides the references"].filter(Boolean).join(" and "))} has been chosen yet.</p>`;
+  return `<h2>Analysis</h2>\n${analysisResultsHtml(a, esc)}`;
+}
+// The method, results table and notes as HTML; shared by the run report and the study report (report.js).
+export function analysisResultsHtml(a, esc) {
   const f = x => (x === null || !Number.isFinite(x) ? "—" : x.toFixed(2));
   const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${f(r.foldCiLow)}–${f(r.foldCiHigh)}</td><td>${r.isControl ? "" : `${f(r.foldDiffCiLow)}–${f(r.foldDiffCiHigh)}`}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
-  return `<h2>Analysis</h2>
-<p>${esc(a.method)}</p>
+  return `<p>${esc(a.method)}</p>
 <p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Test: ${esc(a.test.short)}${a.test.withinTarget ? " (p already adjusted for the comparisons within each target)" : ""}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
 <table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>${a.settings.error === "ci" ? "95% CI (error bars)" : `± ${ERR[a.settings.error]}`}</th><th>95% CI of the group mean</th><th>95% CI vs control (Welch)</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
 ${a.pairwise.length ? `<p class="sub small">${esc(a.test.short)}, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.test.paired && a.summary.some(r => Number.isFinite(r.pairedFold)) ? `<p class="sub small">Fold change from the pairs (2^−mean of the within-pair ΔΔCt, only units that have a partner; 95% CI from the paired t): ${a.summary.filter(r => Number.isFinite(r.pairedFold)).map(r => `${esc(r.target)} ${esc(r.group)} ${f(r.pairedFold)} (${f(r.pairedFoldCiLow)}–${f(r.pairedFoldCiHigh)})`).join("; ")}. The table above shows the group-mean fold change.</p>` : ""}
-${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis:${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.anova.length ? `<p class="sub small">${a.anova[0].welch ? "Welch's one-way ANOVA" : "One-way ANOVA"}: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${fmtDf(x.df2)}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.warnings.length ? `<p><b>Notes on the analysis</b></p><ul>${a.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
+}
+
+// ---------------------------------------------------------------- references behind an analysis (for the study report)
+const REFS = {
+  livak: ["Livak KJ, Schmittgen TD (2001). Analysis of relative gene expression data using real-time quantitative PCR and the 2^−ΔΔCT method. Methods 25(4):402–408.", "10.1006/meth.2001.1262"],
+  pfaffl: ["Pfaffl MW (2001). A new mathematical model for relative quantification in real-time RT-PCR. Nucleic Acids Research 29(9):e45.", "10.1093/nar/29.9.e45"],
+  vandesompele: ["Vandesompele J et al. (2002). Accurate normalization of real-time quantitative RT-PCR data by geometric averaging of multiple internal control genes. Genome Biology 3(7):research0034.", "10.1186/gb-2002-3-7-research0034"],
+  hellemans: ["Hellemans J, Mortier G, De Paepe A, Speleman F, Vandesompele J (2007). qBase relative quantification framework and software for management and automated analysis of real-time quantitative PCR data. Genome Biology 8(2):R19.", "10.1186/gb-2007-8-2-r19"],
+  johnson: ["Johnson WE, Li C, Rabinovic A (2007). Adjusting batch effects in microarray expression data using empirical Bayes methods. Biostatistics 8(1):118–127.", "10.1093/biostatistics/kxj037"],
+  bh: ["Benjamini Y, Hochberg Y (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. Journal of the Royal Statistical Society, Series B 57(1):289–300.", "10.2307/2346101"],
+  welch: ["Welch BL (1947). The generalization of “Student's” problem when several different population variances are involved. Biometrika 34(1–2):28–35.", "10.1093/biomet/34.1-2.28"],
+  student: ["Student (1908). The probable error of a mean. Biometrika 6(1):1–25.", "10.1093/biomet/6.1.1"],
+  wilcoxon: ["Wilcoxon F (1945). Individual comparisons by ranking methods. Biometrics Bulletin 1(6):80–83.", "10.2307/3001968"],
+  tukey: ["Tukey JW (1949). Comparing individual means in the analysis of variance. Biometrics 5(2):99–114.", "10.2307/3001913"],
+  welch51: ["Welch BL (1951). On the comparison of several mean values: an alternative approach. Biometrika 38(3–4):330–336.", "10.1093/biomet/38.3-4.330"],
+  gameshowell: ["Games PA, Howell JF (1976). Pairwise multiple comparison procedures with unequal n's and/or variances: a Monte Carlo study. Journal of Educational Statistics 1(2):113–125.", "10.3102/10769986001002113"],
+  dunnett: ["Dunnett CW (1955). A multiple comparison procedure for comparing several treatments with a control. Journal of the American Statistical Association 50(272):1096–1121.", "10.1080/01621459.1955.10501294"],
+  mannwhitney: ["Mann HB, Whitney DR (1947). On a test of whether one of two random variables is stochastically larger than the other. Annals of Mathematical Statistics 18(1):50–60.", "10.1214/aoms/1177730491"],
+  kruskal: ["Kruskal WH, Wallis WA (1952). Use of ranks in one-criterion variance analysis. Journal of the American Statistical Association 47(260):583–621.", "10.1080/01621459.1952.10483441"],
+  dunn: ["Dunn OJ (1964). Multiple comparisons using rank sums. Technometrics 6(3):241–252.", "10.1080/00401706.1964.10490181"],
+};
+// [{ text, doi }] for the methods an analysis result actually used.
+export function analysisReferences(a) {
+  const s = a.settings, keys = ["livak"];
+  if (s.efficiency) keys.push("pfaffl");
+  if (a.refs.length > 1) keys.push("vandesompele");
+  if (a.calibration?.mode === "calibrator") keys.push("hellemans");
+  if (a.calibration?.mode === "combat" && a.calibration.applied) keys.push("johnson");
+  keys.push(...({ welch: ["welch"], student: ["student"], paired: ["student"], wilcoxon: ["wilcoxon"], tukey: ["tukey"], gameshowell: ["welch51", "gameshowell"],
+    dunnett: ["dunnett"], mannwhitney: ["mannwhitney"], kruskal: ["kruskal", "dunn"] }[s.test] || []));
+  if (!keys.includes("welch")) keys.push("welch"); // the CI against the control uses Welch's df
+  keys.push("bh");
+  return [...new Set(keys)].map(k => ({ text: REFS[k][0], doi: REFS[k][1] }));
 }

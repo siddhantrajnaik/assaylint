@@ -480,6 +480,29 @@ test("95% confidence intervals: group mean (t, n − 1 df) and difference from t
   assert.match(R.reportHtml(exp, res), /95% CI vs control \(Welch\)/);
 });
 
+test("study: a unit on two plates counts once, and the study gets its own HTML report", () => {
+  const irc = { IRC: [null, { GAPDH: [17.5, 17.6], IL6: [26.0, 26.2] }] };
+  const strip = rows => rows.filter(r => !(r[3] >= 30)).map(r => (r[4] == null ? [...r.slice(0, 4), ""] : r));
+  const pa = run(strip(plate({ c1: HAND.c1, c2: HAND.c2, t1: HAND.t1, ...irc })), { title: "Plate A" });
+  const pb = run(strip(plate({ c1: HAND.c1, c3: HAND.c3, t2: HAND.t2, t3: HAND.t3, ...irc }, { shift: { IL6: 1.0 } })), { title: "Plate B" });
+  const sd = { title: "Two plates", settings: { on: true, refs: ["GAPDH"], control: "control" }, mode: "calibrator", calibrators: ["IRC"] };
+  const a = A.analyzeStudy([pa, pb], sd);
+  assert.equal(a.summary.find(r => r.group === "control").n, 3, "c1 is on both plates but counts once");
+  assert.equal(a.rows.filter(r => r.unit === "c1").length, 1);
+  assert.deepEqual(a.rows.find(r => r.unit === "c1").plates, ["Plate A", "Plate B"]);
+  assert.ok(a.warnings.some(w => /counts once/.test(w)));
+  const html = R.studyReportHtml(sd, a, { plates: [{ title: "Plate A", date: "2026-01-01", id: "AL-1" }, { title: "Plate B", date: "2026-01-02", id: "AL-2" }],
+    svgs: ['<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><text>fold</text></svg>'], generatedAt: "2026-11-14T10:00:00Z" });
+  assert.match(html, /<h1>Two plates<\/h1>/);
+  assert.match(html, /Inter-run calibration/); assert.match(html, /Calibrator sample: IRC/);
+  assert.match(html, /<td>Plate B<\/td><td>2026-01-02<\/td>/);
+  assert.match(html, /<h2>Graphs<\/h2><div[^>]*><svg/); assert.doesNotMatch(html, /<\?xml/);
+  assert.match(html, /Hellemans J/); assert.match(html, /Livak KJ/);
+  assert.match(html, /<td>IL6<\/td><td>treated<\/td><td>3<\/td>/);
+  const none = R.studyReportHtml({ title: "<x>" }, A.analyzeStudy([pa, pb], { settings: { on: true } }), {});
+  assert.match(none, /&lt;x&gt;/); assert.match(none, /can't run yet/);
+});
+
 test("paired tests also give the fold change from the within-pair differences", () => {
   // b3 has no partner, so the paired fold change for drugB uses b1 and b2 only and differs from the group mean.
   const { exp, res } = threeRun(["Pair"], r => [{ ...PAIRS, b3: "" }[r[1]] || ""]);

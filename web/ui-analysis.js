@@ -3,6 +3,7 @@
 // (text nodes only, never innerHTML), downloadable as SVG or as a 300-dpi PNG.
 // The app passes its helpers in `ax` (see the hook in app.js): { h, card, download, change, renderMain, st, flash, S, C, openExp, goTab }.
 import * as A from "./analysis.js";
+import { studyReportHtml } from "./report.js";
 
 const NS = "http://www.w3.org/2000/svg";
 // Okabe & Ito colour-blind safe colours: biological replicates blue, technical replicates orange.
@@ -416,5 +417,11 @@ export function studyView(ax) {
   out.push(card(h("h2", null, "Analysis settings"), settingsPanel(ax, sd.settings, info, patch => save({ settings: { ...sd.settings, ...patch, on: true } }))));
   const a = A.analyzeStudy(runs, sd);
   const base = sd.title.replace(/[^\w.-]+/g, "_").slice(0, 60) || "study";
-  return [...out, ...resultsBlock(ax, a, base)];
+  const reportBtn = card(h("h2", null, "Study report"),
+    h("p", { class: "lede" }, "One HTML file with the method, the plates, the correction used and its warnings, the results table, the graphs and the references. Open it in any browser or print it to PDF."),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => {
+      const svgs = a.ok && a.summary.length ? [foldChart(a, { title: sd.title }), a.targets.length >= 6 && volcano(a), a.calibration?.combat && combatChart({ ...a.calibration.combat, meanOnly: a.calibration.meanOnly })].filter(Boolean).map(serialize) : [];
+      ax.download(`${base}-study-report.html`, studyReportHtml(sd, a, { plates: runs.map(r => ({ title: r.exp.title, date: r.exp.date, id: r.exp.id })), svgs }), "text/html");
+    } }, "Download study report (HTML)")));
+  return [...out, ...resultsBlock(ax, a, base), reportBtn];
 }
