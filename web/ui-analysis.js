@@ -4,6 +4,7 @@
 // The app passes its helpers in `ax` (see the hook in app.js): { h, card, download, change, renderMain, st, flash, S, C, openExp, goTab }.
 import * as A from "./analysis.js";
 import { studyReportHtml } from "./report.js";
+import * as GS from "./gsea.js"; // [gsea] gene set enrichment
 
 const NS = "http://www.w3.org/2000/svg";
 // Okabe & Ito colour-blind safe colours: biological replicates blue, technical replicates orange.
@@ -367,7 +368,133 @@ export function analysisView(ax) {
   return [card(h("h2", null, "Analysis settings"),
       settingsPanel(ax, s, { targets: ch.targets, groups: ch.groups, hasCurves: (st.res.stdCurves || []).length > 0 }, set),
       h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => set({ on: false }, "Analysis switched off") }, "Switch the analysis off"))),
-    ...resultsBlock(ax, a, base)];
+    ...resultsBlock(ax, a, base), a.ok && a.summary.some(r => !r.isControl) && gseaCard(ax, a, base)].filter(Boolean);
+}
+
+// ---------------------------------------------------------------- [gsea] gene set enrichment
+// Enrichment plot for one set: the running enrichment score along the ranked panel, a tick per set gene
+// (leading-edge genes in vermillion), and the ranking statistic of every gene underneath.
+export function enrichmentPlot(r, row) {
+  const genes = r.ranked, N = genes.length, values = genes.map(g => g.value), at = new Map(genes.map((g, i) => [g.gene, i]));
+  const hits = row.genes.map(g => at.get(g)).filter(Number.isInteger).sort((x, y) => x - y), rs = GS.runningSum(values, hits);
+  const lead = new Set(row.leading);
+  const W = 540, L = 58, R = W - 16, T = 34, B = 196, tk0 = 204, tk1 = 228, s0 = 240, s1 = 300;
+  const note = wrapWords(`${r.method === "gsea" ? `ES = ${fmt(row.es, 3)}, NES = ${fmt(row.nes)}, p ${row.p === 0 ? "" : "= "}${GSfp(row.p, r.nperm)}, FDR q = ${GSfp(row.q)} (${r.nperm} permutations)` : `Rank test: AUC = ${fmt(row.auc)}, p = ${GSfp(row.p)}, q (BH) = ${GSfp(row.q)}; ES = ${fmt(row.es, 3)}`}. ${row.size} of the ${N} ranked panel genes are in the set; vermillion ticks are the leading edge. Universe: the panel.`, Math.floor((W - 20) / 5.2));
+  const H = s1 + 40 + note.length * 13;
+  const X = i => L + ((i + 0.5) / N) * (R - L);
+  const svg = el("svg", { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}`, "font-family": FONT, role: "img", "aria-label": `Enrichment plot for ${row.name}` });
+  svg.append(el("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }), txt(10, 18, clip(row.name, 80), { anchor: "start", size: 12, bold: true }));
+  if (rs) {
+    const lo = Math.min(0, ...rs.curve), hi = Math.max(0, ...rs.curve), span = hi - lo || 1;
+    const Y = v => B - ((v - lo) / span) * (B - T), step = niceStep(span, 4);
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) svg.append(el("line", { x1: L - 4, x2: L, y1: Y(v), y2: Y(v), stroke: COLORS.ink }), txt(L - 7, Y(v) + 3.5, String(+v.toFixed(3)), { anchor: "end", size: 9.5 }));
+    svg.append(el("line", { x1: L, x2: R, y1: Y(0), y2: Y(0), stroke: COLORS.mute, "stroke-dasharray": "3 3", "stroke-width": 0.8 }),
+      el("line", { x1: L, x2: L, y1: T, y2: B, stroke: COLORS.ink }),
+      el("line", { x1: X(rs.peak), x2: X(rs.peak), y1: T, y2: tk1, stroke: COLORS.sig, "stroke-dasharray": "4 3", "stroke-width": 0.9 }),
+      el("polyline", { points: [`${L},${Y(0)}`, ...rs.curve.map((v, i) => `${X(i).toFixed(2)},${Y(v).toFixed(2)}`)].join(" "), fill: "none", stroke: COLORS.bio, "stroke-width": 1.8 }),
+      txt(16, (T + B) / 2, "Running enrichment score", { rotate: -90, size: 10.5 }));
+  }
+  svg.append(el("rect", { x: L, y: tk0, width: R - L, height: tk1 - tk0, fill: "none", stroke: COLORS.grid }));
+  for (const i of hits) svg.append(el("line", { x1: X(i), x2: X(i), y1: tk0 + 2, y2: tk1 - 2, stroke: lead.has(genes[i].gene) ? COLORS.sig : COLORS.ink, "stroke-width": 1.4 }, el("title", {}, `${genes[i].gene} (rank ${i + 1})`)));
+  const vm = Math.max(1e-9, ...values.map(Math.abs)), Z = (s0 + s1) / 2, bw = Math.max(0.6, (R - L) / N - 0.4);
+  svg.append(el("line", { x1: L, x2: R, y1: Z, y2: Z, stroke: COLORS.mute, "stroke-width": 0.6 }));
+  values.forEach((v, i) => svg.append(el("rect", { x: X(i) - bw / 2, y: v >= 0 ? Z - (v / vm) * (Z - s0) : Z, width: bw, height: Math.max(0.3, (Math.abs(v) / vm) * (Z - s0)), fill: COLORS.mute, "fill-opacity": 0.7 })));
+  svg.append(txt(L - 6, s0 + 8, `higher in ${clip(r.group, 14)}`, { anchor: "end", size: 8.5, fill: "#555555" }), txt(L - 6, s1, `lower`, { anchor: "end", size: 8.5, fill: "#555555" }),
+    txt((L + R) / 2, s1 + 16, `${N} panel genes ranked by ${r.statLabel}, ${r.group} vs ${r.control}`, { size: 10.5 }));
+  note.forEach((line, k) => svg.append(txt(10, s1 + 34 + k * 13, line, { anchor: "start", size: 9.5, fill: COLORS.mute })));
+  return svg;
+}
+const GSfp = (p, nperm = 0) => (!fin(p) ? "—" : p === 0 ? (nperm ? `< ${A.fmtP(1 / nperm)}` : "0.000") : A.fmtP(p)); // p = 0 from permutations means p < 1/nperm
+
+let gseaMemo = { key: "", value: null }; // the permutations take a moment, so one result is kept while nothing changes
+function gseaCached(st, a) {
+  const key = JSON.stringify([st.exp.id, st.exp.analysis?.gsea, a.summary.map(x => [x.target, x.group, x.p, x.t, x.log2fc]), st.exp.targets]);
+  if (gseaMemo.key !== key) gseaMemo = { key, value: GS.gseaForRun(st.exp, st.res, a) };
+  return gseaMemo.value;
+}
+function gseaCard(ax, a, base) {
+  const { h, card, st, C } = ax;
+  const cur = () => C.cleanAnalysisSettings(st.exp.analysis || {});
+  const g = cur().gsea;
+  const setG = (patch, detail) => ax.change("analysis.edit", detail, () => { const s = cur(); st.exp.analysis = C.cleanAnalysisSettings({ ...s, gsea: { ...s.gsea, ...patch } }); });
+  const r = gseaCached(st, a), ranking = r.ranking || GS.rankingFromAnalysis(a, { group: g.group, stat: g.stat });
+  const num = (label, value, key, lo, hi, help) => h("label", { class: "field" }, h("span", null, label),
+    h("input", { type: "number", step: "1", min: String(lo), max: String(hi), value: String(value), "aria-label": label,
+      onchange: e => { const v = Math.round(Number(e.target.value)); if (Number.isFinite(v) && v >= lo && v <= hi) setG({ [key]: v }, `Gene set enrichment, ${label.toLowerCase()}: ${v}`); else ax.renderMain(); } }),
+    help && h("small", null, help));
+  const sel = (label, value, opts, key) => h("label", { class: "field" }, h("span", null, label),
+    h("select", { "aria-label": label, onchange: e => setG({ [key]: e.target.value }, `Gene set enrichment, ${label.toLowerCase()}: ${opts.find(o => o[0] === e.target.value)?.[1] ?? e.target.value}`) },
+      opts.map(([v, l]) => h("option", { value: v, selected: v === value }, l))));
+  const readGmt = async e => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    let text;
+    try { text = C.decodeBytes(await f.arrayBuffer()); } catch { ax.flash("Couldn't read that file.", true); return; }
+    const p = GS.parseGmt(text);
+    if (p.error) { ax.flash(p.error, true); return; }
+    const m = GS.matchSets(p.sets, GS.panelFromRun(st.exp, st.res.rows));
+    const kept = m.sets.filter(s => s.genes.length >= 2).sort((x, y) => y.genes.length - x.genes.length).slice(0, 5000);
+    if (!kept.length) { ax.flash(`None of the ${p.sets.length} sets in ${f.name} has two or more genes on this panel. Check that the file is for the right species and uses gene symbols.`, true); return; }
+    setG({ source: "gmt", gmt: { name: f.name.slice(0, 200), sets: kept, read: p.sets.length, offPanel: m.offPanel } },
+      `Gene sets from ${f.name}: ${kept.length} of ${p.sets.length} sets have 2 or more genes on this panel${p.skipped ? `; ${p.skipped} line(s) were not gene sets` : ""}`);
+  };
+  const nameIn = h("input", { type: "text", placeholder: "Set name", "aria-label": "Gene set name" });
+  const genesIn = h("textarea", { rows: "3", placeholder: "Genes, separated by spaces, commas or new lines", "aria-label": "Genes in the set", style: "width:100%" });
+  const addSet = () => {
+    const name = nameIn.value.trim().slice(0, 200), genes = GS.splitGenes(genesIn.value);
+    if (!name || genes.length < 2) { ax.flash("Give the set a name and at least two genes.", true); return; }
+    setG({ source: "custom", custom: [...g.custom.filter(s => s.name !== name), { name, genes }] }, `Gene set “${name}” added: ${genes.join(", ").slice(0, 300)}`);
+  };
+  const info = r.info, groups = ranking.groups || [];
+  const sourceBits = g.source === "gmt" ? [
+      h("label", { class: "field" }, h("span", null, "GMT file (MSigDB, Enrichr or your own)"), h("input", { type: "file", accept: ".gmt,.txt,.tsv", "aria-label": "GMT file", onchange: readGmt })),
+      g.gmt && h("p", { class: "fine" }, `${g.gmt.name}: ${g.gmt.read} sets read, ${g.gmt.sets.length} with 2 or more genes on this panel kept; ${g.gmt.offPanel} gene names in those files aren't on the panel (normal: a panel is small).`)]
+    : g.source === "go" ? [
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: g.goTerms, onchange: e => setG({ goTerms: e.target.checked }, `Use GO terms for gene sets: ${e.target.checked ? "on" : "off"}`) }), "Use GO terms for gene sets"),
+      h("p", { class: "fine" }, "Then press “Look up genes” in the Targets panel. It sends the same gene symbols to MyGene.info as before and brings back each gene's Gene Ontology biological-process terms; genes on this panel that share a term make a set."),
+      h("button", { class: "btn", type: "button", onclick: () => ax.goTab?.("context") }, "Go to the Targets panel")]
+    : g.source === "custom" ? [
+      g.custom.length > 0 && h("ul", null, g.custom.map(s => h("li", null, h("b", null, s.name), `: ${s.genes.join(", ")} `,
+        h("button", { class: "btn small", type: "button", onclick: () => setG({ custom: g.custom.filter(x => x.name !== s.name) }, `Gene set “${s.name}” removed`) }, "Remove")))),
+      h("div", { class: "row wrap" }, nameIn), genesIn, h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: addSet }, "Add set"))]
+    : [];
+  const T = A.TESTS[a.settings.test];
+  const out = [h("h2", null, "Gene set enrichment"),
+    h("p", { class: "lede" }, "Do the genes of a pathway move together? Each set is compared with the rest of this panel, so the answer is about the panel, not the genome: a qPCR panel is a gene list somebody already picked, often around the very pathways you would test."),
+    h("div", { class: "ana-settings" },
+      sel("Gene sets from", g.source, [["", "Choose…"], ["gmt", "A GMT file I upload"], ["go", "GO biological-process terms from the gene lookup"], ["custom", "Sets I type in"]], "source"),
+      ...sourceBits,
+      h("div", { class: "row wrap" },
+        sel("Method", g.method, Object.entries(GS.METHODS), "method"),
+        groups.length > 1 && sel("Comparison", ranking.group, groups.map(x => [x, `${x} vs ${a.control}`]), "group"),
+        sel("Rank genes by", ranking.stat === g.stat ? g.stat : ranking.stat, [["logp", "signed −log10 p (default)"], ...(a.summary.some(x => fin(x.t)) ? [["t", "t statistic"]] : [])], "stat")),
+      h("small", null, `Ranking: each gene's ${T.short} p against ${a.control}, as −log10 p with the sign of its fold change, so strong changes either way sit at the ends of the list. I use it by default because every test in the analysis has a p, and the p already allows for each gene's own replicates and df; a t statistic from three replicates can be huge just because the replicates happened to agree. Auto picks the rank test below ${GS.AUTO_GSEA_FROM} genes and GSEA from ${GS.AUTO_GSEA_FROM} on.`),
+      h("div", { class: "row wrap" },
+        num("Smallest set", g.minSize, "minSize", 2, 1000, "genes on the panel"),
+        num("Largest set", g.maxSize, "maxSize", 0, 1000, `0 = panel size − 3${r.maxSize ? ` (now ${r.maxSize})` : ""}`),
+        (r.method === "gsea" || g.method === "gsea") && num("Permutations", g.nperm, "nperm", 100, 10000),
+        (r.method === "gsea" || g.method === "gsea") && num("Random seed", g.seed, "seed", 1, 2 ** 31 - 1, "same seed, same p values")))];
+  if (!r.ok) return card(...out, g.source && h("p", { class: r.N !== undefined && r.N < GS.MIN_GENES ? "warn" : "muted" }, r.reason));
+  const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
+  const gsea = r.method === "gsea";
+  const plotRow = r.rows.find(x => x.name === g.plotSet) || r.rows[0];
+  out.push(h("p", { class: "fine" }, `${r.rows.length} set(s) tested on ${r.N} ranked genes with ${gsea ? `preranked GSEA (${r.nperm} gene-set permutations, seed ${r.seed})` : "the rank test (Wilcoxon rank-sum, set vs rest of the panel)"}.` +
+      (info.collapsed ? ` ${info.collapsed} set(s) had exactly the same panel genes as another set and were tested once.` : "") +
+      (() => { const ranked = new Set(r.ranked.map(x => x.gene)), n = info.unusedPanel.filter(t => ranked.has(t)).length; return n ? ` Ranked genes in no set: ${n}.` : ""; })()),
+    tbl(["Set", "Genes", "Direction", ...(gsea ? ["ES", "NES"] : ["AUC"]), "p", gsea ? "FDR q" : "q (BH)", "Leading edge"],
+      r.rows.map(x => h("tr", { class: fin(x.q) && x.q < 0.25 && gsea || fin(x.q) && x.q < 0.05 ? "diff" : "" },
+        h("td", null, x.name, x.also.length > 0 && h("small", { class: "muted", title: x.also.join("; ") }, ` (+${x.also.length} with the same genes)`)), h("td", { class: "num" }, `${x.size}${x.total > x.size ? ` of ${x.total}` : ""}`),
+        h("td", null, x.direction), ...(gsea ? [h("td", { class: "num" }, fmt(x.es, 3)), h("td", { class: "num" }, fmt(x.nes))] : [h("td", { class: "num" }, fmt(x.auc))]),
+        h("td", { class: "num" }, GSfp(x.p, r.nperm)), h("td", { class: "num" }, GSfp(x.q)), h("td", null, h("i", null, x.leading.join(", ")))))),
+    h("p", { class: "fine" }, gsea ? "ES: the peak of the running sum (positive: the set's genes gather at the top of the list, higher in the group). NES: ES divided by the mean ES of random sets of the same size and sign. FDR q below 0.25 is the threshold the GSEA authors suggest for exploration; rows under it are marked."
+      : "AUC: the chance that a gene of the set ranks above a gene outside it (0.5 = no shift, above 0.5 = higher in the group). q: Benjamini–Hochberg across the sets; rows below 0.05 are marked. Leading edge: the set's genes up to the peak of the running sum, the ones that carry the signal."),
+    h("ul", { class: "ana-warn" }, r.notes.map(n => h("li", null, n))),
+    plotRow && h("div", null, h("h3", null, "Enrichment plot"),
+      sel("Set to plot", plotRow.name, r.rows.map(x => [x.name, x.name]), "plotSet"),
+      figure(ax, enrichmentPlot(r, plotRow), `${base}-enrichment-${plotRow.name.replace(/[^\w.-]+/g, "_").slice(0, 40)}`, "Top: running enrichment score down the ranked panel. Middle: one tick per gene of the set. Bottom: the ranking statistic of every panel gene.")),
+    h("p", { class: "fine" }, GS.methodText(r)),
+    h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => ax.download(`${base}-gene-set-enrichment.csv`, GS.gseaCsv(r), "text/csv") }, "Download table (CSV)")));
+  return card(...out);
 }
 
 // ---------------------------------------------------------------- Combine plates (a study)

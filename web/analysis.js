@@ -6,6 +6,7 @@
 import { ctNum, cleanAnalysisSettings, toCsv } from "./core.js";
 import * as S from "./stats.js";
 import { combatRecords } from "./combat.js"; // [combat] plate correction by ComBat (web/combat.js)
+import { gseaForRun, gseaReportHtml } from "./gsea.js"; // [gsea] gene set enrichment section of the report
 
 export const DEFAULT_SETTINGS = cleanAnalysisSettings({});
 export const MIN_N = 3; // biological replicates per group below which I warn
@@ -502,7 +503,7 @@ export function analysisReportHtml(exp, res, esc) {
   let a;
   try { a = analyzeRun(exp, res); } catch (e) { return `<h2>Analysis</h2><p>The analysis couldn't be worked out: ${esc(e.message)}</p>`; }
   if (!a.ok) return `<h2>Analysis</h2><p>The analysis is switched on, but ${esc([a.needs.includes("refs") && "no reference gene", a.needs.includes("control") && "no control group", a.needs.includes("targets") && "no target gene besides the references"].filter(Boolean).join(" and "))} has been chosen yet.</p>`;
-  return `<h2>Analysis</h2>\n${analysisResultsHtml(a, esc)}`;
+  return `<h2>Analysis</h2>\n${analysisResultsHtml(a, esc)}${gseaReportHtml(gseaForRun(exp, res, a), esc) /* [gsea] empty unless gene sets are chosen */}`;
 }
 // The method, results table and notes as HTML; shared by the run report and the study report (report.js).
 export function analysisResultsHtml(a, esc) {

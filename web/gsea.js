@@ -315,7 +315,7 @@ export function gseaCsv(r) {
     ["ranking", `${r.statLabel}, ${r.group} vs ${r.control}`], ["universe", `${r.N} ranked genes on the panel`], [],
     ["rank", "gene", "ranking_statistic", "p", "log2_fold_change"], ...(r.ranked || []).map((g, i) => [i + 1, g.gene, n6(g.value), g.p ?? "", n6(g.log2fc)])]);
 }
-const fp = p => (!fin(p) ? "—" : p === 0 ? "0" : p < 1e-4 ? p.toExponential(1) : p < 0.001 ? p.toFixed(4) : p.toFixed(3));
+const fp = (p, nperm = 0) => (!fin(p) ? "—" : p === 0 ? (nperm ? `< ${1 / nperm}` : "0.000") : p < 1e-4 ? p.toExponential(1) : p < 0.001 ? p.toFixed(4) : p.toFixed(3));
 export function methodText(r) {
   return `Gene set enrichment on ${r.N} panel genes ranked by ${r.statLabel} for ${r.group} vs ${r.control} (positive = higher in ${r.group}). ` +
     (r.method === "gsea" ? `Preranked GSEA (Subramanian et al. 2005): weighted running-sum enrichment score with weight 1, NES from the mean of same-sign permutation scores, p from ${r.nperm} gene-set permutations (seed ${r.seed}), FDR q as in GSEA. `
@@ -326,11 +326,12 @@ export function gseaReportHtml(r, esc) {
   if (!r) return "";
   if (!r.ok) return r.reason && r.info ? `<h3>Gene set enrichment</h3><p>${esc(r.reason)}</p>` : "";
   const f = x => (fin(x) ? x.toFixed(2) : "—");
-  const body = r.rows.map(x => `<tr><td>${esc(x.name)}${x.also.length ? ` <small>(+${x.also.length} with the same genes)</small>` : ""}</td><td>${x.size}</td><td>${esc(x.direction)}</td><td>${r.method === "gsea" ? `${f(x.es)} / ${f(x.nes)}` : f(x.auc)}</td><td>${esc(fp(x.p))}</td><td>${esc(fp(x.q))}</td><td>${esc(x.leading.join(", "))}</td></tr>`).join("");
+  const body = r.rows.map(x => `<tr><td>${esc(x.name)}${x.also.length ? ` <small>(+${x.also.length} with the same genes)</small>` : ""}</td><td>${x.size}</td><td>${esc(x.direction)}</td><td>${r.method === "gsea" ? `${f(x.es)} / ${f(x.nes)}` : f(x.auc)}</td><td>${esc(fp(x.p, r.nperm))}</td><td>${esc(fp(x.q))}</td><td>${esc(x.leading.join(", "))}</td></tr>`).join("");
   return `<h3>Gene set enrichment</h3>
 <p>${esc(methodText(r))}</p>
 <table><thead><tr><th>Set</th><th>Genes</th><th>Direction</th><th>${r.method === "gsea" ? "ES / NES" : "AUC"}</th><th>p</th><th>${r.method === "gsea" ? "FDR q" : "q (BH)"}</th><th>Leading edge</th></tr></thead><tbody>${body}</tbody></table>
-<ul>${r.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>`;
+<ul>${r.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>
+<p class="sub small">References: ${REFERENCES.filter((_, i) => i !== (r.method === "gsea" ? 1 : 0)).map(([t, d]) => `${esc(t)} doi:${esc(d)}`).join(" ")}</p>`;
 }
 export const REFERENCES = [
   ["Subramanian A, Tamayo P, Mootha VK, et al. (2005). Gene set enrichment analysis: a knowledge-based approach for interpreting genome-wide expression profiles. PNAS 102(43):15545–15550.", "10.1073/pnas.0506580102"],
