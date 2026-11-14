@@ -400,6 +400,24 @@ test("replicates: Student, Mann–Whitney, BH and Bonferroni across regions, log
   assert.deepEqual(A.normalizeAssaySetup({ cond: { a: "WT", b: 5 } }).cond, { a: "WT" });
 });
 
+test("sample-data 7: WT vs KO ChIP with three chromatin sets each", async () => {
+  const RS = await import("../web/assay-stats.js");
+  const file = "sample-data/7 ChIP-qPCR replicates WT vs KO - results.csv";
+  const exp = C.newExperiment({ title: file });
+  exp.source = { text: readFileSync(new URL(`../${file}`, import.meta.url), "utf8"), sha256: "x", name: file };
+  const res = C.analyze(exp);
+  const wells = A.guessLabels(res.rows, "enrichment");
+  const sets = [...new Set(Object.values(wells).map(w => w.set))].sort();
+  assert.deepEqual(sets, ["KO-1", "KO-2", "KO-3", "WT-1", "WT-2", "WT-3"]);
+  exp.assaySetup = { type: "chip", params: { inputPercent: 1, negTarget: "GAPDH-desert" }, wells, cond: Object.fromEntries(sets.map(s => [s, RS.guessCondition(s)])), stats: { control: "WT" } };
+  const c = A.runAssay(exp, res.rows).replicates;
+  assert.deepEqual(c.conditions, ["WT", "KO"]);
+  const prom = c.comparisons.find(x => x.region === "MYC-promoter"), des = c.comparisons.find(x => x.region === "GAPDH-desert");
+  assert.ok(prom.pAdj < 0.05 && prom.diff < -1.5, JSON.stringify(prom));
+  assert.ok(des.pAdj > 0.05, JSON.stringify(des));
+  assert.ok(c.regions.every(r => r.groups.every(g => g.n === 3)));
+});
+
 test("replicates: three conditions with ANOVA + Dunnett and Tukey; CSV and SVG", async () => {
   const S = await import("../web/stats.js"), RS = await import("../web/assay-stats.js");
   const w = chipReps([...W6, ["DKO-1", 27], ["DKO-2", 28], ["DKO-3", 27]]);
