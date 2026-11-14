@@ -301,7 +301,8 @@ export function defaultSet(row) {
 export function guessLabels(rows, family) {
   const out = {};
   for (const r of rows) {
-    if (r.role === "ntc" || r.role === "empty") continue;
+    // NTC wells never take part, except that a "blank" or "water" well is exactly what a signal-over-blank assay needs.
+    if (r.role === "empty" || (r.role === "ntc" && family !== "signal")) continue;
     const g = guessAssayRole(r.sample, family);
     if (g && FAMILIES[family].roles.includes(g.role)) out[r.id] = { role: g.role, set: defaultSet(r), fraction: g.fraction || "" };
   }
@@ -312,7 +313,8 @@ export function guessLabels(rows, family) {
 // Rows from core.effectiveRows with their assay label. NTC and empty wells never take part.
 export function labelRows(rows, setup) {
   const wells = setup?.wells || {};
-  return rows.filter(r => wells[r.id] && r.role !== "ntc" && r.role !== "empty").map(r => {
+  // A well the user (or the name guess) labelled as Blank counts even if PlateCheck's run checks treat it as an NTC.
+  return rows.filter(r => wells[r.id] && r.role !== "empty" && (r.role !== "ntc" || wells[r.id].role === "blank")).map(r => {
     const w = wells[r.id];
     return { ...r, arole: w.role, aset: w.set || defaultSet(r), afraction: w.fraction || "", ctv: ctNum(r.ct, r.dc) };
   });
