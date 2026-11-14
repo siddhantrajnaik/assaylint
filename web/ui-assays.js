@@ -7,7 +7,7 @@ import * as RS from "./assay-stats.js";
 // Okabe–Ito colours: readable with the common kinds of colour blindness.
 const SERIES = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#8C7A2B", "#4D4D4D"];
 const ROLE_TONE = { ip: "#0072B2", input: "#9AA59F", igg: "#E69F00", digested: "#CC79A7", mock: "#9AA59F", meth_ref: "#0B6B5C", test: "#0072B2",
-  treated: "#009E73", untreated: "#9AA59F", library: "#0072B2", template: "#E69F00", fraction: "#56B4E9", blank: "#9AA59F", blocked: "#D55E00", unblocked: "#9AA59F" };
+  treated: "#009E73", untreated: "#9AA59F", library: "#0072B2", template: "#E69F00", fraction: "#56B4E9", blank: "#9AA59F", blocked: "#D55E00", unblocked: "#9AA59F", ipc: "#E69F00" };
 const NS = "http://www.w3.org/2000/svg";
 function s(tag, attrs, ...kids) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; }
 
@@ -93,14 +93,14 @@ export function assayView(ctx) {
     let v = raw;
     if (p.type === "number" && raw !== "") {
       v = Number(raw);
-      if (!Number.isFinite(v) || v < 0 || (p.key === "inputPercent" && (v <= 0 || v > 100))) { ctx.flash(`${p.label}: “${raw}” isn't a usable number, so it wasn't changed.`, true); ctx.renderMain(); return; }
+      if (!Number.isFinite(v) || (v < 0 && p.key !== "correctionFactor") || (p.key === "inputPercent" && (v <= 0 || v > 100))) { ctx.flash(`${p.label}: “${raw}” isn't a usable number, so it wasn't changed.`, true); ctx.renderMain(); return; }
     }
     if ((setup.params[p.key] ?? "") === v) return;
     save("assay.param", `${p.label}: ${v === "" ? "cleared" : v}`, s => { if (v === "") delete s.params[p.key]; else s.params[p.key] = v; });
   };
   const control = p => {
     const val = params[p.key] ?? "";
-    if (p.type === "number") return h("input", { type: "number", class: "num-in", step: p.step, min: 0, value: val === "" ? "" : String(val), "aria-label": p.label, onchange: ev => setParam(p, ev.target.value.trim()) });
+    if (p.type === "number") return h("input", { type: "number", class: "num-in", step: p.step, min: p.key === "correctionFactor" ? null : 0, value: val === "" ? "" : String(val), "aria-label": p.label, onchange: ev => setParam(p, ev.target.value.trim()) });
     const opts = p.type === "select" ? p.options : [["", p.required ? "Choose…" : "None"], ...(p.type === "set" ? setNames : targets).map(t => [t, t])];
     return h("select", { "aria-label": p.label, onchange: ev => setParam(p, ev.target.value) }, opts.map(([v, l]) => h("option", { value: v, selected: String(val) === v }, l)));
   };
@@ -109,7 +109,7 @@ export function assayView(ctx) {
     h("details", null, h("summary", null, "How it's calculated"),
       h("pre", { class: "fd-evidence" }, family.formula.join("\n")),
       h("p", { class: "fine" }, "Technical replicates are averaged as Ct values first. A Ct difference becomes a ratio as E^ΔCt, where E = 1 + the PCR efficiency of that primer pair: E = 2 (every copy doubles each cycle, 100%) unless you set the efficiency below."),
-      h("ul", { class: "fine" }, family.refs.map(k => h("li", null, A.REFS[k].cite, A.REFS[k].doi ? ` doi:${A.REFS[k].doi}` : ` PMID ${A.REFS[k].pmid}`))))));
+      h("ul", { class: "fine" }, family.refs.map(k => h("li", null, A.REFS[k].cite, A.REFS[k].doi ? ` doi:${A.REFS[k].doi}` : A.REFS[k].pmid ? ` PMID ${A.REFS[k].pmid}` : A.REFS[k].url ? ` ${A.REFS[k].url}` : ""))))));
 
   // ---- % input by DNA amount (Solomon et al. 2021): ng recovered and ng per well, for each set
   if (assay.family === "enrichment" && params.inputBasis === "amount") {
@@ -237,7 +237,8 @@ export function assayView(ctx) {
           h("tbody", null, res.rows.map(r => h("tr", { class: "click", tabindex: 0, onclick: () => { st.sel = new Set((r.wells || []).map(w => String(w))); ctx.renderMain(); } },
             res.columns.map(c => h("td", { class: typeof r[c[0]] === "number" ? "num" : "" }, cell(r, c)))))))),
         assay.family === "fractions" && res.summary?.length > 0 && h("p", null, `Share in polysome fractions (fraction ${params.polysomeFrom} onwards): ${res.summary.map(x => `${x.set} / ${x.target} ${A.fmtNum(x.polysomal, 1)}%`).join("; ")}.`),
-        assay.family === "signal" && res.summary?.length > 0 && h("p", { class: "fine" }, "Blanks: " + res.summary.map(x => `${x.target} mean Ct ${A.fmtNum(x.blankMean)} (SD ${A.fmtNum(x.blankSd, 3)}, n = ${x.nBlank})`).join("; ") + ".")]
+        assay.family === "signal" && res.summary?.length > 0 && h("p", { class: "fine" }, "Blanks: " + res.summary.map(x => `${x.target} mean Ct ${A.fmtNum(x.blankMean)} (SD ${A.fmtNum(x.blankSd, 3)}, n = ${x.nBlank})`).join("; ") + "."),
+        assay.family === "npx" && res.summary?.length > 0 && h("p", { class: "fine" }, "Negative controls: " + res.summary.map(x => `${x.target} mean NPX ${A.fmtNum(x.negMean)} (SD ${A.fmtNum(x.negSd, 3)}, n = ${x.nNeg}), LOD ${A.fmtNum(x.lod)}`).join("; ") + ".")]
       : h("p", { class: "muted" }, "No results yet. Label the wells above."),
     h("p", { class: "fine" }, "Click a row to select its wells on the plate. The values come straight from the exported Ct values; nothing is removed or changed. The same table goes into the report.")));
   if (res.rows.length) out.push(replicateCard(ctx, setup, res, save));

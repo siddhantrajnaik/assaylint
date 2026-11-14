@@ -33,16 +33,19 @@ export const REFS = {
   radle2013: { cite: "Rädle B, Rutkowski AJ, Ruzsics Z, Friedel CC, Koszinowski UH, Dölken L. Metabolic labeling of newly transcribed RNA for high resolution gene expression profiling of RNA synthesis, processing and decay in cell culture. J Vis Exp 2013;(78):50195.", doi: "10.3791/50195" },
   watson2021: { cite: "Watson MJ, Park Y, Thoreen CC. Roadblock-qPCR: a simple and inexpensive strategy for targeted measurements of mRNA stability. RNA 2021;27:335–342.", doi: "10.1261/rna.076885.120" },
   konig2010: { cite: "König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. Nat Struct Mol Biol 2010;17:909–915.", doi: "10.1038/nsmb.1838" },
+  assarsson2014: { cite: "Assarsson E, Lundberg M, Holmquist G, et al. Homogenous 96-plex PEA immunoassay exhibiting high sensitivity, specificity, and excellent scalability. PLoS One 2014;9:e95192.", doi: "10.1371/journal.pone.0095192" },
+  olink2022: { cite: "Olink Proteomics. Data normalization and standardization. White paper 1096, v2.1, 2022-04-08 (Olink's own document, not peer reviewed).", doi: null, url: "https://olink.com/knowledge/documents" },
+  du2010: { cite: "Du P, Zhang X, Huang CC, et al. Comparison of Beta-value and M-value methods for quantifying methylation levels by microarray analysis. BMC Bioinformatics 2010;11:587.", doi: "10.1186/1471-2105-11-587" },
   armbruster2008: { cite: "Armbruster DA, Pry T. Limit of blank, limit of detection and limit of quantitation. Clin Biochem Rev 2008;29 Suppl 1:S49–S52.", doi: null, pmid: "18852857" },
 };
 
 // ---------------------------------------------------------------- well labels for assays
-export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank", "blocked", "unblocked"];
+export const ASSAY_ROLES = ["ip", "input", "igg", "digested", "mock", "meth_ref", "test", "treated", "untreated", "library", "template", "fraction", "blank", "blocked", "unblocked", "ipc"];
 export const ASSAY_ROLE_LABEL = {
   ip: "IP / pulldown", input: "Input", igg: "IgG / mock IP", digested: "Digested", mock: "Mock-digested",
   meth_ref: "Fully methylated reference", test: "Test sample", treated: "Treated / enriched", untreated: "Untreated / naked DNA",
   library: "3C library", template: "Control template (BAC)", fraction: "Fraction", blank: "Blank (no antigen)",
-  blocked: "Thiol-treated (NEM)", unblocked: "Mock-treated",
+  blocked: "Thiol-treated (NEM)", unblocked: "Mock-treated", ipc: "Inter-plate control (IPC)",
 };
 export const ASSAY_ROLE_HELP = {
   ip: "DNA or RNA recovered with the specific antibody or probe.",
@@ -60,6 +63,7 @@ export const ASSAY_ROLE_HELP = {
   blank: "A reaction with no antigen (buffer only). Defines the background.",
   blocked: "Total RNA from 4sU-labelled (or unlabelled control) cells, treated with a thiol-reactive compound such as N-ethylmaleimide that stops reverse transcription at 4sU.",
   unblocked: "The same RNA taken through the treatment without the compound.",
+  ipc: "The inter-plate control run as a sample (Olink runs it in triplicate). Its median per assay is taken off every sample.",
 };
 
 // ---------------------------------------------------------------- calculation families
@@ -89,6 +93,15 @@ const P = {
     hint: "Cells grown without 4sU and taken through the same steps. Their signal is the background and is taken off every other set." },
   totalPercent: { key: "totalPercent", label: "Total RNA kept, as % of the RNA going into one pulldown", type: "number", def: 10, step: 1,
     hint: "Used only for the pulldown readout, like the input % in ChIP." },
+  npxInput: { key: "npxInput", label: "What the Ct column holds", type: "select", def: "ct",
+    options: [["ct", "Ct values: work out NPX from the extension control and the inter-plate control"], ["npx", "NPX values already (from Olink software or a service): use them as they are"]] },
+  extTarget: { key: "extTarget", label: "Extension control (assay name)", type: "target", def: "", hint: "Measured in every sample. Each assay's Ct is taken relative to it (ΔCt). Needed for Ct values." },
+  ic2Target: { key: "ic2Target", label: "Incubation control 2 (optional)", type: "target", def: "", hint: "Used for sample QC: a sample more than 0.3 NPX from the plate median is flagged." },
+  ic1Target: { key: "ic1Target", label: "Incubation control 1 (optional)", type: "target", def: "", hint: "Shown with the controls; not part of the sample QC rule." },
+  detTarget: { key: "detTarget", label: "Detection control (optional)", type: "target", def: "", hint: "Used for sample QC like incubation control 2." },
+  correctionFactor: { key: "correctionFactor", label: "Correction factor (optional)", type: "number", def: 0, step: 0.1,
+    hint: "Olink sets one per assay during panel validation so that background sits near 0 NPX. Without it NPX is relative to the inter-plate control; differences between samples don't change." },
+  npxSd: { key: "npxSd", label: "Limit of detection: negative-control mean plus this many SD", type: "number", def: 3, step: 0.5 },
   maxCycles: { key: "maxCycles", label: "Cycles run (used when the blank never comes up)", type: "number", def: 40, step: 1 },
 };
 export const FAMILIES = {
@@ -123,6 +136,11 @@ export const FAMILIES = {
   signal: { name: "Signal over blank and limit of detection", roles: ["test", "blank"], params: [P.sdMultiplier, P.maxCycles],
     formula: ["ΔCt = mean Ct(blank) − Ct(sample)", "Fold over blank = E^ΔCt", "Limit of detection (as a Ct) = mean Ct(blank) − k × SD(blank); a sample is above it if its Ct is lower"],
     refs: ["niemeyer2007", "lundberg2011", "armbruster2008"] },
+  npx: { name: "PEA in NPX (Olink-style normalisation)", roles: ["test", "blank", "ipc"], params: [P.npxInput, P.extTarget, P.ic2Target, P.ic1Target, P.detTarget, P.correctionFactor, P.npxSd],
+    formula: ["ΔCt = Ct(assay) − Ct(extension control), in the same sample", "ΔΔCt = ΔCt − median ΔCt of the inter-plate controls, per assay",
+      "NPX = correction factor − ΔΔCt (log2 scale; higher means more protein)", "LOD per assay = mean NPX of the negative controls + k × SD (k = 3)",
+      "Sample QC: incubation control 2 or detection control more than 0.3 NPX from the plate median"],
+    refs: ["assarsson2014", "olink2022"] },
 };
 
 // The experiments, each mapped to one calculation. `defaults` override the family defaults.
@@ -150,6 +168,8 @@ export const ASSAYS = [
   { id: "ipcr", name: "Immuno-PCR", family: "signal", covers: ["immuno-PCR"], require: ["test", "blank"] },
   { id: "pla", name: "PLA-qPCR", family: "signal", covers: ["Proximity ligation assay"], require: ["test", "blank"] },
   { id: "pea", name: "PEA-qPCR", family: "signal", covers: ["Proximity extension assay"], require: ["test", "blank"] },
+  { id: "olink", name: "PEA with NPX (Olink-style)", family: "npx", covers: ["Proximity extension assay, NPX", "Olink Target 96/48 (qPCR read-out)"], require: ["test"],
+    note: "Label the negative controls (buffer) as Blank and the inter-plate controls as IPC. For Ct values, choose the extension control assay. This follows Olink's published normalisation; it doesn't replace Olink's software or their per-assay correction factors." },
 ];
 export const assayById = id => ASSAYS.find(a => a.id === id) || null;
 
@@ -261,6 +281,9 @@ export function guessAssayRole(sample, family) {
       if (has(s, /\bmock\b|no[\s_-]?(nem|iaa|chem)|untreated|\bdmso\b|\bminus\b/i)) return { role: "unblocked" };
       if (has(s, /\bnem\b|ethylmaleimide|\biaa\b|treated|\balkyl/i)) return { role: "blocked" };
       return null;
+    case "npx":
+      if (has(s, /\bipc\b|inter[\s_-]?plate/i)) return { role: "ipc" };
+      return has(s, /\bblank\b|\bbuffer\b|\bneg(ative)?\b|\bnc\b/i) ? { role: "blank" } : { role: "test" };
     case "signal":
       return has(s, /\bblank\b|\bbuffer\b|no[\s_-]?antigen|\bzero\b|\bbackground\b|\bneg(ative)?\b/i) ? { role: "blank" } : { role: "test" };
     default: return null;
@@ -697,7 +720,61 @@ export function calcLabelling(lr, params, opts, warn) {
     chart: { yLabel: "% new RNA", bars: out.filter(r => !(bgSet && r.set === bgSet)).map(r => ({ group: r.target, series: r.set, value: r.pctNew })) } };
 }
 
-const CALC = { labelling: calcLabelling, enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
+// ---------------------------------------------------------------- (h) PEA in NPX, Olink-style
+// Assarsson et al. 2014 and Olink's white paper 1096: ΔCt against the extension control of the same sample, ΔΔCt
+// against the median of the inter-plate controls for that assay, NPX = correction factor − ΔΔCt. LOD = 3 SD above the
+// negative controls (buffer). Sample QC: incubation control 2 and detection control within ±0.3 NPX of the plate median.
+// For the QC I use the extension-normalised values; a constant per assay (IPC, correction factor) doesn't change the
+// distance from the median. With "NPX already", the numbers in the Ct column are taken as NPX and nothing is normalised.
+const median = xs => { const v = [...xs].sort((a, b) => a - b), n = v.length; return n ? (n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2) : null; };
+export function calcNpx(lr, params, opts, warn) {
+  const given = params.npxInput === "npx", ext = params.extTarget, cf = fin(Number(params.correctionFactor)) ? Number(params.correctionFactor) : 0;
+  const k = fin(Number(params.npxSd)) ? Number(params.npxSd) : 3;
+  const ctrlTargets = new Set([ext, params.ic1Target, params.ic2Target, params.detTarget].filter(Boolean));
+  const G = makeGroups(lr, opts, r => `${r.arole}\u0000${r.aset}\u0000${r.target}`, warn);
+  const ct = (role, s, t) => G.get(`${role}\u0000${s}\u0000${t}`)?.mean ?? null;
+  const setsOf = role => sets(lr.filter(r => r.arole === role));
+  if (!given && !ext) { warn("high", "Choose the extension control assay; NPX from Ct values needs it. Or say the Ct column already holds NPX."); return { rows: [], columns: [], chart: null }; }
+  // ΔCt (extension-normalised) for one sample and assay; null when either is missing.
+  const dct = (role, s, t) => { const a = ct(role, s, t); if (given || a === null) return a; const e = ct(role, s, ext); return e === null ? null : a - e; };
+  for (const role of ["test", "blank", "ipc"]) for (const s of setsOf(role)) if (!given && ct(role, s, ext) === null) warn("high", `${s}: no extension control Ct, so no NPX for this ${role === "ipc" ? "inter-plate control" : "sample"}.`);
+  const assays = targets(lr).filter(t => !ctrlTargets.has(t));
+  const ipcSets = setsOf("ipc");
+  if (!given && !ipcSets.length) warn("medium", "No inter-plate control wells, so NPX here is ΔCt against the extension control only (correction factor − ΔCt). Values can't be compared with another plate.");
+  const ipcMed = new Map(assays.map(t => [t, given ? 0 : median(ipcSets.map(s => dct("ipc", s, t)).filter(fin)) ?? 0]));
+  if (!given && ipcSets.length && ipcSets.length < 3) warn("low", `${ipcSets.length} inter-plate control set(s); Olink runs three and takes the median.`);
+  const npx = (role, s, t) => { const d = dct(role, s, t); return d === null ? null : given ? d : cf - (d - ipcMed.get(t)); };
+  const out = [], lods = [];
+  for (const t of assays) {
+    const neg = setsOf("blank").map(s => npx("blank", s, t)).filter(fin);
+    const m = neg.length ? mean(neg) : null, sd = sdOf(neg), lod = m !== null && sd !== null ? m + k * sd : null;
+    if (neg.length < 2) warn("medium", `${t}: ${neg.length} negative control(s) with a value; at least 2 (Olink runs 3) are needed for a limit of detection.`);
+    lods.push({ target: t, negMean: m, negSd: sd, nNeg: neg.length, lod, ipc: ipcMed.get(t) });
+    for (const role of ["test", "ipc", "blank"]) for (const s of setsOf(role)) {
+      const v = npx(role, s, t), raw = ct(role, s, t);
+      if (raw === null && !G.has(`${role}\u0000${s}\u0000${t}`)) continue;
+      out.push({ set: s, target: t, kind: role === "test" ? "Sample" : role === "ipc" ? "Inter-plate control" : "Negative control", ct: given ? null : raw, ctExt: given ? null : ct(role, s, ext),
+        dCt: given ? null : dct(role, s, t), npx: role === "test" ? v : v, lod, detected: role !== "test" ? "" : v === null ? (raw === null ? "Not detected" : "") : lod === null ? "No LOD" : v > lod ? "Above LOD" : "Below LOD",
+        wells: G.get(`${role}\u0000${s}\u0000${t}`)?.wells || [] });
+    }
+  }
+  // Sample QC on the internal controls.
+  const qc = [];
+  for (const [label, t] of [["Incubation control 2", params.ic2Target], ["Detection control", params.detTarget]]) {
+    if (!t) continue;
+    const vals = setsOf("test").map(s => { const a = ct("test", s, t); if (a === null) return [s, null]; if (given) return [s, a]; const e = ct("test", s, ext); return [s, e === null ? null : -(a - e)]; }).filter(([, v]) => fin(v));
+    const med = median(vals.map(([, v]) => v));
+    for (const [s, v] of vals) { const dev = v - med; qc.push({ set: s, control: label, deviation: dev }); if (Math.abs(dev) > 0.3) warn("medium", `${s}: ${label.toLowerCase()} is ${dev.toFixed(2)} NPX from the plate median (Olink's limit is ±0.3), so this sample fails QC.`); }
+  }
+  for (const r of out) { const bad = qc.filter(q => q.set === r.set && Math.abs(q.deviation) > 0.3); if (bad.length && r.kind === "Sample") r.detected = (r.detected ? r.detected + "; " : "") + "QC warning"; }
+  if (!given && cf === 0) warn("low", "No correction factor was entered, so NPX is relative to the inter-plate control, not Olink's absolute NPX scale. Differences between samples are the same either way.");
+  const samples = out.filter(r => r.kind === "Sample");
+  return { rows: samples.concat(out.filter(r => r.kind !== "Sample")), summary: lods, qc,
+    columns: [["set", "Sample"], ["target", "Assay"], ["kind", "Type"], ...(given ? [] : [["ct", "Ct", 2], ["ctExt", "Extension control Ct", 2], ["dCt", "ΔCt", 2]]), ["npx", "NPX", 2], ["lod", `LOD (mean + ${k} SD of negatives)`, 2], ["detected", "Detection"]],
+    chart: { yLabel: "NPX", bars: samples.map(r => ({ group: r.target, series: r.set, value: r.npx })) } };
+}
+
+const CALC = { npx: calcNpx, labelling: calcLabelling, enrichment: calcEnrichment, msre: calcMsre, pmr: calcPmr, accessibility: calcAccessibility, threec: calc3C, fractions: calcFractions, signal: calcSignal };
 
 // ---------------------------------------------------------------- one call for the app and the report
 // exp: the experiment (uses exp.assaySetup, exp.source and exp.ruleset); rows: core.effectiveRows output.
@@ -762,5 +839,5 @@ ${ps.length ? `<p class="sub">${esc(ps.join(". "))}.</p>` : ""}
 ${tbl}${summary}
 ${replicateReportHtml(out.replicates, esc)}
 ${out.warnings.length ? `<p><b>Things to check</b></p><ul>${out.warnings.map(w => `<li><span class="sev ${w.level}">${esc(w.level[0].toUpperCase() + w.level.slice(1))}</span>${esc(w.text)}</li>`).join("")}</ul>` : "<p>Nothing to flag in the assay calculation.</p>"}
-<p class="sub small">Ct differences are turned into ratios as E^ΔCt, where E = 1 + efficiency for that primer pair. ${esc(out.efficiencies.length ? `Efficiency used: ${out.efficiencies.map(e => `${e.target} ${effLabel(e)}${e.source === "curve" ? ` [${e.note}]` : ""}`).join("; ")}.` : "")} Where no efficiency was set, 100% (E = 2) is assumed. Sources: ${family.refs.map(k => esc(REFS[k].cite) + (REFS[k].doi ? ` doi:${esc(REFS[k].doi)}` : ` PMID ${esc(REFS[k].pmid)}`)).join(" ")}</p>`;
+<p class="sub small">Ct differences are turned into ratios as E^ΔCt, where E = 1 + efficiency for that primer pair. ${esc(out.efficiencies.length ? `Efficiency used: ${out.efficiencies.map(e => `${e.target} ${effLabel(e)}${e.source === "curve" ? ` [${e.note}]` : ""}`).join("; ")}.` : "")} Where no efficiency was set, 100% (E = 2) is assumed. Sources: ${family.refs.map(k => esc(REFS[k].cite) + (REFS[k].doi ? ` doi:${esc(REFS[k].doi)}` : REFS[k].pmid ? ` PMID ${esc(REFS[k].pmid)}` : REFS[k].url ? ` ${esc(REFS[k].url)}` : "")).join(" ")}</p>`;
 }

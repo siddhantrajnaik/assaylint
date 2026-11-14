@@ -157,7 +157,7 @@ export function valuesFor(familyKey, out, key) {
   if (!out) return [];
   if (familyKey === "fractions" && key === "polysomal") return (out.summary || []).map(s => ({ set: s.set, region: s.target, value: s.polysomal }));
   if (familyKey === "fractions") return (out.rows || []).map(r => ({ set: r.set, region: `${r.target} · fraction ${r.fraction}`, value: r[key] }));
-  return (out.rows || []).filter(r => !(key === "foldNeg" && r.foldNeg === 1)).map(r => ({ set: r.set, region: r.target, value: r[key] }));
+  return (out.rows || []).filter(r => !(key === "foldNeg" && r.foldNeg === 1) && (!r.kind || r.kind === "Sample")).map(r => ({ set: r.set, region: r.target, value: r[key] }));
 }
 function effectText(scale, kind, A, B) {
   if (!A.n || !B.n) return "";

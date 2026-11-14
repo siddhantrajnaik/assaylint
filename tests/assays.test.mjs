@@ -179,7 +179,7 @@ test("every assay maps to a family with formula text and verified references", (
     const f = A.FAMILIES[a.family];
     assert.ok(f && f.formula.length && f.refs.length, a.id);
     for (const r of a.require) assert.ok(f.roles.includes(r), `${a.id} requires ${r}`);
-    for (const k of f.refs) assert.ok(A.REFS[k] && (A.REFS[k].doi || A.REFS[k].pmid), k);
+    for (const k of f.refs) assert.ok(A.REFS[k] && (A.REFS[k].doi || A.REFS[k].pmid || A.REFS[k].url), k);
   }
 });
 
@@ -380,6 +380,32 @@ test("PMR from M.SssI standard curves for both reactions", () => {
   close(find(runEff("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25.5], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }, undefined, curves), { target: "MLH1" }).pmr, 12.5 / 2 ** -0.5);
   // No curves: unchanged.
   close(find(run("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }), { target: "MLH1" }).pmr, 12.5);
+});
+
+// ---------------------------------------------------------------- PEA in NPX (Assarsson 2014, Olink white paper 1096)
+test("PEA NPX from Ct: extension control, IPC median, correction factor, LOD and control QC", () => {
+  // IPC: IL6 12, 12.2, 12.6 with extension 13 → ΔCt −1, −0.8, −0.4, median −0.8.
+  // S1: IL6 18, extension 13.5 → ΔCt 4.5, ΔΔCt 5.3, NPX = 10 − 5.3 = 4.7.
+  // Negatives: IL6 22, 22.5, 23, extension 13 → NPX 0.2, −0.3, −0.8; mean −0.3, SD 0.5, LOD = −0.3 + 3 × 0.5 = 1.2.
+  // Detection control in S1, S2, S3: Ct 14, 14.5, 14.1 with extension 13.5 → −0.5, −1.0, −0.6; median −0.6, so S2 is 0.4 off.
+  const w = [["IPC-1", "ipc", "IL6", 12], ["IPC-1", "ipc", "Ext", 13], ["IPC-2", "ipc", "IL6", 12.2], ["IPC-2", "ipc", "Ext", 13], ["IPC-3", "ipc", "IL6", 12.6], ["IPC-3", "ipc", "Ext", 13],
+    ["S1", "test", "IL6", 18], ["S1", "test", "Ext", 13.5], ["S1", "test", "Det", 14], ["S2", "test", "Ext", 13.5], ["S2", "test", "Det", 14.5], ["S3", "test", "Ext", 13.5], ["S3", "test", "Det", 14.1],
+    ["N1", "blank", "IL6", 22], ["N1", "blank", "Ext", 13], ["N2", "blank", "IL6", 22.5], ["N2", "blank", "Ext", 13], ["N3", "blank", "IL6", 23], ["N3", "blank", "Ext", 13]];
+  const out = run("olink", w, { extTarget: "Ext", detTarget: "Det", correctionFactor: 10 });
+  const s1 = find(out, { set: "S1", target: "IL6" });
+  close(s1.dCt, 4.5); close(s1.npx, 4.7); close(out.summary[0].ipc, -0.8);
+  close(out.summary[0].negMean, -0.3); close(out.summary[0].negSd, 0.5); close(s1.lod, 1.2);
+  assert.equal(s1.detected, "Above LOD");
+  assert.ok(warned(out, /S2: detection control is -0\.40 NPX from the plate median/));
+  assert.ok(!out.rows.some(r => r.target === "Ext" || r.target === "Det"));
+  close(find(run("olink", w, { extTarget: "Ext" }), { set: "S1", target: "IL6" }).npx, -5.3); // no correction factor: relative to the IPC
+  assert.ok(warned(run("olink", w, {}), /Choose the extension control/));
+  // NPX given directly: used as they are.
+  const g = run("olink", [["S1", "test", "IL6", 4.7], ["N1", "blank", "IL6", 0.2], ["N2", "blank", "IL6", -0.3], ["N3", "blank", "IL6", -0.8]], { npxInput: "npx" });
+  close(find(g, { set: "S1" }).npx, 4.7); close(find(g, { set: "S1" }).lod, 1.2);
+  assert.equal(A.guessAssayRole("IPC 2", "npx").role, "ipc"); assert.equal(A.guessAssayRole("Neg ctrl 1", "npx").role, "blank");
+  // The existing PEA-qPCR entry (signal over blank) is unchanged.
+  assert.equal(A.assayById("pea").family, "signal");
 });
 
 // ---------------------------------------------------------------- statistics across biological replicates
