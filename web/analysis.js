@@ -534,7 +534,7 @@ const REFS = {
   wilcoxon: ["Wilcoxon F (1945). Individual comparisons by ranking methods. Biometrics Bulletin 1(6):80–83.", "10.2307/3001968"],
   tukey: ["Tukey JW (1949). Comparing individual means in the analysis of variance. Biometrics 5(2):99–114.", "10.2307/3001913"],
   welch51: ["Welch BL (1951). On the comparison of several mean values: an alternative approach. Biometrika 38(3–4):330–336.", "10.1093/biomet/38.3-4.330"],
-  gameshowell: ["Games PA, Howell JF (1976). Pairwise multiple comparison procedures with unequal n's and/or variances: a Monte Carlo study. Journal of Educational Statistics 1(2):113–125.", "10.3102/10769986001002113"],
+  gameshowell: ["Games PA, Howell JF (1976). Pairwise multiple comparison procedures with unequal N's and/or variances: a Monte Carlo study. Journal of Educational Statistics 1(2):113–125.", "10.3102/10769986001002113"],
   dunnett: ["Dunnett CW (1955). A multiple comparison procedure for comparing several treatments with a control. Journal of the American Statistical Association 50(272):1096–1121.", "10.1080/01621459.1955.10501294"],
   mannwhitney: ["Mann HB, Whitney DR (1947). On a test of whether one of two random variables is stochastically larger than the other. Annals of Mathematical Statistics 18(1):50–60.", "10.1214/aoms/1177730491"],
   kruskal: ["Kruskal WH, Wallis WA (1952). Use of ranks in one-criterion variance analysis. Journal of the American Statistical Association 47(260):583–621.", "10.1080/01621459.1952.10483441"],
