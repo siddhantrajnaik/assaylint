@@ -179,7 +179,7 @@ test("every assay maps to a family with formula text and verified references", (
     const f = A.FAMILIES[a.family];
     assert.ok(f && f.formula.length && f.refs.length, a.id);
     for (const r of a.require) assert.ok(f.roles.includes(r), `${a.id} requires ${r}`);
-    for (const k of f.refs) assert.ok(A.REFS[k] && (A.REFS[k].doi || A.REFS[k].pmid), k);
+    for (const k of f.refs) assert.ok(A.REFS[k] && (A.REFS[k].doi || A.REFS[k].pmid || A.REFS[k].url), k);
   }
 });
 
@@ -330,4 +330,164 @@ test("efficiency from the demo run's real standard curve, and the setting surviv
   assert.equal(Object.getOwnPropertyDescriptor(p.eff, "__proto__").value, 92);
   const html = A.assayReportHtml({ ...exp, assaySetup: { type: "chip", params: { inputPercent: 1 }, eff: { GENE1: "curve" }, wells: {} } }, res.rows, x => String(x), res.stdCurves);
   assert.match(html, /E\^ΔCt/);
+});
+
+// ---------------------------------------------------------------- % input by DNA amount (Solomon et al. 2021)
+test("% input by amount: DFa = DFv × input recovered / IP recovered with equal ng per well", () => {
+  // 10% input, so DFv = 10. Input recovered 500 ng, IP 50 ng, 1.25 ng of each per well: DFa = 10 × 500 / 50 = 100.
+  // Input Ct 25, IP Ct 26: % input = 100 / 100 × 2^(25 − 26) = 0.5% (by volume it would read 10 × 2^−1 = 5%).
+  const w = [["A", "ip", "R1", 26], ["A", "input", "R1", 25]];
+  const { rows, labels } = plate(w);
+  const go = (params, dna) => A.runAssay({ assaySetup: { type: "chip", params, wells: labels, dna } }, rows);
+  close(find(go({ inputPercent: 10 }), { target: "R1" }).pctInput, 5); // default unchanged
+  const r = find(go({ inputPercent: 10, inputBasis: "amount" }, { A: { ip: 50, input: 500, ipWell: 1.25, inputWell: 1.25 } }), { target: "R1" });
+  close(r.pctInput, 0.5); close(r.adjInput, 25 - Math.log2(100));
+  // Unequal loading: 2.5 ng IP and 1.25 ng input per well. DFa = 10 × (500 / 1.25) / (50 / 2.5) = 200, so 0.25%.
+  close(find(go({ inputPercent: 10, inputBasis: "amount" }, { A: { ip: 50, input: 500, ipWell: 2.5, inputWell: 1.25 } }), { target: "R1" }).pctInput, 0.25);
+  const miss = go({ inputPercent: 10, inputBasis: "amount" }, {});
+  assert.equal(find(miss, { target: "R1" }).pctInput, null); assert.ok(warned(miss, /needs the ng of DNA recovered/));
+  assert.deepEqual(A.normalizeAssaySetup({ dna: { A: { ip: 50, input: -1, x: 3 }, B: 5 } }).dna, { A: { ip: 50 } });
+});
+
+// ---------------------------------------------------------------- standard-curve normalisation (3C, PMR)
+test("3C with a template standard curve: Q = 10^((Ct − intercept) / slope)", () => {
+  // F19 curve slope −3.5, intercept 20: library Ct 30 → Q = 10^(10 / −3.5) = 10^−2.857143 = 0.0013895.
+  // Ercc3 has no curve, so it uses one template level (2^−2 = 0.25) and the mix is flagged.
+  const w = [["A", "library", "F19", 30], ["A", "library", "Gapdh", 20], ["A", "library", "Ercc3", 28], ["X", "template", "Ercc3", 26]];
+  const out = runEff("threec", w, { loadingTarget: "Gapdh" }, undefined, [{ target: "F19", slope: -3.5, intercept: 20, efficiency: 93.1, r2: 0.999, levels: 5 }]);
+  const f = find(out, { target: "F19" });
+  close(f.signal, 10 ** (10 / -3.5)); close(f.signal, 0.00138950, 1e-8);
+  assert.match(f.method, /standard curve/); assert.equal(find(out, { target: "Ercc3" }).method, "one template level");
+  assert.ok(warned(out, /different units/)); assert.ok(!warned(out, /F19: no control template wells/));
+  assert.ok(!warned(out, /No wells are labelled “Control template/));
+  // Without curves the old single-level result stands, with a note.
+  const plain = run("threec", [["A", "library", "F19", 30], ["X", "template", "F19", 25], ["A", "library", "Gapdh", 20]], { loadingTarget: "Gapdh" });
+  close(find(plain, { target: "F19" }).signal, 1 / 32); assert.ok(warned(plain, /No template standard curve/));
+});
+
+test("PMR from M.SssI standard curves for both reactions", () => {
+  // Both curves slope −3.321928 (E = 2): gene intercept 25, ALU intercept 18. Sample MLH1 30, ALU 20:
+  // Q(gene) = 2^−5, Q(ALU) = 2^−2, ratio 1/8; standards are the reference (ratio 1) → PMR 12.5, same as the ΔΔCt example.
+  const m = -1 / Math.log10(2), curves = [{ target: "MLH1", slope: m, intercept: 25, efficiency: 100, r2: 1, levels: 5 }, { target: "ALU", slope: m, intercept: 18, efficiency: 100, r2: 1, levels: 5 }];
+  const w = [["T1", "test", "MLH1", 30], ["T1", "test", "ALU", 20]];
+  const out = runEff("methylight", w, { controlTarget: "ALU" }, undefined, curves);
+  const r = find(out, { target: "MLH1" });
+  close(r.pmr, 12.5); assert.match(r.method, /standards are the reference/); assert.ok(!warned(out, /No wells are labelled/));
+  // A gene curve with slope −3.5: Q(gene) = 10^(5 / −3.5) = 0.0372759, PMR = 100 × 0.0372759 / 0.25 = 14.910.
+  const c2 = [{ ...curves[0], slope: -3.5 }, curves[1]];
+  close(find(runEff("methylight", w, { controlTarget: "ALU" }, undefined, c2), { target: "MLH1" }).pmr, 100 * 10 ** (5 / -3.5) / 0.25);
+  // With reference wells labelled: reference MLH1 25.5, ALU 18 → ratio 2^−0.5; PMR = 12.5 / 2^−0.5 = 17.678.
+  close(find(runEff("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25.5], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }, undefined, curves), { target: "MLH1" }).pmr, 12.5 / 2 ** -0.5);
+  // No curves: unchanged.
+  close(find(run("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }), { target: "MLH1" }).pmr, 12.5);
+});
+
+// ---------------------------------------------------------------- PEA in NPX (Assarsson 2014, Olink white paper 1096)
+test("PEA NPX from Ct: extension control, IPC median, correction factor, LOD and control QC", () => {
+  // IPC: IL6 12, 12.2, 12.6 with extension 13 → ΔCt −1, −0.8, −0.4, median −0.8.
+  // S1: IL6 18, extension 13.5 → ΔCt 4.5, ΔΔCt 5.3, NPX = 10 − 5.3 = 4.7.
+  // Negatives: IL6 22, 22.5, 23, extension 13 → NPX 0.2, −0.3, −0.8; mean −0.3, SD 0.5, LOD = −0.3 + 3 × 0.5 = 1.2.
+  // Detection control in S1, S2, S3: Ct 14, 14.5, 14.1 with extension 13.5 → −0.5, −1.0, −0.6; median −0.6, so S2 is 0.4 off.
+  const w = [["IPC-1", "ipc", "IL6", 12], ["IPC-1", "ipc", "Ext", 13], ["IPC-2", "ipc", "IL6", 12.2], ["IPC-2", "ipc", "Ext", 13], ["IPC-3", "ipc", "IL6", 12.6], ["IPC-3", "ipc", "Ext", 13],
+    ["S1", "test", "IL6", 18], ["S1", "test", "Ext", 13.5], ["S1", "test", "Det", 14], ["S2", "test", "Ext", 13.5], ["S2", "test", "Det", 14.5], ["S3", "test", "Ext", 13.5], ["S3", "test", "Det", 14.1],
+    ["N1", "blank", "IL6", 22], ["N1", "blank", "Ext", 13], ["N2", "blank", "IL6", 22.5], ["N2", "blank", "Ext", 13], ["N3", "blank", "IL6", 23], ["N3", "blank", "Ext", 13]];
+  const out = run("olink", w, { extTarget: "Ext", detTarget: "Det", correctionFactor: 10 });
+  const s1 = find(out, { set: "S1", target: "IL6" });
+  close(s1.dCt, 4.5); close(s1.npx, 4.7); close(out.summary[0].ipc, -0.8);
+  close(out.summary[0].negMean, -0.3); close(out.summary[0].negSd, 0.5); close(s1.lod, 1.2);
+  assert.equal(s1.detected, "Above LOD");
+  assert.ok(warned(out, /S2: detection control is -0\.40 NPX from the plate median/));
+  assert.ok(!out.rows.some(r => r.target === "Ext" || r.target === "Det"));
+  close(find(run("olink", w, { extTarget: "Ext" }), { set: "S1", target: "IL6" }).npx, -5.3); // no correction factor: relative to the IPC
+  assert.ok(warned(run("olink", w, {}), /Choose the extension control/));
+  // NPX given directly: used as they are.
+  const g = run("olink", [["S1", "test", "IL6", 4.7], ["N1", "blank", "IL6", 0.2], ["N2", "blank", "IL6", -0.3], ["N3", "blank", "IL6", -0.8]], { npxInput: "npx" });
+  close(find(g, { set: "S1" }).npx, 4.7); close(find(g, { set: "S1" }).lod, 1.2);
+  assert.equal(A.guessAssayRole("IPC 2", "npx").role, "ipc"); assert.equal(A.guessAssayRole("Neg ctrl 1", "npx").role, "blank");
+  // The existing PEA-qPCR entry (signal over blank) is unchanged.
+  assert.equal(A.assayById("pea").family, "signal");
+});
+
+// ---------------------------------------------------------------- statistics across biological replicates
+function runCond(type, wells, params, cond, stats) {
+  const { rows, labels } = plate(wells);
+  return A.runAssay({ assaySetup: { type, params, wells: labels, cond, stats }, ruleset: { values: { sdThreshold: 0.3 } } }, rows);
+}
+const chipReps = (ips, inp = 26) => ips.flatMap(([s, ip]) => [[s, "ip", "R", ip], [s, "input", "R", inp]]);
+const WTKO = { "WT-1": "WT", "WT-2": "WT", "WT-3": "WT", "KO-1": "KO", "KO-2": "KO", "KO-3": "KO" };
+const W6 = [["WT-1", 24], ["WT-2", 23], ["WT-3", 24], ["KO-1", 26], ["KO-2", 25], ["KO-3", 26]];
+// t with 4 df in closed form: two-sided p = 2 × (1/2 − 3/4 u (1 − u²/3)), u = |t| / sqrt(t² + 4).
+const p4 = t => { const u = Math.abs(t) / Math.sqrt(t * t + 4); return 2 * (0.5 - 0.75 * u * (1 - u * u / 3)); };
+
+test("replicates: Welch t-test on log2 % input, by hand", () => {
+  // % input = 2^(26 − IP): WT 4, 8, 4 (log2 2, 3, 2); KO 1, 2, 1 (log2 0, 1, 0).
+  // Difference −2, SD 0.57735 in each, SE = sqrt(2 × (1/3) / 3) = 0.4714, t = −4.2426, df = 4, p = 0.0132356.
+  const out = runCond("chip", chipReps(W6), { inputPercent: 1 }, WTKO, { control: "WT" });
+  const c = out.replicates, x = c.comparisons[0];
+  close(x.p, p4(3 * Math.SQRT2), 1e-9); close(x.p, 0.0132356, 1e-6);
+  close(x.diff, -2); assert.equal(x.a, "WT"); assert.equal(x.b, "KO"); assert.equal(x.mark, "*");
+  assert.equal(c.scale, "log2");
+  const wt = c.regions[0].groups[0];
+  close(wt.mean, 16 / 3); close(wt.sd, Math.sqrt(16 / 3)); // arithmetic mean ± SD in the table: 5.333 ± 2.309
+  assert.match(x.effect, /×0\.250/);
+  const { rows, labels } = plate(chipReps(W6));
+  assert.match(A.assayReportHtml({ assaySetup: { type: "chip", params: { inputPercent: 1 }, wells: labels, cond: WTKO } }, rows, s => String(s)), /Comparing conditions[\s\S]*<svg/);
+  // No conditions: no comparison, and the calculation itself is unchanged.
+  const plain = run("chip", chipReps(W6), { inputPercent: 1 });
+  assert.equal(plain.replicates, null); close(find(plain, { set: "WT-2" }).pctInput, 8);
+});
+
+test("replicates: Student, Mann–Whitney, BH and Bonferroni across regions, logit for % methylation", () => {
+  // Student with equal n and equal SDs gives the same t and df as Welch here.
+  close(runCond("chip", chipReps(W6), { inputPercent: 1 }, WTKO, { test: "student" }).replicates.comparisons[0].p, p4(3 * Math.SQRT2), 1e-9);
+  // Mann–Whitney, exact, 3 vs 3, complete separation: p = 2/20 = 0.1.
+  const mw = runCond("chip", chipReps([["WT-1", 24], ["WT-2", 23], ["WT-3", 23.5], ["KO-1", 26], ["KO-2", 25], ["KO-3", 25.5]]), { inputPercent: 1 }, WTKO, { test: "mannwhitney" }).replicates;
+  close(mw.comparisons[0].p, 0.1); assert.ok(mw.warnings.some(x => /can't give p below 0\.1/.test(x.text)));
+  // Two regions with the same p: BH leaves it as it is, Bonferroni doubles it.
+  const two = [...chipReps(W6), ...chipReps(W6).map(r => [r[0], r[1], "S", r[3]])];
+  const bh = runCond("chip", two, { inputPercent: 1 }, WTKO, {}).replicates.comparisons;
+  const bf = runCond("chip", two, { inputPercent: 1 }, WTKO, { correction: "bonferroni" }).replicates.comparisons;
+  close(bh[0].pAdj, bh[0].p); close(bf[0].pAdj, 2 * bf[0].p);
+  // % methylation goes on the logit (M-value) scale by default: 25% → log2(25/75), 10% → log2(10/90).
+  const m = [["WT-1", 25, 24], ["WT-2", 25, 24], ["KO-1", 26, 24], ["KO-2", 24 + Math.log2(10), 24]].flatMap(([s, d, mk]) => [[s, "digested", "H19", d], [s, "mock", "H19", mk]]);
+  const mc = { "WT-1": "WT", "WT-2": "WT", "KO-1": "KO", "KO-2": "KO" };
+  const mm = runCond("msre", m, { enzyme: "sensitive" }, mc, { control: "WT" }).replicates;
+  assert.equal(mm.regions[0].scale, "logit");
+  close(mm.regions[0].groups[1].tvalues[0], Math.log2(25 / 75)); close(mm.regions[0].groups[1].tvalues[1], Math.log2(10 / 90), 1e-9);
+  assert.equal(runCond("msre", m, { enzyme: "sensitive" }, mc, { pctScale: "raw" }).replicates.regions[0].scale, "raw");
+  assert.equal(A.normalizeAssaySetup({ cond: { a: "WT" }, stats: { test: "x" } }).stats.test, "welch");
+  assert.deepEqual(A.normalizeAssaySetup({ cond: { a: "WT", b: 5 } }).cond, { a: "WT" });
+});
+
+test("sample-data 7: WT vs KO ChIP with three chromatin sets each", async () => {
+  const RS = await import("../web/assay-stats.js");
+  const file = "sample-data/7 ChIP-qPCR replicates WT vs KO - results.csv";
+  const exp = C.newExperiment({ title: file });
+  exp.source = { text: readFileSync(new URL(`../${file}`, import.meta.url), "utf8"), sha256: "x", name: file };
+  const res = C.analyze(exp);
+  const wells = A.guessLabels(res.rows, "enrichment");
+  const sets = [...new Set(Object.values(wells).map(w => w.set))].sort();
+  assert.deepEqual(sets, ["KO-1", "KO-2", "KO-3", "WT-1", "WT-2", "WT-3"]);
+  exp.assaySetup = { type: "chip", params: { inputPercent: 1, negTarget: "GAPDH-desert" }, wells, cond: Object.fromEntries(sets.map(s => [s, RS.guessCondition(s)])), stats: { control: "WT" } };
+  const c = A.runAssay(exp, res.rows).replicates;
+  assert.deepEqual(c.conditions, ["WT", "KO"]);
+  const prom = c.comparisons.find(x => x.region === "MYC-promoter"), des = c.comparisons.find(x => x.region === "GAPDH-desert");
+  assert.ok(prom.pAdj < 0.05 && prom.diff < -1.5, JSON.stringify(prom));
+  assert.ok(des.pAdj > 0.05, JSON.stringify(des));
+  assert.ok(c.regions.every(r => r.groups.every(g => g.n === 3)));
+});
+
+test("replicates: three conditions with ANOVA + Dunnett and Tukey; CSV and SVG", async () => {
+  const S = await import("../web/stats.js"), RS = await import("../web/assay-stats.js");
+  const w = chipReps([...W6, ["DKO-1", 27], ["DKO-2", 28], ["DKO-3", 27]]);
+  const cond = { ...WTKO, "DKO-1": "DKO", "DKO-2": "DKO", "DKO-3": "DKO" };
+  const d = runCond("chip", w, { inputPercent: 1 }, cond, { test: "dunnett", control: "WT" }).replicates;
+  assert.deepEqual(d.conditions, ["WT", "DKO", "KO"]);
+  const L = [[2, 3, 2], [-1, -2, -1], [0, 1, 0]]; // log2 % input: WT, DKO, KO
+  close(d.comparisons.find(x => x.b === "KO").p, S.dunnett(L, 0).comparisons[1].p, 1e-12);
+  close(d.regions[0].anova.p, S.anova(L).p, 1e-12);
+  assert.equal(runCond("chip", w, { inputPercent: 1 }, cond, { test: "tukey" }).replicates.comparisons.length, 3);
+  assert.match(RS.comparisonCsv(d), /^region,metric,test/);
+  assert.match(RS.svgString(RS.replicateFigure(d)), /^<svg[\s\S]*<\/svg>$/);
+  assert.equal(RS.guessCondition("WT-2"), "WT"); assert.equal(RS.guessCondition("KO rep3"), "KO"); assert.equal(RS.guessCondition("Liver"), "");
 });

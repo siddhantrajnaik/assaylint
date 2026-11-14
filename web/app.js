@@ -974,7 +974,7 @@ VIEWS.compare = () => {
 };
 
 // ---------------------------------------------------------------- Assay calculations (workstream 4; the page itself is in ui-assays.js)
-VIEWS.assay = () => assayView({ h, st, card, emptyCard, change, renderMain, flash, plateGrid, plateDims });
+VIEWS.assay = () => assayView({ h, st, card, emptyCard, change, renderMain, flash, plateGrid, plateDims, download }); // download: CSV / SVG / PNG of the replicate comparison (workstream 4)
 
 // ---------------------------------------------------------------- start
 const first = S.index()[0];

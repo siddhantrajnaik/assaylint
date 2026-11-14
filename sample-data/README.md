@@ -63,3 +63,14 @@ What's planted:
 - Normal-2 RASSF1A was cut completely (its digested wells are Undetermined)
 
 The MGMT promoter comes out at about 75% methylated in Tumour-1 and about 5% in the normals.
+
+## 7. ChIP-qPCR with biological replicates: WT vs KO
+
+`7 ChIP-qPCR replicates WT vs KO - results.csv` (Bio-Rad CFX96 layout): H3K27ac ChIP from three WT and three KO chromatin preparations (WT-1, WT-2, WT-3, KO-1, KO-2, KO-3, in the Biological Set Name column) at the MYC promoter, a MYC enhancer and a gene desert (GAPDH-desert). Each chromatin has IP and 1% input in duplicate and one IgG well per region, plus an NTC per primer pair.
+
+Drop the file, open Assay calculations, choose ChIP-qPCR, set the negative region to GAPDH-desert and click "Fill in … wells from sample names". Then, under "Comparing conditions", click "Fill in 6 conditions from set names" (WT-1 becomes WT, KO-2 becomes KO) and pick WT as the control condition.
+
+What's planted:
+- About 4% input at the MYC promoter in WT and about 1% in KO, with some spread between chromatin preparations. The Welch t-test on log2 % input is significant at the promoter after Benjamini–Hochberg.
+- A smaller drop at the enhancer (about 2% to 1.4%)
+- No difference at the gene desert (about 0.1% in both)
