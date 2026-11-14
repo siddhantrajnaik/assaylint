@@ -463,7 +463,7 @@ export function calcMsre(lr, params, opts, warn) {
     }
     if (f !== null) row.pctMeth = dep ? 100 * (1 - f) : 100 * f;
     if (row.pctMeth !== null && (row.pctMeth > 100.5 || row.pctMeth < -0.5))
-      warn("medium", `${at}: ${fmtNum(row.pctMeth, 1)}% is outside 0–100%. It is shown as calculated, not clipped. Usually the digested and mock wells don't hold the same amount of DNA, or the digest was incomplete.`, row.wells);
+      warn("medium", `${at}: ${fmtNum(row.pctMeth, 1)}% is outside 0–100%. It is shown as calculated, not clipped. Digestion can only remove template, so a value past 0–100% usually means the digested and mock wells didn't get the same amount of DNA. Check the DNA input and pipetting for this sample.`, row.wells);
     out.push(row);
   }
   return { rows: out,

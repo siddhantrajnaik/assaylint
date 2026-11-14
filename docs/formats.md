@@ -36,11 +36,15 @@ Numeric wells: if the well column holds numbers (SDS 2.x), they are converted ro
 
 Numbers: in semicolon-separated files, decimal commas (`24,31`) are read as decimals. Thousands separators in quantities (`12,963.927`) are accepted. Raw strings are stored unchanged.
 
-Role values: `Unkn…`/`Unknown`/`Sample` → sample, `NTC`/`No template…` → NTC, `Std…`/`Standard` → standard, `Pos…` → positive, `NRT`/`No RT`/`-RT`/`NAC` → no-RT, `Empty`/`Unused` → empty. Other values (such as `Neg Ctrl`) are not mapped and are flagged. Samples named `NTC`, `water`, `H2O`, `blank` or `no template control` are treated as NTC when there is no role column or the role is “Unknown”; the source of the role is shown in the preview and plate map.
+Role values: `Unkn…`/`Unknown`/`Sample` → sample, `NTC`/`No template…` → NTC, `Std…`/`Standard` → standard, `Pos…` → positive, `NRT`/`No RT`/`-RT`/`NAC` → no-RT, `Empty`/`Unused` → empty. Other values (such as `Neg Ctrl`) are not mapped and are flagged. Samples named `NTC`, `water`, `H2O`, `blank` or `no template control` are treated as NTC, and samples whose name marks them as a no-RT control (`c1 noRT`, `c1 -RT`, `c1 RT-`, `NRT c1`, `c1 no-RT control`, `c1 minus RT`) are treated as no-RT, when there is no role column or the role is “Unknown”. The Plate page asks you to confirm these guesses; the source of the role is shown in the preview, plate map and report.
 
 No-amplification markers: empty, `Undetermined`, `NaN`, `N/A`, `NA`, `No Ct`, `No Cq`, `-`, `None`, `No Amp`. Any other non-numeric value is kept and flagged.
 
-Safe failure: if the well or Ct/Cq column is missing, the plate size for numeric wells is unknown, or more than half the rows cannot be parsed, nothing is analysed. Otherwise unparseable rows are excluded and reported as findings.
+Safe failure: if the well or Ct/Cq column is missing, the plate size for numeric wells is unknown, or more than half the rows cannot be parsed, nothing is analysed. Otherwise unparseable rows are excluded and reported as findings. A row counts as unparseable when its fields don't line up with the header or it has no well or Ct/Cq cell. A readable row whose Ct/Cq value isn't a number (for example `abc`) is not unparseable: it is kept, flagged as a non-numeric Ct/Cq and left out of calculations, however many such rows there are.
+
+Several candidate columns: if more than one column could be the Ct/Cq column (or the well, sample or target column), the first one is used and the preview shows a warning naming both.
+
+Excel workbooks with several sheets that look like results: a sheet named exactly `Results` (or `Ct Results`, `Cq Results`) is preferred over one that only contains the word, such as `Old results`. When more than one sheet qualifies, the note after import names the others so you can switch.
 
 Import template: `well,sample,target,ct,role,group,bio_unit,quantity` (downloadable from the Data tab).
 

@@ -1,4 +1,4 @@
-# PlateCheck rule catalog (rules v0.3.0)
+# PlateCheck rule catalog (rules v0.4.0)
 
 Scientific review status: Not yet reviewed by a qPCR domain expert.
 

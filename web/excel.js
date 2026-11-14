@@ -50,6 +50,7 @@ export async function excelSheets(bytes) {
 
 // Works out what each sheet holds and picks the best one for each kind. A QuantStudio workbook can have
 // Results, Amplification Data and Melt Curve sheets, so one file can give all three.
+const EXACT = { results: /^(results?|(quantification )?c[tq] results?)$/i, amp: /^amplification( data)?$/i, melt: /^melt( curve)?( (raw|derivative))?( data)?$/i };
 const PREFER = { results: /result|c[tq]\b/i, amp: /amplif/i, melt: /melt|dissoc/i };
 export function classifySheets(sheets) {
   const found = sheets.map(s => ({ ...s, ...detectFileKind(s.text) }));
@@ -58,8 +59,10 @@ export function classifySheets(sheets) {
     const c = found.filter(s => s.kind === kind);
     if (!c.length) continue;
     const rows = s => s.parsed?.rows?.length || Object.keys(s.parsed?.series || {}).length || 0;
-    c.sort((a, b) => (PREFER[kind].test(b.sheet) - PREFER[kind].test(a.sheet)) || (rows(b) - rows(a)));
-    best[kind] = c[0];
+    // A sheet named exactly like an instrument's results sheet beats one that only contains the word ("Old results").
+    const score = s => (EXACT[kind].test(s.sheet.trim()) ? 2 : PREFER[kind].test(s.sheet) ? 1 : 0);
+    c.sort((a, b) => (score(b) - score(a)) || (rows(b) - rows(a)));
+    best[kind] = { ...c[0], alternatives: c.slice(1).map(s => s.sheet) };
   }
   return { found, best };
 }

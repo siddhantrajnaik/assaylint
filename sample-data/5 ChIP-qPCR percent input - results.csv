@@ -1,3 +1,4 @@
+Note,"Synthetic example data for PlateCheck, not a real experiment"
 ,Well,Fluor,Target,Content,Sample,Biological Set Name,Cq,Cq Mean,Cq Std. Dev,Starting Quantity (SQ),Log Starting Quantity,SQ Mean,SQ Std. Dev,Set Point,Well Note
 ,A01,SYBR,MYC-promoter,Unkn-01,WT H3K27ac IP,WT,23.47,,,NaN,NaN,NaN,0,60,
 ,A02,SYBR,MYC-promoter,Unkn-01,WT H3K27ac IP,WT,23.47,,,NaN,NaN,NaN,0,60,

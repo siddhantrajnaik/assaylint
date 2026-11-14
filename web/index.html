@@ -22,10 +22,11 @@
 
 <dialog id="dlg-privacy" aria-labelledby="privacy-title">
   <h2 id="privacy-title">Where your data goes</h2>
-  <p>Nowhere. Everything runs in your browser. There's no server behind this site, so I never see your files or results, and there are no accounts, analytics or tracking.</p>
+  <p>Nowhere. Everything runs in your browser. The web server only delivers the app's files; nothing you load is sent back to it, so I never see your files or results, and there are no accounts, analytics or tracking.</p>
   <p>The one exception is the “Look up genes” button in the Targets panel. Only when you press it, the gene symbols of your targets (ACTB, MIR21 and so on, nothing else) go to MyGene.info, or to HGNC if MyGene.info can't be reached.</p>
   <p>Your experiments are saved in this browser on this computer, so a different browser or computer won't see them. Anyone using this browser profile can, and they aren't encrypted beyond whatever your computer already does.</p>
-  <p>There are no backups. To keep a copy or share a run, download the report or the experiment packet. To delete something, use "Delete experiment" on the Setup tab, or clear this site's data in your browser to remove everything.</p>
+  <p id="shared-host-note" hidden>This copy runs on a shared web address (web.iitd.ac.in), where every user's pages count as one site. Other pages on that address that you open in this browser could read the runs saved here. For unpublished data, download your runs and delete them when you're done, or use <a href="https://siddhantrajnaik.github.io/platecheck/">the main copy</a>.</p>
+  <p>There are no backups. To keep a copy or share a run, download the report or the experiment packet. To delete a run, click the × next to it in the run list, or open it and choose More, then "Rename or delete this run". To remove everything, clear this site's data in your browser.</p>
   <p id="storage-usage" class="muted"></p>
   <form method="dialog"><button class="btn primary">Close</button></form>
 </dialog>
@@ -41,7 +42,7 @@
     <dt>Biological unit</dt><dd>An independent sample (for example one animal, culture or patient). Statistics across conditions should be based on these.</dd>
     <dt>Standard curve</dt><dd>A dilution series of known quantities. Its slope gives the amplification efficiency; R² shows linearity.</dd>
     <dt>Melt curve</dt><dd>Fluorescence while heating the product after cycling (intercalating dyes only). One peak suggests one product.</dd>
-    <dt>Finding disposition</dt><dd>Your review decision: accepted, not applicable, resolved or unresolved. It never changes the data or removes the original finding.</dd>
+    <dt>Finding disposition</dt><dd>Your review decision on a flag: Looks fine, Doesn't apply, Still to fix or Fixed. It never changes the data or removes the original finding.</dd>
   </dl>
   <form method="dialog"><button class="btn primary">Close</button></form>
 </dialog>

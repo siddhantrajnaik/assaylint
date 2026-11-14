@@ -1,3 +1,4 @@
+* Note = Synthetic example data for PlateCheck, not a real experiment
 * Block Type = 384-Well Block
 * Calibration Background is expired  = No
 * Chemistry = TAQMAN

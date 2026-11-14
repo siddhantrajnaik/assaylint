@@ -4,7 +4,9 @@
 import { cleanTargets, targetTable } from "./genes.js"; // genes and RNA types per target
 
 export const TOOL = "PlateCheck";
-export const APP_VERSION = "0.3.0";
+export const APP_VERSION = "0.9.0";
+// Replaced with the commit hash at deploy (tools/stamp.mjs), so every report names the exact code that made it.
+export const BUILD = "dev";
 export const PARSER_VERSION = "0.4.0";
 export const PACKET_VERSION = 1;
 
@@ -26,8 +28,8 @@ export const CATEGORY_LABEL = {
 export const SEVERITIES = ["high", "medium", "low", "info"];
 export const DISPOSITIONS = ["unreviewed", "accepted", "not_applicable", "resolved", "unresolved"];
 export const DISPOSITION_LABEL = {
-  unreviewed: "Not reviewed", accepted: "Accepted", not_applicable: "Not applicable",
-  resolved: "Resolved", unresolved: "Unresolved",
+  unreviewed: "Not reviewed", accepted: "Looks fine", not_applicable: "Doesn't apply",
+  resolved: "Fixed", unresolved: "Still to fix",
 };
 export const CLOSED = new Set(["accepted", "not_applicable", "resolved"]);
 export const STATUS_LABEL = {
@@ -49,7 +51,7 @@ export const IMPORT_TEMPLATE =
 
 // ---------------------------------------------------------------- rule catalog
 // Severity is a property of the rule (PRD §9), not a generic score.
-const V = "0.3.0";
+const V = "0.4.0"; // rule-set version: bump when a rule is added or its logic changes
 const BASIS = "Informed by MIQE 2.0 guidance; thresholds are placeholders pending expert review.";
 export const RULES_REVIEW = { status: "Not yet reviewed by a qPCR domain expert", reviewed_on: null };
 export const RULES = {
@@ -427,6 +429,8 @@ export function toNum(v, dc = false) {
 export const ctNum = (ct, dc = false) => (isNoAmp(ct) ? null : toNum(ct, dc));
 const isNonNumeric = (ct, dc) => !isNoAmp(ct) && ctNum(ct, dc) === null;
 const NTC_NAME_RE = /^(ntc|no[\s_-]?template([\s_-]?control)?|water|h2o|blank)$/i;
+// No-RT controls are usually named after their sample: "c1 noRT", "c1 -RT", "c1_RT-", "NRT c1", "c1 minus RT".
+export const NRT_NAME_RE = /(?:^|[\s_(-])(?:no[\s_-]?rt|minus[\s_-]?rt|nrt|rt[\s_-]?(?:neg|minus))(?=$|[\s_)-])|-rt(?=$|[\s_)])|(?:^|[\s_])rt-(?=$|[\s_)])/i;
 
 export function normalizeRole(raw) {
   const s = String(raw ?? "").trim().toLowerCase();
@@ -490,8 +494,14 @@ function mapHeaders(headers) {
   for (const [field, aliases] of Object.entries(FIELD_ALIASES))
     for (const a of aliases) { const i = norm.indexOf(a); if (i >= 0) { columns[field] = i; names[field] = headers[i].trim(); break; } }
   const used = new Set(Object.values(columns));
+  // A field that more than one column could fill (two "Ct" columns, say). The first is used; the parser warns.
+  const duplicates = {};
+  for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
+    const idx = norm.map((n, i) => (aliases.includes(n) ? i : -1)).filter(i => i >= 0);
+    if (idx.length > 1) duplicates[field] = idx.map(i => `“${headers[i].trim()}” (column ${i + 1})`);
+  }
   const unrecognized = headers.map((h, i) => [String(h).trim(), i]).filter(([h, i]) => h && !used.has(i)).map(([h]) => h);
-  return { columns, names, unrecognized };
+  return { columns, names, unrecognized, duplicates };
 }
 
 // ---------------------------------------------------------------- results parser (FR-2, FR-3, FR-26)
@@ -532,7 +542,7 @@ export function parseResults(input, opts = {}) {
   if (end < 0) end = lines.length;
   const rows = splitDelimited(lines.slice(hi, end).join("\n"), delim), offset = hi;
   const header = rows[0];
-  const { columns, names, unrecognized } = mapHeaders(header.cells);
+  const headerMap = mapHeaders(header.cells), { columns, names, unrecognized } = headerMap;
   const headers = header.cells.map(s => s.trim()).filter(Boolean);
   let format = "generic-ct-csv";
   if (/^\s*\[results\]/im.test(preamble) || "Block Type" in metadata || (/^well position$/i.test(names.well || "") && "omit" in columns)) format = "thermo-quantstudio";
@@ -587,6 +597,8 @@ export function parseResults(input, opts = {}) {
     warnings.push(`Well positions were derived from well numbers assuming a ${plateSize}-well plate numbered row by row (1 = A1, ${cols + 1} = B1)` +
       (opts.plateSize ? ", as you chose." : stated ? ", as stated in the file header." : `, because the largest well number is ${max}.`) + " Check a few wells against your plate layout.");
   }
+  for (const [f, cols] of Object.entries(headerMap.duplicates || {}))
+    warnings.push(`More than one column could be the ${FIELD_LABEL[f] || f} column: ${cols.join(" and ")}. I used the first one; check that it's the right one, and remove or rename the other column if not.`);
   if (!("target" in columns)) warnings.push("No target column was found. Assign targets in the plate map.");
   if (!("sample" in columns)) warnings.push("No sample column was found. Assign samples in the plate map.");
   if (out.some(r => r.omit)) warnings.push(`${out.filter(r => r.omit).length} well(s) are marked Omit in the instrument software. PlateCheck keeps and checks them, and flags them for review.`);
@@ -846,6 +858,8 @@ export function effectiveRows(exp, parsed) {
     if (ROLES.includes(m.role)) [role, roleSource] = [m.role, "user"];
     else if (sample && NTC_NAME_RE.test(sample.trim()) && (!r.role || r.role === "sample"))
       [role, roleSource] = ["ntc", r.role ? `inferred from sample name (file task '${r.roleRaw}')` : "inferred from sample name"];
+    else if (sample && NRT_NAME_RE.test(sample.trim()) && (!r.role || r.role === "sample"))
+      [role, roleSource] = ["nrt", r.role ? `inferred from sample name (file task '${r.roleRaw}')` : "inferred from sample name"];
     else if (r.role) [role, roleSource] = [r.role, "file"];
     else [role, roleSource] = ["sample", r.roleRaw ? `default (file role '${r.roleRaw}' not recognised)` : "default"];
     let [bio_unit, bioSource] = take("bio_unit");
@@ -910,7 +924,7 @@ export function analyze(exp) {
     add("unmapped_role", r.line, { ...at(r), description: `Well ${name(r)} has role '${r.roleRaw}' in the file, which PlateCheck does not map automatically.`,
       evidence: `source line ${r.line}; currently treated as '${r.role}'`, next_check: "Assign the intended role (for example NTC or no-RT) in the plate map." });
   for (const r of rows.filter(r => r.omit))
-    add("instrument_omit", r.line, { ...at(r), description: `Well ${name(r)} is marked Omit in the instrument export.`,
+    add("instrument_omit", r.line, { ...at(r), description: `Well ${name(r)}${r.target ? ` (${r.sample ? `${r.sample} / ` : ""}${r.target})` : ""} is marked Omit in the instrument export.`,
       evidence: `source line ${r.line}; raw Ct ${fmtRaw(r.ct)}`, next_check: "Record why it was omitted. PlateCheck still includes it in every check; set the role to Empty if it should be left out of replicate and control checks." });
   for (const r of active) {
     const needsSample = ["sample", "positive", "nrt"].includes(r.role);

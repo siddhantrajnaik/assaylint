@@ -17,6 +17,10 @@ const stampHtml = s => s
   .replace(/(<script type="importmap">)([\s\S]*?)(<\/script>)/, (_, o, body, c) => o + body.replace(/("\.\/[^"?]+?\.m?js)"/g, `$1${v}"`) + c)
   .replace(/(<script type="module">)([\s\S]*?)(<\/script>)/g, (_, o, body, c) => o + stampJs(body) + c);
 
+// Write the build id into core.js so reports and the home page name the exact code.
+{ const core = join(out, "core.js"), src = readFileSync(core, "utf8");
+  if (!src.includes('export const BUILD = "dev";')) { console.error("core.js has no BUILD line to stamp"); process.exit(1); }
+  writeFileSync(core, src.replace('export const BUILD = "dev";', `export const BUILD = "${version}";`)); }
 let n = 0;
 const walk = dir => {
   for (const name of readdirSync(dir)) {

@@ -1,6 +1,6 @@
 // Human-readable report (FR-19) and structured exports (FR-20, FR-21). No DOM access.
 import {
-  TOOL, APP_VERSION, PARSER_VERSION, PACKET_VERSION, RULES, RULES_REVIEW, CATEGORY_LABEL, DISPOSITION_LABEL, ROLE_LABEL,
+  TOOL, APP_VERSION, BUILD, PARSER_VERSION, PACKET_VERSION, RULES, RULES_REVIEW, CATEGORY_LABEL, DISPOSITION_LABEL, ROLE_LABEL,
   FORMATS, FIELD_LABEL, CONTEXT_FIELDS, RULESET_FIELDS, REFERENCES, rulesetId, rulesetChanges, referencesFor, toCsv,
 } from "./core.js";
 import { CREDIT } from "./credit.js";
@@ -134,7 +134,7 @@ ${table(["When", "Who", "What"], exp.audit.map(a => [when(a.at), a.actor, a.deta
 <h2>Limits of this report</h2>
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
 ${exp.feedback ? `<p class="sub">Asked whether this review was useful: ${esc(exp.feedback.value.toLowerCase())}.</p>` : ""}
-<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.${CREDIT.guidance?.length ? ` With guidance from ${CREDIT.guidance.map(g => `${esc(g.name)}, ${esc(g.affiliation)} (<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>)`).join(", ")}.` : ""}</footer>
+<footer>Made with PlateCheck ${esc(APP_VERSION)} (build ${esc(BUILD)}), by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.${CREDIT.guidance?.length ? ` With guidance from ${CREDIT.guidance.map(g => `${esc(g.name)}, ${esc(g.affiliation)} (<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>)`).join(", ")}.` : ""}</footer>
 </body></html>`;
 }
 
@@ -170,7 +170,7 @@ ${svgs.length ? `<h2>Graphs</h2>${svgs.map(s => `<div style="overflow-x:auto;mar
 
 <h2>References</h2>
 <ol class="refs">${(a.ok ? analysisReferences(a) : []).map(r => `<li>${esc(r.text)} <a href="https://doi.org/${esc(r.doi)}">doi:${esc(r.doi)}</a></li>`).join("")}</ol>
-<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>.</footer>
+<footer>Made with PlateCheck ${esc(APP_VERSION)} (build ${esc(BUILD)}), by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>.</footer>
 </body></html>`;
 }
 
@@ -192,11 +192,11 @@ function analysisJson(res) {
 }
 export function structuredJson(exp, res) {
   const files = Object.fromEntries(["source", "amp", "melt"].filter(k => exp[k]).map(k => { const { text, ...meta } = exp[k]; return [k, meta]; }));
-  return JSON.stringify({ format: "assaylint-results", tool: TOOL, app_version: APP_VERSION, parser_version: PARSER_VERSION, exported_at: new Date().toISOString(),
+  return JSON.stringify({ format: "assaylint-results", tool: TOOL, app_version: APP_VERSION, build: BUILD, parser_version: PARSER_VERSION, exported_at: new Date().toISOString(),
     experiment: { id: exp.id, title: exp.title, assay: exp.assay, date: exp.date, project: exp.project, operator: exp.operator, context: exp.context, targets: exp.targets, files },
     analysis: analysisJson(res), reviews: exp.reviews, wells: res.rows }, null, 2);
 }
 export function packetJson(exp, res) {
-  return JSON.stringify({ format: "assaylint-packet", packet_version: PACKET_VERSION, tool: TOOL, app_version: APP_VERSION, parser_version: PARSER_VERSION,
+  return JSON.stringify({ format: "assaylint-packet", packet_version: PACKET_VERSION, tool: TOOL, app_version: APP_VERSION, build: BUILD, parser_version: PARSER_VERSION,
     exported_at: new Date().toISOString(), experiment: exp, analysis: analysisJson(res) }, null, 2);
 }

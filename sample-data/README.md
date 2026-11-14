@@ -1,6 +1,6 @@
 # Sample data to try PlateCheck
 
-These files are made up but laid out exactly like real instrument exports. Each one has a few problems planted in it so you can see what PlateCheck catches.
+These files are made up (synthetic; each file says so in its first line) but laid out like real instrument exports. Each one has a few problems planted in it so you can see what PlateCheck catches.
 
 Open https://siddhantrajnaik.github.io/platecheck/ and drop the files for one run onto the home page, all at once. It works out which file is which and takes you straight to the review.
 
@@ -72,7 +72,7 @@ Drop the file, open Assay calculations, choose ChIP-qPCR, set the negative regio
 
 What's planted:
 - About 4% input at the MYC promoter in WT and about 1% in KO, with some spread between chromatin preparations. The Welch t-test on log2 % input is significant at the promoter after Benjamini–Hochberg.
-- A smaller drop at the enhancer (about 2% to 1.4%)
+- A smaller drop at the enhancer (about 1.7% to 1.5%), not significant
 - No difference at the gene desert (about 0.1% in both)
 
 ## 8. Pathway panel with gene set enrichment: TNF vs control

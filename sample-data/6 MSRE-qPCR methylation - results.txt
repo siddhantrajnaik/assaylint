@@ -1,3 +1,4 @@
+* Note = Synthetic example data for PlateCheck, not a real experiment
 * Block Type = 96-Well Block (0.2mL)
 * Chemistry = SYBR_GREEN
 * Experiment Name = 2026-10-03 MSRE MGMT RASSF1A

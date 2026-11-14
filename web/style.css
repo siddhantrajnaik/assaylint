@@ -367,3 +367,6 @@ dialog form { margin-top: 16px; }
 .ht-row:last-of-type .ht-time { color: var(--accent); }
 .ht-sum { grid-column: 1 / -1; margin: 18px 0 0; font-weight: 500; max-width: 80ch; }
 @media (max-width: 760px) { .home-time { grid-template-columns: 1fr; gap: 20px; } }
+
+/* a warning line inside a note */
+.warn-line { color: #8A4B00; font-weight: 500; }

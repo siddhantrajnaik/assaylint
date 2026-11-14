@@ -1,3 +1,4 @@
+Note,"Synthetic example data for PlateCheck, not a real experiment"
 ,Well,Fluor,Target,Content,Sample,Biological Set Name,Cq,Cq Mean,Cq Std. Dev,Starting Quantity (SQ),Log Starting Quantity,SQ Mean,SQ Std. Dev,Set Point,Well Note
 ,A01,SYBR,HPRT1,Unkn-00,WT-1,WT,22.630220363708215,,,NaN,NaN,NaN,0,60,
 ,A02,SYBR,HPRT1,Unkn-00,WT-1,WT,22.631344111729415,,,NaN,NaN,NaN,0,60,

@@ -102,7 +102,8 @@ function creditBlock(cls) {
     h("p", null, `Made by ${CREDIT.name}, ${CREDIT.affiliation}.`),
     CREDIT.guidance?.length > 0 && h("p", null, "With guidance from ", CREDIT.guidance.map((g, i) => [i ? ", " : "", `${g.name}, ${g.affiliation} (`, h("a", { href: `mailto:${g.email}`, class: "link" }, g.email), ")"]), "."),
     h("p", null, "Questions, bugs or a file it can't read? Email me at ", h("a", { href: `mailto:${CREDIT.email}?subject=PlateCheck`, class: "link" }, CREDIT.email), "."),
-    CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")));
+    CREDIT.linkedin && h("p", null, h("a", { href: CREDIT.linkedin, class: "link", target: "_blank", rel: "noopener" }, "LinkedIn")),
+    h("p", { class: "fine" }, `Version ${C.APP_VERSION}, build ${C.BUILD}.`));
 }
 function goHome() { Object.assign(st, { exp: null, res: null, pending: {}, sel: new Set(), selFinding: null, view: null }); render(); scrollTo(0, 0); }
 // Analysis module: "Combine plates" opens the study view in place of the home page.
@@ -125,14 +126,14 @@ function renderSidebar() {
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!S.getSetting("allSteps"), onchange: e => { try { S.setSetting("allSteps", e.target.checked); } catch { /* storage unavailable */ } renderMain(); } }), "Show all steps"),
       h("div", { class: "side-links" },
         h("button", { class: "link", type: "button", onclick: goHome }, "Home"),
-        h("button", { class: "link", type: "button", onclick: () => { $("#storage-usage").textContent = `PlateCheck currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
+        h("button", { class: "link", type: "button", onclick: () => { $("#shared-host-note").hidden = !/(^|\.)web\.iitd\.ac\.in$/.test(location.hostname); $("#storage-usage").textContent = `PlateCheck currently uses about ${(S.usageBytes() / 1024).toFixed(0)} KB of this browser's storage.`; $("#dlg-privacy").showModal(); } }, "Your data"),
         h("button", { class: "link", type: "button", onclick: () => $("#dlg-glossary").showModal() }, "Glossary"))),
     st.saveError && h("p", { class: "error" }, st.saveError));
 }
 
 // Four everyday steps; the rest lives under "More" unless "Show all steps" is on.
-const TABS = [["setup", "Setup", 1], ["data", "Data", 2], ["map", "Plate map", 3], ["context", "Context & rules", 4],
-  ["findings", "Findings", 5], ["analysis", "Analysis", 6], ["report", "Report & export", 7], ["assay", "Assay calculations", null], ["compare", "Compare runs", null]]; // "analysis": analysis module; "assay": workstream 4
+const TABS = [["setup", "Rename or delete", 1], ["data", "Upload", 2], ["map", "Plate", 3], ["context", "Method details", 4],
+  ["findings", "Review", 5], ["analysis", "Analysis", 6], ["report", "Report", 7], ["assay", "Assay calculations", null], ["compare", "Compare runs", null]]; // "analysis": analysis module; "assay": workstream 4
 const SIMPLE_TABS = [["data", "Upload"], ["map", "Plate"], ["findings", "Review"], ["analysis", "Analysis"], ["report", "Report"]];
 const MORE_TABS = [["context", "Method details and thresholds"], ["assay", "Assay calculations (ChIP, MSRE, 3C…)"], ["compare", "Compare with another run"], ["setup", "Rename or delete this run"]]; // "assay": workstream 4
 const tabLabel = k => (S.getSetting("allSteps") ? TABS : [...SIMPLE_TABS, ...MORE_TABS]).find(t => t[0] === k)[1];
@@ -259,7 +260,7 @@ async function quickFiles(fileList) {
   const results = items.filter(i => i.kind === "results"), unread = [...items.filter(i => !i.kind), ...emptyBooks, ...binary.map(d => ({ name: d.file.name }))];
   if (results.length !== 1) {
     const msg = results.length > 1 ? `I got ${results.length} results files (${results.map(r => r.name).join(", ")}). Drop one run at a time.`
-      : unread.length ? `I couldn't read ${unread.map(u => u.name).join(", ")}. A results file needs a well column (like A1) and a Ct or Cq column. If yours has both, email it to ${CREDIT.email} and I'll add support for it.`
+      : unread.length ? `I couldn't read ${unread.map(u => (u.error?.message ? `${u.name} (${u.error.message.replace(/\.$/, "")})` : u.name)).join(", ")}. A results file needs a well column (like A1), a Ct or Cq column and at least one data row. If yours has all of that, email it to ${CREDIT.email} and I'll add support for it.`
         : "These look like curve files. Drop the results file (the one with Ct or Cq values) together with them.";
     flash(msg, true); return render();
   }
@@ -281,7 +282,8 @@ async function quickFiles(fileList) {
   // How each file is named in the note: a sheet of the same workbook is just "sheet “Amplification Data”".
   const label = i => (!i.workbook ? i.name : i !== r && i.workbook.name === r.workbook?.name ? `sheet “${i.workbook.sheet}”` : `${i.workbook.name}, sheet “${i.workbook.sheet}”`);
   st.quick = { id: e.id, files: [r, ...items.filter(i => i.kind === "amp" || i.kind === "melt")].map(label), skipped: unread.map(u => u.name),
-    rows: r.parsed?.rows.length, format: r.parsed && C.FORMATS[r.parsed.format], melt: e.melt?.valueType };
+    rows: r.parsed?.rows.length, format: r.parsed && C.FORMATS[r.parsed.format], melt: e.melt?.valueType,
+    otherSheets: r.alternatives?.length ? { used: r.workbook.sheet, others: r.alternatives } : null };
   st.tab = r.needsPlateSize ? "data" : "findings";
   reanalyze(); persist(); render(); scrollTo(0, 0);
 }
@@ -290,7 +292,8 @@ function quickNote() {
   if (!q || q.id !== st.exp.id || !st.exp.source) return null;
   return h("div", { class: "quick-note" },
     h("p", null, `Read ${q.rows} rows from ${q.files[0]}` + (q.files.length > 1 ? `, plus the curves in ${q.files.slice(1).join(" and ")}` : "") + "." +
-      (q.melt ? ` Melt values were read as ${q.melt}.` : "") + (q.skipped.length ? ` I couldn't read ${q.skipped.join(", ")}, so it was left out.` : "")),
+      (q.melt ? ` Melt values were read as ${q.melt}; if that's wrong, change it on the Upload page.` : "") + (q.skipped.length ? ` I couldn't read ${q.skipped.join(", ")}, so it was left out.` : "")),
+    q.otherSheets && h("p", { class: "warn-line" }, `Check the sheet: this workbook has other sheets that also look like results (${q.otherSheets.others.map(s => `“${s}”`).join(", ")}). I used “${q.otherSheets.used}”. If that's the wrong one, open the Upload page, click Replace and pick the right sheet.`),
     h("div", { class: "row" },
       h("button", { class: "link", type: "button", onclick: () => goTab("data") }, "See what was read"),
       h("button", { class: "link", type: "button", onclick: () => { S.remove(st.exp.id); st.quick = null; goHome(); } }, "Undo"),
@@ -630,12 +633,18 @@ VIEWS.map = () => {
         picked.some(r => r.role === "standard") && [qtyIn, h("button", { class: "btn", type: "button", onclick: () => qtyIn.value.trim() && setFor("quantity", qtyIn.value.trim()) }, "Set quantity")],
         h("button", { class: "link", type: "button", onclick: () => { st.sel.clear(); renderMain(); } }, "Clear selection")))
     : h("p", { class: "rb-hint" }, "Select wells on the plate, then choose what they are. Click a row letter or column number to pick a whole row or column.");
-  const inferred = res.rows.filter(r => r.roleSource?.startsWith("inferred"));
-  const suggestion = inferred.length > 0 && h("div", { class: "quick-note" },
-    h("p", null, `I think ${inferred.map(r => r.key || r.well).join(", ")} ${inferred.length === 1 ? "is a no-template control" : "are no-template controls"} because of the sample name. Is that right?`),
-    h("div", { class: "row" },
-      h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Confirmed NTC for ${inferred.map(r => r.key).join(", ")}`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role: "ntc" }; }) }, "Yes"),
-      h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Set ${inferred.map(r => r.key).join(", ")} back to sample`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role: "sample" }; }) }, "No, they're samples")));
+  // Roles guessed from sample names (NTC from "water", "blank"; no-RT from "c1 noRT", "c1 -RT"), one card per kind, each confirmed by the user.
+  const INFERRED = { ntc: ["is a no-template control", "are no-template controls", "NTC"], nrt: ["is a no-RT control", "are no-RT controls", "no-RT"] };
+  const suggestion = Object.entries(INFERRED).map(([role, [one, many, short]]) => {
+    const inferred = res.rows.filter(r => r.role === role && r.roleSource?.startsWith("inferred"));
+    if (!inferred.length) return null;
+    const wells = [...new Set(inferred.map(r => r.key || r.well))];
+    return h("div", { class: "quick-note" },
+      h("p", null, `I think ${wells.join(", ")} ${wells.length === 1 ? one : many} because of the sample name. Is that right?`),
+      h("div", { class: "row" },
+        h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Confirmed ${short} for ${wells.join(", ")}`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role }; }) }, "Yes"),
+        h("button", { class: "btn small", type: "button", onclick: () => change("map.bulk", `Set ${wells.join(", ")} back to sample`, () => { for (const r of inferred) st.exp.map[r.id] = { ...st.exp.map[r.id], role: "sample" }; }) }, wells.length === 1 ? "No, it's a sample" : "No, they're samples")));
+  });
   return [card(h("h2", null, "Plate"),
       h("p", { class: "lede" }, "Check that every well is labelled right. Changing a label here doesn't touch your data; the original value is kept and shown in the report."),
       suggestion,
@@ -779,7 +788,7 @@ function decide(f, disposition) {
   const next = after.find(x => needsLook(x) && isOpen(x) && !st.exp.reviews[x.id]?.disposition) || after.find(x => isOpen(x) && !st.exp.reviews[x.id]?.disposition);
   if (next) { selectFinding(next, { render: false }); flash(`Saved “${DECISIONS.find(d => d[0] === disposition)[1]}”. Here's the next one.`); renderMain(); }
 }
-const DECISIONS = [["accepted", "Looks fine"], ["not_applicable", "Doesn't apply"], ["unresolved", "I'll fix it"], ["resolved", "Fixed"]];
+const DECISIONS = [["accepted", "Looks fine"], ["not_applicable", "Doesn't apply"], ["unresolved", "Still to fix"], ["resolved", "Fixed"]];
 function plateFlags() {
   const RANK = { high: 3, medium: 2, low: 1 }, flags = new Map();
   for (const f of st.res.findings) {
