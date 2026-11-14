@@ -100,13 +100,15 @@ export const FAMILIES = {
     formula: ["ΔCt = Ct(digested) − Ct(mock)", "Methylation-sensitive enzyme: % methylated = 100 × E^(−ΔCt)", "Methylation-dependent enzyme: % methylated = 100 × (1 − E^(−ΔCt))", "With a fully methylated control: ΔCt is replaced by ΔCt(sample) − ΔCt(control)"],
     refs: ["oakes2006", "redshaw2014"] },
   pmr: { name: "Percent of methylated reference (PMR)", roles: ["test", "meth_ref"], params: [P.controlTargetPmr],
-    formula: ["ΔCt = Ct(methylation reaction) − Ct(control reaction), in the same DNA", "PMR = 100 × E^−(ΔCt(sample) − ΔCt(fully methylated reference))"],
+    formula: ["ΔCt = Ct(methylation reaction) − Ct(control reaction), in the same DNA", "PMR = 100 × E^−(ΔCt(sample) − ΔCt(fully methylated reference))",
+      "With a dilution series of the reference (Standard wells) for both reactions: Q = 10^((Ct − intercept) / slope); PMR = 100 × [Q(gene) / Q(control)] sample ÷ [Q(gene) / Q(control)] reference"],
     refs: ["eads2000", "campan2009", "weisenberger2005"] },
   accessibility: { name: "Accessibility relative to a closed region", roles: ["treated", "untreated"], params: [P.direction, P.closedTarget],
     formula: ["d = Ct(treated) − Ct(untreated), for the region and for the closed control region", "Digested chromatin: accessibility = E^(d(region) − d(closed)) (how much more the region was lost)", "Enriched DNA: enrichment = E^(d(closed) − d(region))", "% left after digestion = 100 × E^(−d)"],
     refs: ["mcarthur2001", "simon2012"] },
   threec: { name: "Relative crosslinking frequency", roles: ["library", "template"], params: [P.loadingTarget, P.controlTarget3c],
-    formula: ["Signal = E^−(Ct(3C library) − Ct(control template)), per primer pair", "Loading-corrected = signal × E^(Ct(loading, this sample) − mean Ct(loading, all samples))", "Relative to the control interaction = loading-corrected / loading-corrected(control pair)"],
+    formula: ["With a template dilution series (Standard wells) for the pair: signal = 10^((Ct(3C library) − intercept) / slope)",
+      "Otherwise one template level: signal = E^−(Ct(3C library) − Ct(control template)), per primer pair", "Loading-corrected = signal × E^(Ct(loading, this sample) − mean Ct(loading, all samples))", "Relative to the control interaction = loading-corrected / loading-corrected(control pair)"],
     refs: ["hagege2007"] },
   fractions: { name: "Distribution across fractions", roles: ["fraction"], params: [P.spikeTarget, P.polysomeFrom],
     formula: ["Relative amount in fraction i = E^−(Ct_i − lowest Ct) (with a spike-in: Ct_i − Ct(spike-in)_i)", "% of total in fraction i = 100 × relative_i / sum of relative over all fractions"],
@@ -452,8 +454,8 @@ export function calcPmr(lr, params, opts, warn) {
   const G = makeGroups(lr, opts, r => `${r.arole === "meth_ref" ? "\u0001ref" : r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const out = [];
   if (!ctl) { warn("high", "Choose the methylation-independent control reaction (for example ALU-C4 or ACTB) to work out PMR."); return { rows: out, columns: [], chart: null }; }
-  const refCtl = G.get(`\u0001ref\u0000meth_ref\u0000${ctl}`);
-  if (!refCtl || refCtl.mean === null) warn("high", `The fully methylated reference has no ${ctl} result, so PMR can't be worked out.`);
+  const refCtl = G.get(`\u0001ref\u0000meth_ref\u0000${ctl}`), curves = opts.curves || new Map();
+  if ((!refCtl || refCtl.mean === null) && !curves.has(ctl)) warn("high", `The fully methylated reference has no ${ctl} result, so PMR can't be worked out.`);
   const testRows = lr.filter(r => r.arole === "test");
   for (const s of sets(testRows)) {
     const sc = G.get(`${s}\u0000test\u0000${ctl}`);
@@ -462,17 +464,29 @@ export function calcPmr(lr, params, opts, warn) {
       const g = G.get(`${s}\u0000test\u0000${t}`), rg = G.get(`\u0001ref\u0000meth_ref\u0000${t}`);
       const row = { set: s, target: t, ctGene: g?.mean ?? null, ctControl: sc?.mean ?? null, refGene: rg?.mean ?? null, refControl: refCtl?.mean ?? null,
         dCt: null, dCtRef: null, pmr: null, note: "", wells: [g, sc].filter(Boolean).flatMap(x => x.wells) };
-      if (!rg || rg.mean === null) warn("high", `${t}: the fully methylated reference has no result for this reaction.`, rg?.wells || []);
+      if ((!rg || rg.mean === null) && !(curves.has(t) && curves.has(ctl))) warn("high", `${t}: the fully methylated reference has no result for this reaction.`, rg?.wells || []);
       if (g && g.mean === null) row.note = "Methylated reaction did not amplify (not detected)";
       if (row.ctGene !== null && row.ctControl !== null) row.dCt = row.ctGene - row.ctControl;
       if (row.refGene !== null && row.refControl !== null) row.dCtRef = row.refGene - row.refControl;
       // PMR = 100 × [gene / control in the sample] / [gene / control in the reference], each reaction with its own efficiency.
-      if (row.dCt !== null && row.dCtRef !== null) row.pmr = 100 * powE(E(t), row.refGene - row.ctGene) * powE(E(ctl), row.ctControl - row.refControl);
+      const cg = curves.get(t), cc = curves.get(ctl);
+      if (cg && cc) {
+        // Standard curves of M.SssI reference DNA for both reactions (Eads 2000, Weisenberger 2005): amounts read off the curves.
+        // If the reference wells are labelled, their ratio is the denominator; if not, the standards are the reference and it is 1.
+        const Q = (c, ct) => (ct === null ? null : 10 ** ((ct - c.intercept) / c.slope));
+        const rs = row.ctGene !== null && row.ctControl !== null ? Q(cg, row.ctGene) / Q(cc, row.ctControl) : null;
+        const rr = row.refGene !== null && row.refControl !== null ? Q(cg, row.refGene) / Q(cc, row.refControl) : rg || refCtl ? null : 1;
+        row.method = rg && refCtl ? "standard curves, reference wells" : "standard curves (standards are the reference)";
+        if (rs !== null && rr !== null) row.pmr = 100 * rs / rr;
+      } else {
+        row.method = cg || cc ? "one reference level (curve for only one reaction)" : "one reference level";
+        if (row.dCt !== null && row.dCtRef !== null) row.pmr = 100 * powE(E(t), row.refGene - row.ctGene) * powE(E(ctl), row.ctControl - row.refControl);
+      }
       out.push(row);
     }
   }
   return { rows: out,
-    columns: [["set", "Sample"], ["target", "Reaction"], ["ctGene", "Ct (methylated reaction)", 2], ["ctControl", `Ct (${ctl})`, 2], ["dCt", "ΔCt sample", 2], ["dCtRef", "ΔCt reference", 2], ["pmr", "PMR", 1], ["note", "Note"]],
+    columns: [["set", "Sample"], ["target", "Reaction"], ["ctGene", "Ct (methylated reaction)", 2], ["ctControl", `Ct (${ctl})`, 2], ["dCt", "ΔCt sample", 2], ["dCtRef", "ΔCt reference", 2], ["method", "Reference method"], ["pmr", "PMR", 1], ["note", "Note"]],
     chart: { yLabel: "PMR", refLine: 100, bars: out.map(r => ({ group: r.target, series: r.set, value: r.pmr })) } };
 }
 
@@ -517,17 +531,23 @@ export function calc3C(lr, params, opts, warn) {
   const loadCt = new Map(sets(lib).map(s => [s, G.get(`${s}\u0000library\u0000${load}`)?.mean ?? null]));
   const known = [...loadCt.values()].filter(x => x !== null), refLoad = known.length ? mean(known) : null;
   for (const [s, v] of loadCt) if (load && v === null) warn("high", `${s}: no loading-control Ct, so this sample can't be corrected for DNA amount.`);
+  // Hagège et al. 2007: a dilution series of the control template for each primer pair; the library Ct is read off
+  // that curve as an amount of template, Q = 10^((Ct − intercept) / slope). Every ligation product is present at the
+  // same amount in the template, so Q is comparable between primer pairs. Without a curve: one template level.
+  const curves = opts.curves || new Map();
   const signal = (s, t) => {
-    const a = G.get(`${s}\u0000library\u0000${t}`), b = G.get(`\u0001tpl\u0000template\u0000${t}`);
+    const a = G.get(`${s}\u0000library\u0000${t}`), b = G.get(`\u0001tpl\u0000template\u0000${t}`), c = curves.get(t);
+    if (c) return { a, b, c, q: a?.mean != null ? 10 ** ((a.mean - c.intercept) / c.slope) : null };
     return { a, b, q: a?.mean != null && b?.mean != null ? powE(E(t), -(a.mean - b.mean)) : null };
   };
   const corrected = (s, t) => { const { q } = signal(s, t), L = loadCt.get(s); return q !== null && L != null && refLoad !== null ? q * powE(E(load), L - refLoad) : null; };
   for (const s of sets(lib)) for (const t of targets(lib.filter(r => r.aset === s))) {
     if (t === load) continue;
-    const { a, b, q } = signal(s, t), at = `${s} / ${t}`;
-    const row = { set: s, target: t, ctLibrary: a?.mean ?? null, ctTemplate: b?.mean ?? null, signal: q, loadCt: loadCt.get(s), corrected: corrected(s, t), rcf: null, note: "",
-      wells: [a, b].filter(Boolean).flatMap(g => g.wells) };
-    if (!b) warn("high", `${t}: no control template wells for this primer pair, so its efficiency can't be corrected.`, row.wells);
+    const { a, b, c, q } = signal(s, t), at = `${s} / ${t}`;
+    const row = { set: s, target: t, ctLibrary: a?.mean ?? null, ctTemplate: c ? null : b?.mean ?? null, signal: q, loadCt: loadCt.get(s), corrected: corrected(s, t), rcf: null, note: "",
+      method: c ? `standard curve (${c.levels} levels)` : "one template level", wells: [a, b].filter(Boolean).flatMap(g => g.wells) };
+    if (c) { /* the curve replaces the single template level */ }
+    else if (!b) warn("high", `${t}: no control template wells for this primer pair, so its efficiency can't be corrected.`, row.wells);
     else if (b.mean === null) warn("high", `${t}: the control template did not amplify. Check the primer pair on the template before trusting the 3C signal.`, b.wells);
     if (a && a.mean === null) { row.note = "No ligation product detected"; row.corrected = 0; }
     if (ctl && t !== ctl) {
@@ -538,9 +558,12 @@ export function calc3C(lr, params, opts, warn) {
     out.push(row);
   }
   if (ctl && !lib.some(r => r.target === ctl)) warn("medium", `The control interaction “${ctl}” has no 3C library wells.`);
+  const methods = new Set(out.map(r => r.method.startsWith("standard") ? "curve" : "single"));
+  if (methods.size > 1) warn("medium", "Some primer pairs were read off a template standard curve and others against one template level. The two give amounts in different units unless the single level is the curve's unit amount, so compare pairs with care.");
+  else if (methods.has("single") && out.length) warn("low", "No template standard curve on the plate, so each primer pair was compared with one template level (E^−ΔCt). Hagège et al. use a dilution series of the template for every primer pair; mark those wells as Standard with their amounts to use it.");
   const show = ctl ? "rcf" : "corrected";
   return { rows: out,
-    columns: [["set", "Sample"], ["target", "Primer pair"], ["ctLibrary", "3C Ct", 2], ["ctTemplate", "Template Ct", 2], ["signal", "Signal vs template", 4], ["loadCt", "Loading Ct", 2],
+    columns: [["set", "Sample"], ["target", "Primer pair"], ["ctLibrary", "3C Ct", 2], ["ctTemplate", "Template Ct", 2], ["method", "Template method"], ["signal", "Signal vs template", 4], ["loadCt", "Loading Ct", 2],
       ["corrected", "Loading-corrected", 4], ...(ctl ? [["rcf", `Relative to ${ctl}`, 3]] : []), ["note", "Note"]],
     chart: { yLabel: ctl ? `Crosslinking frequency relative to ${ctl}` : "Loading-corrected crosslinking frequency", bars: out.filter(r => r.target !== ctl).map(r => ({ group: r.target, series: r.set, value: r[show] })) } };
 }
@@ -695,7 +718,12 @@ export function runAssay(exp, rows, extra = {}) {
   const offFamily = lr.filter(r => !family.roles.includes(r.arole));
   if (stale) warn("medium", "The results file was replaced, so the assay labels from the old file were set aside. Label the wells again.");
   if (offFamily.length) warn("low", `${offFamily.length} well(s) carry a label that ${assay.name} doesn't use (${[...new Set(offFamily.map(r => ASSAY_ROLE_LABEL[r.arole]))].join(", ")}); they were left out.`, offFamily.map(r => r.key || r.well));
-  for (const r of assay.require) if (!counts[r]) warn("high", `No wells are labelled “${ASSAY_ROLE_LABEL[r]}”, which ${assay.name} needs.`);
+  // Standard curves on the plate (wells with the Standard role and a quantity): 3C and PMR read amounts off them.
+  const curves = new Map((Array.isArray(stdCurves) ? stdCurves : []).filter(c => c && fin(c.slope) && fin(c.intercept) && c.slope < 0).map(c => [c.target, c]));
+  opts.curves = curves;
+  const curveCovers = r => (assay.family === "threec" && r === "template" && lr.some(x => x.arole === "library" && curves.has(x.target)))
+    || (assay.family === "pmr" && r === "meth_ref" && curves.has(params.controlTarget) && lr.some(x => x.arole === "test" && x.target !== params.controlTarget && curves.has(x.target)));
+  for (const r of assay.require) if (!counts[r] && !curveCovers(r)) warn("high", `No wells are labelled “${ASSAY_ROLE_LABEL[r]}”, which ${assay.name} needs.`);
   for (const p of family.params) if (p.type === "target" && params[p.key] && !lr.some(r => r.target === params[p.key])) warn("medium", `${p.label.replace(/ \(optional\)$/, "")}: “${params[p.key]}” is not a target in the labelled wells.`);
   const effs = efficiencies(setup, stdCurves, targets(lr));
   opts.E = t => effs.get(t)?.E ?? 2;

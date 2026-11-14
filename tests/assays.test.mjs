@@ -349,6 +349,39 @@ test("% input by amount: DFa = DFv × input recovered / IP recovered with equal 
   assert.deepEqual(A.normalizeAssaySetup({ dna: { A: { ip: 50, input: -1, x: 3 }, B: 5 } }).dna, { A: { ip: 50 } });
 });
 
+// ---------------------------------------------------------------- standard-curve normalisation (3C, PMR)
+test("3C with a template standard curve: Q = 10^((Ct − intercept) / slope)", () => {
+  // F19 curve slope −3.5, intercept 20: library Ct 30 → Q = 10^(10 / −3.5) = 10^−2.857143 = 0.0013895.
+  // Ercc3 has no curve, so it uses one template level (2^−2 = 0.25) and the mix is flagged.
+  const w = [["A", "library", "F19", 30], ["A", "library", "Gapdh", 20], ["A", "library", "Ercc3", 28], ["X", "template", "Ercc3", 26]];
+  const out = runEff("threec", w, { loadingTarget: "Gapdh" }, undefined, [{ target: "F19", slope: -3.5, intercept: 20, efficiency: 93.1, r2: 0.999, levels: 5 }]);
+  const f = find(out, { target: "F19" });
+  close(f.signal, 10 ** (10 / -3.5)); close(f.signal, 0.00138950, 1e-8);
+  assert.match(f.method, /standard curve/); assert.equal(find(out, { target: "Ercc3" }).method, "one template level");
+  assert.ok(warned(out, /different units/)); assert.ok(!warned(out, /F19: no control template wells/));
+  assert.ok(!warned(out, /No wells are labelled “Control template/));
+  // Without curves the old single-level result stands, with a note.
+  const plain = run("threec", [["A", "library", "F19", 30], ["X", "template", "F19", 25], ["A", "library", "Gapdh", 20]], { loadingTarget: "Gapdh" });
+  close(find(plain, { target: "F19" }).signal, 1 / 32); assert.ok(warned(plain, /No template standard curve/));
+});
+
+test("PMR from M.SssI standard curves for both reactions", () => {
+  // Both curves slope −3.321928 (E = 2): gene intercept 25, ALU intercept 18. Sample MLH1 30, ALU 20:
+  // Q(gene) = 2^−5, Q(ALU) = 2^−2, ratio 1/8; standards are the reference (ratio 1) → PMR 12.5, same as the ΔΔCt example.
+  const m = -1 / Math.log10(2), curves = [{ target: "MLH1", slope: m, intercept: 25, efficiency: 100, r2: 1, levels: 5 }, { target: "ALU", slope: m, intercept: 18, efficiency: 100, r2: 1, levels: 5 }];
+  const w = [["T1", "test", "MLH1", 30], ["T1", "test", "ALU", 20]];
+  const out = runEff("methylight", w, { controlTarget: "ALU" }, undefined, curves);
+  const r = find(out, { target: "MLH1" });
+  close(r.pmr, 12.5); assert.match(r.method, /standards are the reference/); assert.ok(!warned(out, /No wells are labelled/));
+  // A gene curve with slope −3.5: Q(gene) = 10^(5 / −3.5) = 0.0372759, PMR = 100 × 0.0372759 / 0.25 = 14.910.
+  const c2 = [{ ...curves[0], slope: -3.5 }, curves[1]];
+  close(find(runEff("methylight", w, { controlTarget: "ALU" }, undefined, c2), { target: "MLH1" }).pmr, 100 * 10 ** (5 / -3.5) / 0.25);
+  // With reference wells labelled: reference MLH1 25.5, ALU 18 → ratio 2^−0.5; PMR = 12.5 / 2^−0.5 = 17.678.
+  close(find(runEff("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25.5], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }, undefined, curves), { target: "MLH1" }).pmr, 12.5 / 2 ** -0.5);
+  // No curves: unchanged.
+  close(find(run("methylight", [...w, ["SssI", "meth_ref", "MLH1", 25], ["SssI", "meth_ref", "ALU", 18]], { controlTarget: "ALU" }), { target: "MLH1" }).pmr, 12.5);
+});
+
 // ---------------------------------------------------------------- statistics across biological replicates
 function runCond(type, wells, params, cond, stats) {
   const { rows, labels } = plate(wells);
