@@ -115,7 +115,7 @@ test("automatic method by panel size, user can override, universe stated, leadin
 
 // ---------------------------------------------------------------- gene sets
 test("GMT parsing is robust", () => {
-  const p = GS.parseGmt("FEFF# comment\r\nSET_A\thttp://x\tACTB\tGAPDH,1.0\tACTB\r\n\r\nSET_B\t\ttp53\nSET_A\td\tIL6\tCXCL8\nonly-a-name\nNO_GENES\tdesc\t\t\n");
+  const p = GS.parseGmt("\uFEFF# comment\r\nSET_A\thttp://x\tACTB\tGAPDH,1.0\tACTB\r\n\r\nSET_B\t\ttp53\nSET_A\td\tIL6\tCXCL8\nonly-a-name\nNO_GENES\tdesc\t\t\n");
   assert.deepEqual(p.sets, [{ name: "SET_A", genes: ["ACTB", "GAPDH"] }, { name: "SET_B", genes: ["tp53"] }, { name: "SET_A (2)", genes: ["IL6", "CXCL8"] }]);
   assert.equal(p.skipped, 2);
   assert.match(GS.parseGmt("Well,Ct\nA1,20\n").error, /No gene sets found/);

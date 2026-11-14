@@ -4,7 +4,7 @@ The Analysis step works out relative expression from a checked plate: ΔCt again
 
 It never picks reference genes for you. It marks targets whose names are often used as references (GAPDH, ACTB, B2M, 18S/RN18S1, HPRT1, TBP, U6/RNU6, RNU44, RNU48 and a few more), but whether a gene is stable in your samples is your call.
 
-Code: `web/analysis.js` (calculations), `web/stats.js` (statistics), `web/combat.js` (ComBat), `web/ui-analysis.js` (screens and graphs). Tests: `tests/analysis.test.mjs`, `tests/stats.test.mjs`, `tests/combat.test.mjs`.
+Code: `web/analysis.js` (calculations), `web/stats.js` (statistics), `web/combat.js` (ComBat), `web/gsea.js` (gene set enrichment), `web/ui-analysis.js` (screens and graphs). Tests: `tests/analysis.test.mjs`, `tests/stats.test.mjs`, `tests/combat.test.mjs`, `tests/gsea.test.mjs`.
 
 ## What goes in
 
@@ -239,9 +239,90 @@ python -m venv /tmp/platecheck-combatref
 - Colours are from a colour-blind safe palette (blue #0072B2, orange #E69F00, vermillion #D55E00). Text is Arial/Helvetica, which journals usually ask for. Gene names are in italics.
 - Downloads: SVG (editable in Illustrator or Inkscape) and PNG at 300 dpi (the file carries the 300 dpi setting). The results table downloads as CSV, with a second block listing every biological unit.
 
+## Gene set enrichment
+
+Once the analysis has results, a "Gene set enrichment" card asks whether the genes of a pathway moved together. It is off until you choose where the gene sets come from. Code: `web/gsea.js`; tests: `tests/gsea.test.mjs`.
+
+### The panel is the universe
+
+A qPCR panel is a gene list somebody already picked, usually around the pathways the experiment is about. So every test here compares a set's genes with the other genes on the panel, never with the genome. "Enriched" means "moved more than the rest of this panel". On an inflammation array, an inflammation set that moved is a smaller surprise than the same result from RNA-seq would be, and a set that sits in the middle may still have moved compared with the genome. The card, the CSV and the report all say this.
+
+### Ranking the genes
+
+Every target that isn't a reference gets one number from the Analysis step, for one comparison (a group against the control; with more than two groups you pick which). Positive means higher in the group.
+
+- **Signed −log10 p (default):** `sign(log2 fold change) × −log10 p`, with p from whatever test the analysis uses. I chose it as the default because every test in the analysis gives a p (the rank tests, Tukey and Dunnett too), and the p already allows for each gene's own n and df. With three replicates per group a t statistic can be very large just because the replicates happened to agree, and that one gene would then dominate the weighted running sum.
+- **t statistic:** offered when the test has one (Welch, Student, paired, Dunnett). Its sign is turned round, because the tests run on ΔCt and a higher ΔCt is lower expression.
+
+Genes without a p (or t) are left out of the ranking and named. Ties are broken by gene name so the order is reproducible.
+
+### The two methods
+
+**Rank test (competitive, Wilcoxon rank-sum).** For each set, the ranking statistics of its genes are compared with those of every other ranked gene on the panel by the Mann–Whitney U test, two-sided, exactly as `scipy.stats.mannwhitneyu(method="auto")` (the same code as the Mann–Whitney choice in the analysis). This is the idea behind limma's `geneSetTest` and `wilcoxGST` (Ritchie et al. 2015). The effect is shown as AUC = U / (n_set × n_rest), the chance that a set gene ranks above a gene outside the set: 0.5 is no shift, above 0.5 is up in the group. q is Benjamini–Hochberg across the sets tested.
+
+**Preranked GSEA (Subramanian et al. 2005).** Walking down the ranked list, a set gene adds `|r|^p / N_R` (N_R = the sum of `|r|^p` over the set's genes) and any other gene subtracts `1 / (N − N_H)`. I use p = 1, the weighting of the 2005 paper. ES is the largest deviation of this running sum from zero (the maximum if its absolute value is larger than the minimum's, otherwise the minimum, as gseapy does). Significance comes from gene-set permutation, the only kind possible from a ranked list: for each set, 1000 random sets of the same size are drawn from the panel (adjustable, 100 to 10 000) with a seeded generator (mulberry32), so the same seed always gives the same p.
+
+- p: for ES ≥ 0, the share of the non-negative permutation ES that are ≥ ES; for ES < 0, the share of the negative permutation ES that are < ES. A p of 0 is shown as "< 1/permutations".
+- NES: ES divided by the mean of the permutation ES of the same sign (for a negative ES, by the absolute value of the mean of the negative ones). The permutation ES are normalised the same way.
+- FDR q as in GSEA (and gseapy): for NES\* ≥ 0, q = [share of all permutation NES (all sets pooled) that are ≥ NES\* among those ≥ 0] / [share of the observed NES that are ≥ NES\* among those ≥ 0], and the mirror image for negative NES, capped at 1. The GSEA authors suggest q < 0.25 for exploratory work; rows below it are marked. With fewer than 10 sets this q is rough, and the card says so; the BH-adjusted p is in the CSV as well.
+
+For the permutations I compute ES from the hit positions alone: the running sum peaks just after a hit and dips just before one or at the end, so ES needs O(k log k) work per random set instead of O(N). The tests check this against the full running sum.
+
+**Leading edge.** For both methods: the set's genes from the top of the list down to the peak of the running sum (for a negative ES, from the trough to the bottom). These are the genes that carry the signal, and the ones to look at in the results table.
+
+### The guards, and why
+
+- **At least 15 ranked genes, or it refuses.** Below that a set of 3 is a fifth of the panel, the rank test has almost no resolution, and the permutations keep drawing the same few sets. Whatever came out would be a handful of genes you can read off the results table directly, so the card says that instead of showing a table.
+- **Set size.** A set needs at least 3 genes on the panel (adjustable) and at most the panel size minus 3 (adjustable down, or up to the panel size minus 1). A set that covers almost the whole panel is tested against the two or three genes left over, which says nothing about the set. Sets dropped either way are counted and named.
+- **Method by panel size.** "Automatic" (the default) uses the rank test below 50 ranked genes and GSEA from 50 on. On a small panel, permutation GSEA draws random sets from the same few genes again and again, so its NES and p move with the seed. You can choose either method yourself; choosing GSEA on a small panel adds a note, and when a set has fewer distinct random sets than permutations (C(N, k) below the number of permutations) the card says the p can't get finer.
+- **Identical sets are tested once.** GO terms in particular often hold exactly the same panel genes (a term and its parent). Such sets are merged into one row, named after the first, with the others listed, so they don't count several times in the BH or FDR correction.
+- **Correlation.** Both tests are competitive and treat genes as independent. Genes of one pathway are usually correlated, which makes competitive tests too optimistic (Wu & Smyth 2012 showed how much). On a panel built around a few pathways this is likely to matter. I don't estimate the correlation (CAMERA does, but needs the per-sample data and enough samples to estimate it); the card says to read small p values as leads, not proof.
+
+### Where the gene sets come from
+
+No gene sets are built in, and no new network host is used. MSigDB's licence asks users to register, so I don't ship it.
+
+1. **A GMT file you upload**: an MSigDB download, an Enrichr library or your own. One set per line: name, description, genes, separated by tabs. Blank lines, `#` comments, a byte-order mark, Windows line ends, empty descriptions and Enrichr's old `GENE,1.0` weights are handled; lines that aren't sets are counted and skipped; a repeated set name gets "(2)". Genes are matched to the panel by gene symbol (from the Targets panel, or guessed from the target name) or by the target name, without regard to case, so ACTB, Actb and actb all match. The exception is the fly, where FlyBase symbols differ by case alone (dl is dorsal, Dl was Delta), so fly genes must match exactly. Only the sets with at least 2 genes on the panel are kept with the run (up to 5000), each with its full size, so the table shows "12 of 19". The card reports how many sets were read, how many were kept and how many gene names aren't on the panel, and the results say how many ranked genes are in no set.
+2. **GO biological-process terms** from the existing gene lookup. Tick "Use GO terms for gene sets" and press "Look up genes"; the same symbols go to the same host and the answer also carries each gene's GO terms (details in [genes.md](genes.md)). Panel genes that share a term make a set. GO terms are inferred, many electronically, and say what a gene can take part in, not what it did in your cells.
+3. **Sets you type in**: a name and the genes, pasted with spaces, commas or new lines between them.
+
+### Output
+
+The table lists each set with its size on the panel (and in the original set), direction, ES and NES (GSEA) or AUC (rank test), p, q and the leading edge. The enrichment plot shows the running sum for a chosen set, a tick per set gene (leading-edge genes in vermillion) and the ranking statistic of every gene below, with SVG and 300-dpi PNG downloads like the other graphs. The CSV has both methods' p values, the BH-adjusted p, the leading edge, the genes of each set, the settings and the full ranked list. The settings are saved with the run (`analysis.gsea`), and the run report gets a "Gene set enrichment" section with the method, the table, the notes and the references.
+
+### Checked against gseapy and SciPy
+
+`testdata/make-gsea-reference.py` writes `tests/fixtures/gsea-reference.json` from gseapy 1.3.2 (`prerank`, weight 1) and SciPy 1.18.1 (`mannwhitneyu`) on four seeded cases: 60 genes with an up set, a down set, a random set and a set of 3; 96 genes with seven overlapping sets of 4 to 30; 30 genes with many ties (rank test only, since the GSEA order of tied genes is arbitrary); and 384 genes, the largest arrays.
+
+| Quantity | Compared with | Required | Worst on the current file |
+| --- | --- | --- | --- |
+| ES | gseapy `prerank` | absolute 1e-12 | 1.4e-15 |
+| Leading-edge genes | gseapy `Lead_genes` | identical | identical |
+| NES | gseapy, 5000 permutations | 4 standard errors (or 2%) | 0.012 |
+| Nominal p | gseapy, 5000 permutations | 4 binomial standard errors + 2/5000 | 0.015 |
+| FDR q | gseapy, 5000 permutations | 4 standard errors (or 0.03) | 0.016 |
+| Rank test U and p | `mannwhitneyu(method="auto")` | U exact, p relative 1e-10 | 8.4e-15 |
+
+NES, p and q come from random permutations on both sides, and gseapy's random generator isn't mine, so they can't agree exactly. The script runs gseapy with three seeds and the test runs mine with three seeds, both with 5000 permutations, and compares the means. The allowed difference is four standard errors of the difference: the binomial standard error for p (about half the permutations have the same sign as ES), the spread between seeds for NES and q.
+
+To regenerate (in a throwaway virtual environment outside the repository):
+
+```bash
+python -m venv /tmp/platecheck-statsref
+/tmp/platecheck-statsref/bin/python -m pip install gseapy scipy numpy pandas
+/tmp/platecheck-statsref/bin/python testdata/make-gsea-reference.py
+```
+
+### Limits
+
+- Both methods test the ranking of one comparison. They don't use the per-sample values, so sample-label permutation (the original GSEA) and CAMERA's correlation adjustment aren't available.
+- Correlation between genes inflates both tests (see above).
+- The result depends on the panel's composition: the same set can look enriched on one panel and not on another.
+- GO sets depend on what MyGene.info returns for your species; for some species (pig, for example) there are few GO terms.
+
 ## In the report
 
-When the analysis is on, the HTML report gets an Analysis section: the method in words, the reference genes, the control group, the test used, n per group, the 95% confidence intervals, the test's p with both corrections, the Tukey or Games–Howell pairs, the paired fold change, the two-way ANOVA or Kruskal–Wallis results when those were chosen, and the notes. A study has its own HTML report (see "Several plates").
+When the analysis is on, the HTML report gets an Analysis section: the method in words, the reference genes, the control group, the test used, n per group, the 95% confidence intervals, the test's p with both corrections, the Tukey or Games–Howell pairs, the paired fold change, the two-way ANOVA or Kruskal–Wallis results when those were chosen, the gene set enrichment when gene sets were chosen, and the notes. A study has its own HTML report (see "Several plates").
 
 ## Known limits
 
@@ -273,3 +354,6 @@ When the analysis is on, the HTML report gets an Analysis section: the method in
 - Welch BL (1951). On the comparison of several mean values: an alternative approach. *Biometrika* 38(3–4):330–336. doi:10.1093/biomet/38.3-4.330
 - Wilcoxon F (1945). Individual comparisons by ranking methods. *Biometrics Bulletin* 1(6):80–83. doi:10.2307/3001968
 - Games PA, Howell JF (1976). Pairwise multiple comparison procedures with unequal N's and/or variances: a Monte Carlo study. *Journal of Educational Statistics* 1(2):113–125. doi:10.3102/10769986001002113
+- Subramanian A, Tamayo P, Mootha VK, Mukherjee S, Ebert BL, Gillette MA, Paulovich A, Pomeroy SL, Golub TR, Lander ES, Mesirov JP (2005). Gene set enrichment analysis: a knowledge-based approach for interpreting genome-wide expression profiles. *PNAS* 102(43):15545–15550. doi:10.1073/pnas.0506580102
+- Ritchie ME, Phipson B, Wu D, Hu Y, Law CW, Shi W, Smyth GK (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. *Nucleic Acids Research* 43(7):e47. doi:10.1093/nar/gkv007
+- Wu D, Smyth GK (2012). Camera: a competitive gene set test accounting for inter-gene correlation. *Nucleic Acids Research* 40(17):e133. doi:10.1093/nar/gks461

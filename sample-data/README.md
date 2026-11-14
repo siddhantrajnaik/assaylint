@@ -74,3 +74,18 @@ What's planted:
 - About 4% input at the MYC promoter in WT and about 1% in KO, with some spread between chromatin preparations. The Welch t-test on log2 % input is significant at the promoter after Benjamini–Hochberg.
 - A smaller drop at the enhancer (about 2% to 1.4%)
 - No difference at the gene desert (about 0.1% in both)
+
+## 8. Pathway panel with gene set enrichment: TNF vs control
+
+`8 Pathway panel 384 TNF vs control - results.csv` is a 96-assay pathway panel on a 384-well plate, laid out the way 384-well pathway arrays put four samples on one plate (each sample fills one quadrant: assay 1 in A1, A2, B1 and B2). There are 91 genes in ten pathways (NF-κB targets, interferon response, hypoxia, cell cycle, apoptosis, oxidative stress, Wnt, TGF-β, DNA damage and a few others) plus five reference genes: ACTB, B2M, GAPDH, HPRT1 and RPLP0. Two control samples (Ctrl-1, Ctrl-2) and two TNF-treated samples (TNF-1, TNF-2), with the group in the Group column. `8 Pathway panel gene sets.gmt` holds my own short lists for the ten pathways, in the GMT format MSigDB and Enrichr use.
+
+Drop the results file, open Analysis, switch it on, tick the five reference genes and pick control as the control group. In the "Gene set enrichment" card, choose "A GMT file I upload" and pick the `.gmt` file.
+
+What's planted:
+- After TNF, the 12 NF-κB targets go up by 0.4 to 1.9 cycles, not all by the same amount. No single gene is convincing with two samples per group, but together they are: NFKB_TARGETS comes out on top with GSEA (91 genes, so the automatic choice is GSEA) and with the rank test, with all 12 genes in the leading edge.
+- Two genes outside the pathway move on their own (MKI67 down, HMOX1 up), so the top of the gene list isn't simply the pathway.
+- APOPTOSIS shares BIRC3 and TNFAIP3 with the NF-κB set and leans up a little because of them, without reaching significance.
+- ALL_PANEL_SIGNALLING covers 89 of the 91 genes and is left out as too large; MTOR_AXIS_SMALL has only two genes on the panel and is left out as too small.
+- The plate has no NTC wells, as pathway arrays usually don't, so the Review step flags a missing NTC for every target. With two samples per group the analysis also warns that the per-gene tests have little power, which is exactly the situation where looking at sets helps.
+
+The files are made by `node testdata/make-gsea-sample.mjs`.
