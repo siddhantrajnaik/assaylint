@@ -111,6 +111,25 @@ export function assayView(ctx) {
       h("p", { class: "fine" }, "Technical replicates are averaged as Ct values first. A Ct difference becomes a ratio as E^ΔCt, where E = 1 + the PCR efficiency of that primer pair: E = 2 (every copy doubles each cycle, 100%) unless you set the efficiency below."),
       h("ul", { class: "fine" }, family.refs.map(k => h("li", null, A.REFS[k].cite, A.REFS[k].doi ? ` doi:${A.REFS[k].doi}` : ` PMID ${A.REFS[k].pmid}`))))));
 
+  // ---- % input by DNA amount (Solomon et al. 2021): ng recovered and ng per well, for each set
+  if (assay.family === "enrichment" && params.inputBasis === "amount") {
+    const dna = setup.dna || {}, F = [["ip", "IP recovered (ng)"], ["input", "Input recovered (ng)"], ["igg", "IgG recovered (ng, optional)"], ["ipWell", "IP ng per well"], ["inputWell", "Input ng per well"], ["iggWell", "IgG ng per well"]];
+    const setDna = (set, f, raw) => {
+      const v = String(raw).trim() === "" ? null : Number(raw);
+      if (v !== null && !(Number.isFinite(v) && v > 0)) { ctx.flash(`“${String(raw).slice(0, 20)}” isn't an amount above 0, so it wasn't changed.`, true); ctx.renderMain(); return; }
+      save("assay.dna", `${set}: ${f} ${v === null ? "cleared" : `${v} ng`}`, s => {
+        const all = { ...(s.dna || {}) }, cur = { ...(Object.prototype.hasOwnProperty.call(all, set) ? all[set] : {}) };
+        if (v === null) delete cur[f]; else cur[f] = v;
+        Object.defineProperty(all, set, { value: cur, enumerable: true, writable: true, configurable: true }); s.dna = all;
+      });
+    };
+    out.push(card(h("h3", null, "DNA amounts for % input by amount"),
+      h("p", { class: "fine" }, "For each set: the total DNA recovered in the IP and in the input (elution volume × concentration), and how many ng of each went into a qPCR well. If the IgG ng per well is empty, the IP value is used."),
+      h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, h("th", null, "Set"), F.map(([, l]) => h("th", null, l)))),
+        h("tbody", null, setNames.map(set => h("tr", null, h("td", { class: "mono" }, set), F.map(([f, l]) => h("td", null,
+          h("input", { type: "number", class: "num-in", min: 0, step: "any", value: dna[set]?.[f] != null ? String(dna[set][f]) : "", "aria-label": `${l} for ${set}`, onchange: ev => setDna(set, f, ev.target.value) })))))))))));
+  }
+
   // ---- PCR efficiency per primer pair: 100% unless the user picks the plate's standard curve or types a value
   const effTargets = [...new Set(labelled.map(r => r.target).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   if (effTargets.length) {

@@ -332,6 +332,23 @@ test("efficiency from the demo run's real standard curve, and the setting surviv
   assert.match(html, /E\^ΔCt/);
 });
 
+// ---------------------------------------------------------------- % input by DNA amount (Solomon et al. 2021)
+test("% input by amount: DFa = DFv × input recovered / IP recovered with equal ng per well", () => {
+  // 10% input, so DFv = 10. Input recovered 500 ng, IP 50 ng, 1.25 ng of each per well: DFa = 10 × 500 / 50 = 100.
+  // Input Ct 25, IP Ct 26: % input = 100 / 100 × 2^(25 − 26) = 0.5% (by volume it would read 10 × 2^−1 = 5%).
+  const w = [["A", "ip", "R1", 26], ["A", "input", "R1", 25]];
+  const { rows, labels } = plate(w);
+  const go = (params, dna) => A.runAssay({ assaySetup: { type: "chip", params, wells: labels, dna } }, rows);
+  close(find(go({ inputPercent: 10 }), { target: "R1" }).pctInput, 5); // default unchanged
+  const r = find(go({ inputPercent: 10, inputBasis: "amount" }, { A: { ip: 50, input: 500, ipWell: 1.25, inputWell: 1.25 } }), { target: "R1" });
+  close(r.pctInput, 0.5); close(r.adjInput, 25 - Math.log2(100));
+  // Unequal loading: 2.5 ng IP and 1.25 ng input per well. DFa = 10 × (500 / 1.25) / (50 / 2.5) = 200, so 0.25%.
+  close(find(go({ inputPercent: 10, inputBasis: "amount" }, { A: { ip: 50, input: 500, ipWell: 2.5, inputWell: 1.25 } }), { target: "R1" }).pctInput, 0.25);
+  const miss = go({ inputPercent: 10, inputBasis: "amount" }, {});
+  assert.equal(find(miss, { target: "R1" }).pctInput, null); assert.ok(warned(miss, /needs the ng of DNA recovered/));
+  assert.deepEqual(A.normalizeAssaySetup({ dna: { A: { ip: 50, input: -1, x: 3 }, B: 5 } }).dna, { A: { ip: 50 } });
+});
+
 // ---------------------------------------------------------------- statistics across biological replicates
 function runCond(type, wells, params, cond, stats) {
   const { rows, labels } = plate(wells);

@@ -66,6 +66,9 @@ export const ASSAY_ROLE_HELP = {
 const P = {
   inputPercent: { key: "inputPercent", label: "Input saved, as % of the chromatin in one IP", type: "number", def: 1, step: 0.5,
     hint: "1 if you kept 10 µl of input for every 1 ml going into an IP. Used as dilution factor = 100 / this number." },
+  inputBasis: { key: "inputBasis", label: "How much IP and input DNA went into each qPCR well", type: "select", def: "volume",
+    options: [["volume", "The same volume of IP and input DNA, eluted in the same volume (the usual way)"], ["amount", "A measured amount (ng) per well: correct with the DNA recovered in each IP and input (Solomon et al. 2021)"]],
+    hint: "With measured amounts, enter for each set the total ng of DNA recovered in the IP and in the input, and the ng loaded per well. Leave this on the usual way if you loaded equal volumes." },
   negTarget: { key: "negTarget", label: "Negative control region (optional)", type: "target", def: "", hint: "A region your protein or mark shouldn't bind. Each region is also shown as fold over this one." },
   enzyme: { key: "enzyme", label: "Enzyme type", type: "select", def: "sensitive",
     options: [["sensitive", "Methylation-sensitive (HpaII, HhaI, AciI): cuts unmethylated DNA"], ["dependent", "Methylation-dependent (McrBC, FspEI): cuts methylated DNA"]] },
@@ -89,8 +92,9 @@ const P = {
   maxCycles: { key: "maxCycles", label: "Cycles run (used when the blank never comes up)", type: "number", def: 40, step: 1 },
 };
 export const FAMILIES = {
-  enrichment: { name: "% input and fold enrichment", roles: ["ip", "input", "igg"], params: [P.inputPercent, P.negTarget],
-    formula: ["Adjusted input Ct = Ct(input) − log_E(100 / input %)", "% input = 100 × E^(adjusted input Ct − Ct(IP))", "Fold over IgG = E^(Ct(IgG) − Ct(IP))", "Fold over negative region = % input(region) / % input(negative region)"],
+  enrichment: { name: "% input and fold enrichment", roles: ["ip", "input", "igg"], params: [P.inputPercent, P.inputBasis, P.negTarget],
+    formula: ["Adjusted input Ct = Ct(input) − log_E(DF), DF = 100 / input %",
+      "Equal ng per well instead of equal volume (Solomon 2021): DF = (100 / input %) × (input DNA recovered / ng per input well) ÷ (IP DNA recovered / ng per IP well)", "% input = 100 × E^(adjusted input Ct − Ct(IP))", "Fold over IgG = E^(Ct(IgG) − Ct(IP))", "Fold over negative region = % input(region) / % input(negative region)"],
     refs: ["haring2007", "solomon2021", "mukhopadhyay2008"] },
   msre: { name: "% methylation from digested vs mock", roles: ["digested", "mock"], params: [P.enzyme, P.noSiteTarget, P.calibratorSet],
     formula: ["ΔCt = Ct(digested) − Ct(mock)", "Methylation-sensitive enzyme: % methylated = 100 × E^(−ΔCt)", "Methylation-dependent enzyme: % methylated = 100 × (1 − E^(−ΔCt))", "With a fully methylated control: ΔCt is replaced by ΔCt(sample) − ΔCt(control)"],
@@ -153,6 +157,7 @@ const str = v => (typeof v === "string" ? v.slice(0, 200) : typeof v === "number
 // PCR efficiency per primer pair, kept in exp.assaySetup.eff = { [target]: "curve" | percent }. Missing means 100%.
 export const EFF_MIN = 50, EFF_MAX = 150; // a typed value outside this is refused; 90–110% is the usual acceptance range
 const cleanEff = v => (v === "curve" ? "curve" : typeof v === "number" && Number.isFinite(v) && v >= EFF_MIN && v <= EFF_MAX ? v : null);
+export const DNA_FIELDS = ["ip", "input", "igg", "ipWell", "inputWell", "iggWell"];
 // Sets a key safely even when a target is literally called "__proto__".
 const putKey = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
 // Cleans exp.assaySetup (it may be missing, from an older version, or edited by hand). Never throws.
@@ -168,6 +173,17 @@ export function normalizeAssaySetup(x) {
   const cond = cleanConditions(x.cond);
   if (Object.keys(cond).length) out.cond = cond;
   if (isObj(x.stats)) out.stats = cleanStats(x.stats);
+  // DNA amounts per set for % input by amount: { [set]: { ip, input, igg, ipWell, inputWell, iggWell } } in ng.
+  if (isObj(x.dna)) {
+    const dna = {};
+    for (const [k, v] of Object.entries(x.dna).slice(0, 1000)) {
+      if (!k || k.length > 200 || !isObj(v)) continue;
+      const e = {};
+      for (const f of DNA_FIELDS) if (typeof v[f] === "number" && Number.isFinite(v[f]) && v[f] > 0) e[f] = v[f];
+      if (Object.keys(e).length) putKey(dna, k, e);
+    }
+    if (Object.keys(dna).length) out.dna = dna;
+  }
   out.type = assayById(x.type) ? x.type : "";
   out.sourceSha = str(x.sourceSha);
   if (isObj(x.params)) for (const [k, v] of Object.entries(x.params)) {
@@ -313,6 +329,17 @@ export function calcEnrichment(lr, params, opts, warn) {
   const dfOk = fin(pct) && pct > 0 && pct <= 100;
   if (!dfOk) warn("high", `Input % must be a number above 0 and up to 100 (it is “${params.inputPercent}”), so % input wasn't worked out.`);
   const lnDf = dfOk ? Math.log(100 / pct) : null; // the input Ct comes down by log_E(100 / input %)
+  // Solomon et al. 2021: when a fixed amount (ng) of IP and input DNA goes into each well instead of a fixed volume,
+  // the dilution factor for that set becomes DFa = DFv × (input recovered / input ng per well) ÷ (IP recovered / IP ng per well).
+  // Their paper loads the same ng of both, so the per-well amounts cancel; I keep them so unequal loading works too.
+  const byAmount = params.inputBasis === "amount", dna = opts.dna || {};
+  const amountLn = (s, role) => {
+    const d = Object.prototype.hasOwnProperty.call(dna, s) ? dna[s] : {}, well = d[`${role}Well`] ?? d.ipWell ?? d.inputWell;
+    const wellIn = d.inputWell ?? d.ipWell;
+    if (!(d[role] > 0 && d.input > 0 && well > 0 && wellIn > 0)) return null;
+    return Math.log((d.input / wellIn) / (d[role] / well)); // log of (DFa / DFv)
+  };
+  if (byAmount) for (const s of sets(lr)) if (amountLn(s, "ip") === null && lr.some(r => r.aset === s && r.arole === "ip")) warn("high", `${s}: % input by DNA amount needs the ng of DNA recovered in the IP and in the input (and the ng per well), so % input wasn't worked out for this set.`);
   const G = makeGroups(lr, opts, r => `${r.aset}\u0000${r.arole}\u0000${r.target}`, warn);
   const get = (s, role, t) => G.get(`${s}\u0000${role}\u0000${t}`);
   const out = [];
@@ -325,10 +352,18 @@ export function calcEnrichment(lr, params, opts, warn) {
     else if (ip.mean === null) warn("high", `${at}: the IP did not amplify in any well (${ip.raw.map(x => x ?? "empty").join(", ")}). No enrichment can be worked out.`, ip.wells);
     if (!inp && ip) warn("medium", `${at}: no input wells, so % input can't be worked out.`, ip.wells);
     else if (inp && inp.mean === null) warn("high", `${at}: the input did not amplify, so % input can't be worked out. Check the input DNA and the primers.`, inp.wells);
-    if (dfOk && inp?.mean != null) {
+    if (dfOk && inp?.mean != null && !byAmount) {
       row.adjInput = inp.mean - lnDf / Math.log(E(t));
       if (ip?.mean != null) row.pctInput = 100 * powE(E(t), row.adjInput - ip.mean);
       if (igg?.mean != null) row.pctInputIgG = 100 * powE(E(t), row.adjInput - igg.mean);
+    } else if (dfOk && inp?.mean != null) {
+      const a = amountLn(s, "ip"), g = amountLn(s, "igg");
+      if (a !== null) {
+        row.adjInput = inp.mean - (lnDf + a) / Math.log(E(t));
+        if (ip?.mean != null) row.pctInput = 100 * powE(E(t), row.adjInput - ip.mean);
+      }
+      if (g !== null && igg?.mean != null) row.pctInputIgG = 100 * powE(E(t), inp.mean - (lnDf + g) / Math.log(E(t)) - igg.mean);
+      else if (igg?.mean != null) row.note = "IgG % input needs the IgG DNA recovered";
     }
     if (ip?.mean != null && igg?.mean != null) {
       row.foldIgG = powE(E(t), igg.mean - ip.mean);
@@ -357,7 +392,7 @@ export function calcEnrichment(lr, params, opts, warn) {
   const hasInput = out.some(r => r.pctInput !== null);
   return { rows: out,
     columns: [["set", "Set"], ["target", "Region"], ["ctIP", "IP Ct", 2], ["ctInput", "Input Ct", 2], ["adjInput", "Adjusted input Ct", 2], ["ctIgG", "IgG Ct", 2],
-      ["pctInput", "% input (IP)", 3], ["pctInputIgG", "% input (IgG)", 3], ["foldIgG", "Fold over IgG", 2], ...(neg ? [["foldNeg", `Fold over ${neg}`, 2]] : [])],
+      ["pctInput", "% input (IP)", 3], ["pctInputIgG", "% input (IgG)", 3], ["foldIgG", "Fold over IgG", 2], ...(neg ? [["foldNeg", `Fold over ${neg}`, 2]] : []), ...(byAmount ? [["note", "Note"]] : [])],
     chart: hasInput
       ? { yLabel: "% input", bars: out.flatMap(r => [{ group: r.target, series: r.set, value: r.pctInput }, ...(r.pctInputIgG !== null ? [{ group: r.target, series: `${r.set} IgG`, value: r.pctInputIgG, muted: true }] : [])]) }
       : { yLabel: "Fold over IgG", refLine: 1, bars: out.map(r => ({ group: r.target, series: r.set, value: r.foldIgG })) } };
@@ -650,7 +685,7 @@ export function runAssay(exp, rows, extra = {}) {
   if (!assay) return null;
   const family = FAMILIES[assay.family], params = assayParams(setup);
   const { stdCurves, ...rest } = extra;
-  const opts = { ...DEFAULT_OPTS, sdThreshold: exp?.ruleset?.values?.sdThreshold ?? DEFAULT_OPTS.sdThreshold, maxCycles: Number(params.maxCycles) || 40, ...rest };
+  const opts = { ...DEFAULT_OPTS, dna: setup.dna, sdThreshold: exp?.ruleset?.values?.sdThreshold ?? DEFAULT_OPTS.sdThreshold, maxCycles: Number(params.maxCycles) || 40, ...rest };
   const warnings = [];
   const warn = (level, text, wells = []) => warnings.push({ level, text, wells });
   const stale = !!(setup.sourceSha && exp?.source?.sha256 && setup.sourceSha !== exp.source.sha256);
