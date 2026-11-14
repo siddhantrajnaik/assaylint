@@ -86,11 +86,11 @@ test("refuses below the minimum number of ranked genes and says why", () => {
 });
 test("set size limits: too small and almost-whole-panel sets are dropped", () => {
   const all = Array.from({ length: 19 }, (_, i) => `G${i}`);
-  const r = GS.enrichment(fake(20), [{ name: "tiny", genes: ["G0", "G1"] }, { name: "huge", genes: all }, { name: "ok", genes: ["G0", "G1", "G2"] }, { name: "max", genes: all.slice(0, 17) }]);
+  const r = GS.enrichment(fake(20), [{ name: "tiny", genes: ["G0", "G1"] }, { name: "huge", genes: all }, { name: "ok", genes: ["G0", "G1", "G2"] }, { name: "max", genes: all.slice(0, 10) }, { name: "over", genes: all.slice(0, 11) }]);
   assert.deepEqual(r.dropped.small, ["tiny"]);
-  assert.deepEqual(r.dropped.large, ["huge"]);
+  assert.deepEqual(r.dropped.large.sort(), ["huge", "over"]);
   assert.deepEqual(r.rows.map(x => x.name).sort(), ["max", "ok"]);
-  assert.equal(r.maxSize, 17);
+  assert.equal(r.maxSize, 10, "default: half of the 20 ranked genes");
   const r2 = GS.enrichment(fake(20), [{ name: "ok", genes: ["G0", "G1", "G2"] }, { name: "max", genes: all.slice(0, 17) }], { minSize: 4, maxSize: 10 });
   assert.deepEqual([r2.dropped.small, r2.dropped.large], [["ok"], ["max"]]);
   assert.equal(GS.enrichment(fake(20), [{ name: "tiny", genes: ["G0"] }]).ok, false);

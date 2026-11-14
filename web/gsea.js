@@ -236,7 +236,9 @@ export function enrichment(ranking, sets, opts = {}) {
     return out;
   }
   const minSize = Math.max(2, Math.floor(o.minSize) || DEFAULT_MIN_SIZE);
-  const maxSize = Math.min(N - 1, o.maxSize > 0 ? Math.floor(o.maxSize) : N - 3);
+  // Default: at most half the ranked genes, so the rest of the panel the set is compared with is at least as big as the set.
+  // A set covering most of a small panel is compared with a handful of genes and says little.
+  const maxSize = Math.min(N - 1, o.maxSize > 0 ? Math.floor(o.maxSize) : Math.max(3, Math.floor(N / 2)));
   out.minSize = minSize; out.maxSize = maxSize;
   const ranked = new Set(genes.map(g => g.gene)), keep = [];
   for (const s of sets || []) {
@@ -245,7 +247,7 @@ export function enrichment(ranking, sets, opts = {}) {
     else if (g.length > maxSize) out.dropped.large.push(s.name);
     else keep.push({ ...s, genes: g });
   }
-  if (out.dropped.large.length) out.notes.push(`Left out ${out.dropped.large.length} set(s) with more than ${maxSize} of the ${N} ranked genes (${list(out.dropped.large, 4)}). A set that covers almost the whole panel is compared with the two or three genes left over, which says nothing about the set.`);
+  if (out.dropped.large.length) out.notes.push(`Left out ${out.dropped.large.length} set(s) with more than ${maxSize} of the ${N} ranked genes (${list(out.dropped.large, 4)}). A set that covers much of the panel is compared with the few genes left over, which says little about the set.`);
   if (out.dropped.small.length) out.notes.push(`Left out ${out.dropped.small.length} set(s) with fewer than ${minSize} genes on the panel.`);
   if (!keep.length) { out.reason = `No gene set has between ${minSize} and ${maxSize} genes among the ${N} ranked genes on this panel.`; return out; }
   out.method = o.method === "rank" || o.method === "gsea" ? o.method : N < AUTO_GSEA_FROM ? "rank" : "gsea";

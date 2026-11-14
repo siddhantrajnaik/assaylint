@@ -429,7 +429,8 @@ function gseaCard(ax, a, base) {
     const f = e.target.files?.[0];
     if (!f) return;
     let text;
-    try { text = C.decodeBytes(await f.arrayBuffer()); } catch { ax.flash("Couldn't read that file.", true); return; }
+    try { text = C.decodeBytes(await f.arrayBuffer()).text; } catch { text = null; }
+    if (typeof text !== "string") { ax.flash(`${f.name} isn't a text file. A GMT file is plain text: one set per line, tab-separated.`, true); return; }
     const p = GS.parseGmt(text);
     if (p.error) { ax.flash(p.error, true); return; }
     const m = GS.matchSets(p.sets, GS.panelFromRun(st.exp, st.res.rows));
@@ -471,7 +472,7 @@ function gseaCard(ax, a, base) {
       h("small", null, `Ranking: each gene's ${T.short} p against ${a.control}, as −log10 p with the sign of its fold change, so strong changes either way sit at the ends of the list. I use it by default because every test in the analysis has a p, and the p already allows for each gene's own replicates and df; a t statistic from three replicates can be huge just because the replicates happened to agree. Auto picks the rank test below ${GS.AUTO_GSEA_FROM} genes and GSEA from ${GS.AUTO_GSEA_FROM} on.`),
       h("div", { class: "row wrap" },
         num("Smallest set", g.minSize, "minSize", 2, 1000, "genes on the panel"),
-        num("Largest set", g.maxSize, "maxSize", 0, 1000, `0 = panel size − 3${r.maxSize ? ` (now ${r.maxSize})` : ""}`),
+        num("Largest set", g.maxSize, "maxSize", 0, 1000, `0 = half the panel${r.maxSize ? ` (now ${r.maxSize})` : ""}`),
         (r.method === "gsea" || g.method === "gsea") && num("Permutations", g.nperm, "nperm", 100, 10000),
         (r.method === "gsea" || g.method === "gsea") && num("Random seed", g.seed, "seed", 1, 2 ** 31 - 1, "same seed, same p values")))];
   if (!r.ok) return card(...out, g.source && h("p", { class: r.N !== undefined && r.N < GS.MIN_GENES ? "warn" : "muted" }, r.reason));
