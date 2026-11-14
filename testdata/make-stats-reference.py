@@ -3,7 +3,7 @@
 Writes tests/fixtures/stats-reference.json. Run it from a throwaway virtual environment outside the repo:
 
     python -m venv %TEMP%/platecheck-statsref          (or /tmp/platecheck-statsref)
-    <venv>/Scripts/python -m pip install scipy numpy    (bin/python on Linux and macOS)
+    <venv>/Scripts/python -m pip install scipy numpy statsmodels pandas pingouin    (bin/python on Linux and macOS)
     <venv>/Scripts/python testdata/make-stats-reference.py
 
 The cases are fixed by a seed, so the file only changes when SciPy's answers change.
@@ -198,8 +198,118 @@ def dunn_ref(gs):
 
 dunn = [{"groups": gs, "comparisons": dunn_ref(gs)} for gs in kcases]
 
+# ---------------------------------------------------------------- added later: Wilcoxon, CIs, Welch ANOVA, Games–Howell, two-way ANOVA
+# A second generator, so the random cases above stay exactly as they were.
+rng2 = np.random.RandomState(20261114)
+
+wilcoxon = []
+wcases = [([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [0.0] * 6),                         # all positive, exact
+          ([1.5, 2.0, -3.0, 4.0, 5.0, 0.1, 2.0], [0.0, 0, 0, 0, 0, 0.1, 0]),    # a zero and a tie: all sign flips
+          ([1.0, -2.0, 3.0], [0.0, 0.0, 0.0]),                                  # n = 3
+          ([1.0, 1.0, -1.0, 2.0, 2.0], [0.0] * 5),                              # ties
+          ([0.5, -0.25], [0.0, 0.0])]
+for _ in range(8):
+    n = rng2.randint(4, 14)
+    a = r6(rng2.normal(-6, 0.8, n))
+    wcases.append((a, r6(np.array(a) + rng2.normal(rng2.uniform(-1, 1), 0.6, n))))
+for _ in range(3):                                                              # > 13 pairs with ties: normal approximation
+    n = rng2.randint(15, 30)
+    a = [float(v) for v in rng2.randint(0, 6, n)]
+    wcases.append((a, [float(v) for v in rng2.randint(0, 6, n)]))
+for _ in range(2):                                                              # > 13, no ties: still exact (up to 50)
+    n = rng2.randint(20, 45)
+    wcases.append((r6(rng2.normal(0.3, 1, n)), [0.0] * n))
+wcases.append((r6(rng2.normal(0.2, 1, 60)), [0.0] * 60))                       # > 50: normal approximation
+for a, b in wcases:
+    r = stats.wilcoxon(a, b)
+    wilcoxon.append({"a": a, "b": b, "W": num(r.statistic), "p": num(r.pvalue)})
+
+t_quantiles = [{"p": p, "df": df, "q": num(stats.t.ppf(p, df))} for p, df in
+               [(0.975, 1), (0.975, 2), (0.975, 3.5), (0.975, 10), (0.975, 200), (0.025, 4), (0.5, 3), (0.9, 7.25), (0.999, 2.2)]]
+mean_ci = []
+for x in [[1.0, 2.0], [0.3, -0.1, 0.25, 0.4], [5.1, 5.3, 5.2]] + [r6(rng2.normal(0, 1, rng2.randint(2, 10))) for _ in range(5)]:
+    ci = stats.ttest_1samp(x, 0).confidence_interval(0.95)
+    mean_ci.append({"x": x, "low": num(ci.low), "high": num(ci.high)})
+welch_ci = []
+for a, b in cases[:12]:
+    ci = stats.ttest_ind(a, b, equal_var=False).confidence_interval(0.95)
+    welch_ci.append({"a": a, "b": b, "low": num(ci.low), "high": num(ci.high)})
+
+# Welch's ANOVA and Games–Howell: pingouin when it installs, otherwise the formulas written out with SciPy.
+try:
+    import pandas as pd
+    import pingouin as pg
+    have_pg = pg.__version__
+except Exception:
+    have_pg = None
+
+
+def welch_anova_ref(gs):
+    if have_pg:
+        df = pd.DataFrame({"y": sum(gs, []), "g": sum([[f"g{i}"] * len(g) for i, g in enumerate(gs)], [])})
+        r = pg.welch_anova(df, dv="y", between="g")
+        return {"F": num(r["F"].iloc[0]), "df2": num(r["ddof2"].iloc[0]), "p": num(r["p_unc"].iloc[0] if "p_unc" in r else r["p-unc"].iloc[0])}
+    k = len(gs); n = np.array([len(g) for g in gs]); m = np.array([np.mean(g) for g in gs]); v = np.array([np.var(g, ddof=1) for g in gs])
+    w = n / v; W = w.sum(); ms = (w * m).sum() / W; lam = (((1 - w / W) ** 2) / (n - 1)).sum()
+    F = ((w * (m - ms) ** 2).sum() / (k - 1)) / (1 + 2 * (k - 2) * lam / (k * k - 1)); df2 = (k * k - 1) / (3 * lam)
+    return {"F": num(F), "df2": num(df2), "p": num(stats.f.sf(F, k - 1, df2))}
+
+
+def games_howell_ref(gs):
+    if have_pg:
+        df = pd.DataFrame({"y": sum(gs, []), "g": sum([[f"g{i:02d}"] * len(g) for i, g in enumerate(gs)], [])})
+        r = pg.pairwise_gameshowell(df, dv="y", between="g")
+        return [{"i": int(a[1:]), "j": int(b[1:]), "df": num(d), "p": num(p)} for a, b, d, p in zip(r["A"], r["B"], r["df"], r["pval"])]
+    out = []
+    for i in range(len(gs)):
+        for j in range(i + 1, len(gs)):
+            r = stats.ttest_ind(gs[i], gs[j], equal_var=False)
+            out.append({"i": i, "j": j, "df": num(r.df), "p": num(stats.studentized_range.sf(abs(r.statistic) * math.sqrt(2), len(gs), r.df))})
+    return out
+
+
+gh_cases = [[[1.0, 2.0, 3.0], [2.0, 4.0, 7.0], [5.0, 5.5, 6.1]],
+            [[5.0, 5.2, 5.1], [6.1, 6.0, 6.3, 8.0], [5.1, 5.4, 4.9, 5.2, 3.0]],
+            [[0.1, 0.2, 0.15], [5.0, -4.0, 12.0, 3.0, -7.0], [1.0, 1.4, 1.1, 0.8]]]
+for _ in range(7):
+    gh_cases.append([r6(rng2.normal(rng2.uniform(-2, 2), rng2.uniform(0.1, 2.5), rng2.randint(3, 8))) for _ in range(rng2.randint(3, 6))])
+welch_anova = [{"groups": gs, **welch_anova_ref(gs)} for gs in gh_cases]
+games_howell = [{"groups": gs, "pairs": games_howell_ref(gs)} for gs in gh_cases]
+
+# Two-way ANOVA with type II sums of squares: statsmodels anova_lm(typ=2).
+import statsmodels
+import statsmodels.formula.api as smf
+from statsmodels.stats.anova import anova_lm
+
+
+def two_way_case(a, b, interaction):
+    y = r6(rng2.normal(0, 1, len(a)) + np.array([0.8 * (x == "t") for x in a]) + np.array([{"d1": 0, "d2": 0.5, "d3": -0.4}.get(x, 0.3) for x in b]))
+    d = pd.DataFrame({"y": y, "a": a, "b": b})
+    tab = anova_lm(smf.ols("y ~ C(a) * C(b)" if interaction else "y ~ C(a) + C(b)", d).fit(), typ=2)
+    terms = []
+    for name, key in [("C(a)", "a"), ("C(b)", "b"), ("C(a):C(b)", "ab")]:
+        if name in tab.index:
+            terms.append({"term": key, "ss": num(tab.loc[name, "sum_sq"]), "df": num(tab.loc[name, "df"]), "F": num(tab.loc[name, "F"]), "p": num(tab.loc[name, "PR(>F)"])})
+    return {"y": y, "a": a, "b": b, "interaction": interaction, "terms": terms, "residual_df": num(tab.loc["Residual", "df"]), "residual_ss": num(tab.loc["Residual", "sum_sq"])}
+
+
+two_way = []
+bal_a = ["c"] * 6 + ["t"] * 6; bal_b = ["d1", "d1", "d2", "d2", "d3", "d3"] * 2
+two_way.append(two_way_case(bal_a, bal_b, True))                                          # balanced 2 x 3, two per cell
+unb_a = ["c"] * 7 + ["t"] * 5; unb_b = ["d1", "d1", "d1", "d2", "d2", "d3", "d3", "d1", "d2", "d2", "d3", "d3"]
+two_way.append(two_way_case(unb_a, unb_b, True))                                          # unbalanced
+two_way.append(two_way_case(["c", "c", "c", "t", "t", "t", "u", "u", "u"], ["P1", "P2", "P3"] * 3, False))   # block, one per cell
+two_way.append(two_way_case(["c"] * 5 + ["t"] * 6, ["P1", "P1", "P2", "P2", "P2", "P1", "P2", "P2", "P1", "P1", "P1"], False))  # unbalanced block
+for _ in range(3):
+    n = rng2.randint(10, 20)
+    a = [str(x) for x in rng2.choice(["c", "t", "u"], n)]; b = [str(x) for x in rng2.choice(["d1", "d2"], n)]
+    a[:6] = ["c", "c", "t", "t", "u", "u"]; b[:6] = ["d1", "d2"] * 3
+    two_way.append(two_way_case(a, b, True))
+
 out = {"generated_by": "testdata/make-stats-reference.py", "python": sys.version.split()[0],
-       "scipy": scipy.__version__, "numpy": np.__version__,
+       "scipy": scipy.__version__, "numpy": np.__version__, "statsmodels": statsmodels.__version__, "pingouin": have_pg,
+       "wilcoxon": wilcoxon, "t_quantiles": t_quantiles, "mean_ci": mean_ci, "welch_ci": welch_ci, "welch_anova": welch_anova,
+       "games_howell": games_howell, "two_way": two_way,
        "descriptive": descriptive, "t_tails": t_tails, "f_tails": f_tails, "welch": welch, "anova": anova, "adjust": adjust,
        "norm_tails": norm_tails, "chi2_tails": chi2_tails, "tukey_tails": tukey_tails, "student": student, "one_sample": one_sample,
        "paired": paired, "tukey": tukey, "dunnett": dunnett, "mannwhitney": mwu, "kruskal": kruskal, "dunn": dunn}

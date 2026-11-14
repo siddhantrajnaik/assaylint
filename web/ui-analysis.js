@@ -3,6 +3,7 @@
 // (text nodes only, never innerHTML), downloadable as SVG or as a 300-dpi PNG.
 // The app passes its helpers in `ax` (see the hook in app.js): { h, card, download, change, renderMain, st, flash, S, C, openExp, goTab }.
 import * as A from "./analysis.js";
+import { studyReportHtml } from "./report.js";
 
 const NS = "http://www.w3.org/2000/svg";
 // Okabe & Ito colour-blind safe colours: biological replicates blue, technical replicates orange.
@@ -119,7 +120,7 @@ export function foldChart(a, { title = "" } = {}) {
   const ly = top + rowsN * ph + 10;
   svg.append(el("circle", { cx: 18, cy: ly, r: 4.6, fill: COLORS.bio }), txt(28, ly + 4, "Biological replicate (mean of its technical replicates)", { anchor: "start", size: 10.5 }),
     el("circle", { cx: 18, cy: ly + 18, r: 2.1, fill: COLORS.tech }), txt(28, ly + 22, "Technical replicate", { anchor: "start", size: 10.5 }),
-    el("line", { x1: 11, x2: 25, y1: ly + 36, y2: ly + 36, stroke: COLORS.ink, "stroke-width": 2.2 }), txt(28, ly + 40, `Mean ± ${s.error === "sem" ? "SEM" : "SD"}`, { anchor: "start", size: 10.5 }));
+    el("line", { x1: 11, x2: 25, y1: ly + 36, y2: ly + 36, stroke: COLORS.ink, "stroke-width": 2.2 }), txt(28, ly + 40, s.error === "ci" ? "Mean with 95% confidence interval" : `Mean ± ${A.ERR[s.error]}`, { anchor: "start", size: 10.5 }));
   note.forEach((line, k) => svg.append(txt(10, ly + 60 + k * 13, line, { anchor: "start", size: 9.5, fill: COLORS.mute })));
   return svg;
 }
@@ -259,8 +260,14 @@ function settingsPanel(ax, s, info, set) {
         Object.entries(A.TESTS).map(([v, t]) => h("option", { value: v, selected: v === s.test }, t.label))),
       h("small", null, A.TESTS[s.test].help),
       A.TESTS[s.test].rank && h("small", { class: "muted" }, " Rank tests only look at the order of the values. With 3 to 5 replicates per group they have little power: a real difference will often come out as not significant.")),
+    h("label", { class: "field" }, h("span", null, "Two-way ANOVA (optional)"),
+      h("select", { "aria-label": "Two-way ANOVA", onchange: e => set({ twoWay: e.target.value }, `Two-way ANOVA: ${e.target.value || "none"}`) },
+        [["", "None"], ["factor2", "Group × second factor (label set on the Plate step)"], ...(info.study ? [["plate", "Group + plate as a block"]] : [])]
+          .map(([v, l]) => h("option", { value: v, selected: v === s.twoWay }, l))),
+      h("small", null, s.twoWay === "plate" ? "Asks whether the groups differ once each plate's own shift is allowed for. Each plate is assumed to move every group by the same amount."
+        : "For a design with two things varied at once, for example treatment and time, or treatment and sex. It tells you whether each one matters and whether the effect of one depends on the other (the interaction). Give each biological unit a “Second factor” label on the Plate step, or a Factor2 column in your file.")),
     h("div", { class: "row wrap" },
-      sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"]], "error", "Error bars"),
+      sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"], ["ci", "95% confidence interval of the mean"]], "error", "Error bars"),
       sel(s.test === "kruskal" ? "Correction for Dunn (within a gene, then across genes)" : A.TESTS[s.test].withinTarget ? "Correction across genes" : "p value shown on graphs", s.correction, [["bh", "Benjamini–Hochberg adjusted"], ["bonferroni", "Bonferroni adjusted"]], "correction", "Graph correction"),
       sel("Fold-change axis", s.scale, [["log2", "Log scale"], ["linear", "Linear"]], "scale", "Axis")),
     h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.skipOmitted, onchange: e => set({ skipOmitted: e.target.checked }, `Leave out wells marked Omit: ${e.target.checked ? "yes" : "no"}`) }), "Leave out wells marked Omit in the instrument software"),
@@ -281,8 +288,9 @@ function resultsBlock(ax, a, base) {
     return [card(h("h2", null, "Results"), a.needs.map(n => h("p", null, need[n])), a.warnings.length > 0 && h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w))))];
   }
   const tbl = (head, rows) => h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, head.map(x => h("th", null, x)))), h("tbody", null, rows)));
-  const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test];
-  const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method === "exact" ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
+  const err = a.settings.error === "sem" ? "SEM" : "SD", T = A.TESTS[a.settings.test], range = a.settings.error === "ci" ? "Fold 95% CI (error bars)" : `Fold range (± ${err})`;
+  const ciCell = (lo, hi) => (fin(lo) && fin(hi) ? `${fmtFold(lo)}–${fmtFold(hi)}` : "—");
+  const statCell = r => (fin(r.stat) ? `${r.statName} = ${fmt(r.stat)}${fin(r.df) ? ` (df ${fmt(r.df, Number.isInteger(r.df) ? 0 : 1)})` : ""}${r.method?.startsWith("exact") ? ", exact" : ""}${fin(r.pairs) ? `, ${r.pairs} pairs` : ""}` : r.testNote || "—");
   const out = [];
   if (a.warnings.length) out.push(card(h("h2", null, "Worth knowing before you use these numbers"), h("ul", { class: "ana-warn" }, a.warnings.map(w => h("li", null, w)))));
   out.push(card(h("h2", null, "Fold change"),
@@ -293,23 +301,37 @@ function resultsBlock(ax, a, base) {
     h("p", { class: "lede" }, `Test: ${T.label.replace(" (default)", "")}. The p column is the ${T.short} p` +
       (T.withinTarget ? (a.settings.test === "kruskal" ? `, adjusted within each gene (${CORR[a.settings.correction]}); BH and Bonferroni then adjust across genes.` : ", already adjusted within each gene; BH and Bonferroni adjust across genes only.") : "; BH and Bonferroni adjust across every comparison in the table.") +
       ` Graphs show ${a.settings.test !== "kruskal" && T.withinTarget && new Set(a.summary.filter(r => !r.isControl).map(r => r.target)).size < 2 ? `the ${T.short} p` : `the ${CORR[a.settings.correction]} column`}.`),
-    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", `Fold range (± ${err})`, `${T.short} statistic`, `p (${T.short})`, "p (BH)", "p (Bonferroni)"],
+    tbl(["Target", "Group", "n", "Mean ΔCt", `${err} ΔCt`, "ΔΔCt", "Fold change", range, "95% CI of group fold change", "Fold vs control, 95% CI (Welch)", `${T.short} statistic`, `p (${T.short})`, "p (BH)", "p (Bonferroni)"],
       a.summary.map(r => h("tr", { class: !r.isControl && fin(r.pAdj) && r.pAdj < A.ALPHA ? "diff" : "" },
         h("td", null, r.target), h("td", null, r.group, r.isControl ? " (control)" : ""), h("td", { class: "num" }, r.n), h("td", { class: "num" }, fmt(r.meanDct)),
         h("td", { class: "num" }, fmt(a.settings.error === "sem" ? r.semDct : r.sdDct, 3)), h("td", { class: "num" }, fmt(r.meanDdct)), h("td", { class: "num" }, fmtFold(r.fold)),
         h("td", { class: "num" }, fin(r.foldLow) ? `${fmtFold(r.foldLow)}–${fmtFold(r.foldHigh)}` : "—"),
+        h("td", { class: "num" }, ciCell(r.foldCiLow, r.foldCiHigh)), h("td", { class: "num" }, r.isControl ? "" : ciCell(r.foldDiffCiLow, r.foldDiffCiHigh)),
         h("td", { class: "num" }, r.isControl ? "" : statCell(r)),
         h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.p)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBH)), h("td", { class: "num" }, r.isControl ? "" : A.fmtP(r.pBonferroni))))),
-    a.anova.length > 0 && h("div", null, h("h3", null, "One-way ANOVA (all groups)"),
+    T.paired && a.summary.some(r => fin(r.pairedFold)) && h("div", null, h("h3", null, "Fold change from the pairs"),
+      h("p", { class: "fine" }, "What the paired test looks at: for each pair, the treated unit's ΔΔCt minus its partner's, averaged and turned into a fold change. Only units with a partner count. The table above is the group-mean fold change, which uses every unit; the two agree when every unit is paired."),
+      tbl(["Target", "Group", "Pairs", "Mean paired ΔΔCt", "Fold change from pairs", "95% CI (paired t)", "Group-mean fold change"], a.summary.filter(r => fin(r.pairedFold)).map(r => h("tr", null,
+        h("td", null, r.target), h("td", null, r.group), h("td", { class: "num" }, r.pairs), h("td", { class: "num" }, fmt(r.pairedDdct)), h("td", { class: "num" }, fmtFold(r.pairedFold)),
+        h("td", { class: "num" }, ciCell(r.pairedFoldCiLow, r.pairedFoldCiHigh)), h("td", { class: "num" }, fmtFold(r.fold)))))),
+    a.anova.length > 0 && h("div", null, h("h3", null, a.anova[0].welch ? "Welch's one-way ANOVA (all groups, unequal variances allowed)" : "One-way ANOVA (all groups)"),
       tbl(["Target", "Groups", "F", "df", "p", "p (BH)", "p (Bonferroni)"], a.anova.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.F) ? fmt(x.F) : x.note || "—"),
-        h("td", { class: "num" }, `${x.df1}, ${x.df2}`), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
+        h("td", { class: "num" }, `${x.df1}, ${A.fmtDf(x.df2)}`), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
+    a.twoWay?.length > 0 && h("div", null, h("h3", null, a.settings.twoWay === "plate" ? "Two-way ANOVA: group, with plate as a block" : "Two-way ANOVA: group × second factor"),
+      h("p", { class: "fine" }, a.settings.twoWay === "plate"
+        ? "Group row: do the groups differ once each plate's shift is taken out? Plate row: do the plates differ? Type II sums of squares, so unequal numbers per plate are handled."
+        : "Group row: does the group matter, allowing for the second factor? Second factor row: the same the other way round. Interaction row: does the group effect depend on the second factor? A small interaction p means look at the combinations separately. Type II sums of squares, so unequal numbers are handled. p values are corrected across genes, separately for each row."),
+      tbl(["Target", "n", "Effect", "F (df)", "p", "p (BH)", "p (Bonferroni)"], a.twoWay.flatMap(x => [["Group", x.group], [a.settings.twoWay === "plate" ? "Plate" : "Second factor", x.second], ["Interaction", x.interaction]]
+        .filter(([, v]) => v).map(([k, v], i) => h("tr", { class: fin(v.p) && v.p < A.ALPHA ? "diff" : "" }, h("td", null, i ? "" : x.target), h("td", { class: "num" }, i ? "" : x.n), h("td", null, k),
+          h("td", { class: "num" }, fin(v.F) ? `${fmt(v.F)} (${v.df}, ${x.residual?.df})` : "—"), h("td", { class: "num" }, A.fmtP(v.p)), h("td", { class: "num" }, A.fmtP(v.pBH)), h("td", { class: "num" }, A.fmtP(v.pBonferroni))))
+        .concat(x.note || !x.group ? [h("tr", null, h("td", null, x.group ? "" : x.target), h("td", { colspan: 6, class: "fine" }, x.note || "Not enough data."))] : [])))),
     a.kruskal.length > 0 && h("div", null, h("h3", null, "Kruskal–Wallis (all groups)"),
       tbl(["Target", "Groups", "H", "df", "p", "p (BH)", "p (Bonferroni)"], a.kruskal.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.H) ? fmt(x.H) : x.note || "—"),
         h("td", { class: "num" }, x.df), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
-    a.pairwise.length > 0 && h("div", null, h("h3", null, "Tukey HSD: every pair of groups"),
+    a.pairwise.length > 0 && h("div", null, h("h3", null, `${T.short}: every pair of groups`),
       h("p", { class: "fine" }, "p is adjusted for all pairs within the gene. Fold change is the first group relative to the second."),
-      tbl(["Target", "Groups", "Fold change", "q (df)", "p (Tukey)"], a.pairwise.map(x => h("tr", { class: fin(x.p) && x.p < A.ALPHA ? "diff" : "" }, h("td", null, x.target), h("td", null, `${x.a} vs ${x.b}`),
-        h("td", { class: "num" }, fmtFold(x.fold)), h("td", { class: "num" }, `${fmt(x.q)} (${x.df})`), h("td", { class: "num" }, A.fmtP(x.p)))))),
+      tbl(["Target", "Groups", "Fold change", "q (df)", `p (${T.short})`], a.pairwise.map(x => h("tr", { class: fin(x.p) && x.p < A.ALPHA ? "diff" : "" }, h("td", null, x.target), h("td", null, `${x.a} vs ${x.b}`),
+        h("td", { class: "num" }, fmtFold(x.fold)), h("td", { class: "num" }, fin(x.q) ? `${fmt(x.q)} (${A.fmtDf(x.df)})` : x.note || "—"), h("td", { class: "num" }, A.fmtP(x.p)))))),
     h("p", { class: "fine" }, a.method),
     h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => ax.download(`${base}-analysis.csv`, A.resultsCsv(a), "text/csv") }, "Download table (CSV)"))));
   out.push(card(h("h2", null, "Reference gene check"),
@@ -375,7 +397,7 @@ export function studyView(ax) {
   };
   const { runs, missing } = loadRuns(ax, sd.runs);
   const ch = runs.map(r => A.choices(r.res));
-  const info = { targets: [...new Set(ch.flatMap(c => c.targets))], groups: [...new Set(ch.flatMap(c => c.groups))], hasCurves: runs.some(r => r.res.stdCurves?.length), excluded: false };
+  const info = { targets: [...new Set(ch.flatMap(c => c.targets))], groups: [...new Set(ch.flatMap(c => c.groups))], hasCurves: runs.some(r => r.res.stdCurves?.length), excluded: false, study: true };
   const shared = A.sharedUnits(runs);
   const toggleRun = id => save({ runs: sd.runs.includes(id) ? sd.runs.filter(x => x !== id) : [...sd.runs, id] });
   const out = [head, card(h("h2", null, "Study"),
@@ -409,5 +431,11 @@ export function studyView(ax) {
   out.push(card(h("h2", null, "Analysis settings"), settingsPanel(ax, sd.settings, info, patch => save({ settings: { ...sd.settings, ...patch, on: true } }))));
   const a = A.analyzeStudy(runs, sd);
   const base = sd.title.replace(/[^\w.-]+/g, "_").slice(0, 60) || "study";
-  return [...out, ...resultsBlock(ax, a, base)];
+  const reportBtn = card(h("h2", null, "Study report"),
+    h("p", { class: "lede" }, "One HTML file with the method, the plates, the correction used and its warnings, the results table, the graphs and the references. Open it in any browser or print it to PDF."),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => {
+      const svgs = a.ok && a.summary.length ? [foldChart(a, { title: sd.title }), a.targets.length >= 6 && volcano(a), a.calibration?.combat && combatChart({ ...a.calibration.combat, meanOnly: a.calibration.meanOnly })].filter(Boolean).map(serialize) : [];
+      ax.download(`${base}-study-report.html`, studyReportHtml(sd, a, { plates: runs.map(r => ({ title: r.exp.title, date: r.exp.date, id: r.exp.id })), svgs }), "text/html");
+    } }, "Download study report (HTML)")));
+  return [...out, ...resultsBlock(ax, a, base), reportBtn];
 }

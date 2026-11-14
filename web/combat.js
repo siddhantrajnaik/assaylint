@@ -200,7 +200,7 @@ export function combatRecords(plates, { refs = [], weight = () => 1, meanOnly = 
   const plateNames = uniq(used.map(s => s.plate));
   if (plateNames.length < 2) { out.warnings.push("ComBat: fewer than two plates share a target with grouped samples, so nothing was corrected."); return out; }
   const repeated = uniq(used.map(s => s.unit)).filter(u => used.filter(s => s.unit === u).length > 1);
-  if (repeated.length) out.warnings.push(`ComBat treats ${repeated.length} biological unit(s) measured on several plates (${repeated.slice(0, 6).join(", ")}) as separate samples on each plate.`);
+  if (repeated.length) out.warnings.push(`ComBat treats ${repeated.length} biological unit(s) measured on several plates (${repeated.slice(0, 6).join(", ")}) as separate samples on each plate while it estimates the plate effects. After the correction their values are averaged across plates, so each still counts once in the statistics.`);
   const data = targets.map(t => used.map(s => (s.t[t] ? weight(t) * s.t[t].ct - s.ref : null)));
   let res;
   try {

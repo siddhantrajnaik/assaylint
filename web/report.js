@@ -4,7 +4,7 @@ import {
   FORMATS, FIELD_LABEL, CONTEXT_FIELDS, RULESET_FIELDS, REFERENCES, rulesetId, rulesetChanges, referencesFor, toCsv,
 } from "./core.js";
 import { CREDIT } from "./credit.js";
-import { analysisReportHtml } from "./analysis.js"; // analysis module
+import { analysisReportHtml, analysisResultsHtml, analysisReferences } from "./analysis.js"; // analysis module
 import { assayReportHtml } from "./assays.js"; // assay types: workstream 4
 import { targetsReportHtml } from "./genes.js"; // genes and RNA types per target
 
@@ -135,6 +135,42 @@ ${table(["When", "Who", "What"], exp.audit.map(a => [when(a.at), a.actor, a.deta
 <ul>${LIMITATIONS.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
 ${exp.feedback ? `<p class="sub">Asked whether this review was useful: ${esc(exp.feedback.value.toLowerCase())}.</p>` : ""}
 <footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>${CREDIT.linkedin ? ` or <a href="${esc(CREDIT.linkedin)}">LinkedIn</a>` : ""}.${CREDIT.guidance?.length ? ` With guidance from ${CREDIT.guidance.map(g => `${esc(g.name)}, ${esc(g.affiliation)} (<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>)`).join(", ")}.` : ""}</footer>
+</body></html>`;
+}
+
+// HTML report for a study (several plates analysed together; see analyzeStudy in web/analysis.js).
+// study: the saved study; a: the analyzeStudy() result; plates: [{ title, date, id }]; svgs: graphs already serialised as
+// SVG markup by the caller (ui-analysis.js), since this file has no DOM. Same styles as the run report.
+const MODE_LABEL = { calibrator: "Inter-run calibration with a calibrator sample on every plate (qBase)", centre: "Each plate centred per target (no calibrator)",
+  combat: "ComBat on ΔCt (empirical Bayes, group kept as a covariate)", none: "No correction between plates", single: "One plate only, nothing to correct" };
+export function studyReportHtml(study, a, { plates = [], svgs = [], generatedAt = new Date().toISOString() } = {}) {
+  const cal = a.calibration, mode = cal?.mode || study?.mode || "none";
+  const results = a.ok ? analysisResultsHtml(a, esc)
+    : `<p>The analysis can't run yet: ${esc([a.needs.includes("refs") && "no reference gene", a.needs.includes("control") && "no control group", a.needs.includes("targets") && "no target gene besides the references"].filter(Boolean).join(" and "))} has been chosen.</p>`;
+  const offsets = cal?.offsets?.length ? table(["Plate", "Target", mode === "calibrator" ? "Calibrator mean Ct" : mode === "combat" ? "ComBat plate effect on ΔCt" : "Plate mean Ct", "Shift applied (cycles)"],
+    cal.offsets.map(o => [o.plate, o.target, num(o.factor), num(-o.shift, 3)])) : "";
+  const combatText = mode !== "combat" ? "" : cal?.applied ? `, ${cal.meanOnly ? "location only (mean-only)" : "location and scale"}` : ": not applied (see the warnings below)";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(`${study?.title || "Study"}: combined qPCR analysis`)}</title><style>${CSS}</style></head><body>
+<h1>${esc(study?.title || "Study")}</h1>
+<div class="meta"><span>Combined analysis of ${plates.length} plate${plates.length === 1 ? "" : "s"}</span>${study?.id ? `<span>ID <b class="mono">${esc(study.id)}</b></span>` : ""}<span>Report made <b>${esc(when(generatedAt))}</b></span></div>
+<p class="sub">Relative expression from several saved runs analysed together. Each biological unit counts once: technical replicates are averaged first, and a unit measured on more than one plate is averaged across those plates after the plate correction.</p>
+
+<h2>Plates</h2>
+${table(["Run", "Run date", "ID"], plates.map(p => [p.title, p.date, p.id]))}
+
+<h2>Correction between plates</h2>
+<p>${esc(MODE_LABEL[mode] || mode)}${esc(combatText)}.${mode === "calibrator" && study?.calibrators?.length ? ` Calibrator sample${study.calibrators.length > 1 ? "s" : ""}: ${esc(study.calibrators.join(", "))}.` : ""}</p>
+${offsets}
+${cal?.warnings?.length ? `<p><b>Warnings about the correction</b></p><ul>${cal.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+
+<h2>Results</h2>
+${results}
+${svgs.length ? `<h2>Graphs</h2>${svgs.map(s => `<div style="overflow-x:auto;margin:0 0 18px">${String(s).replace(/^<\?xml[^>]*>\s*/, "")}</div>`).join("")}` : ""}
+
+<h2>References</h2>
+<ol class="refs">${(a.ok ? analysisReferences(a) : []).map(r => `<li>${esc(r.text)} <a href="https://doi.org/${esc(r.doi)}">doi:${esc(r.doi)}</a></li>`).join("")}</ol>
+<footer>Made with PlateCheck ${esc(APP_VERSION)}, by ${esc(CREDIT.name)}, ${esc(CREDIT.affiliation)}. Questions: <a href="mailto:${esc(CREDIT.email)}">${esc(CREDIT.email)}</a>.</footer>
 </body></html>`;
 }
 

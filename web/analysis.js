@@ -39,7 +39,7 @@ export function choices(res) {
 export function plateRecords(res, settings, plate = "", calibrators = []) {
   const s = cleanAnalysisSettings(settings) || DEFAULT_SETTINGS, out = { plate, records: [], warnings: [] };
   const excluded = new Set(s.excluded.map(w => w.trim().toUpperCase()));
-  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map(), unitPairs = new Map();
+  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map(), unitPairs = new Map(), unitF2 = new Map();
   const by = new Map();
   for (const r of res?.rows || []) {
     if (r.role !== "sample" || !r.target || !r.bio_unit) continue;
@@ -52,6 +52,7 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
       unitGroups.get(r.bio_unit).add(r.group);
     }
     if (r.pair) { if (!unitPairs.has(r.bio_unit)) unitPairs.set(r.bio_unit, new Set()); unitPairs.get(r.bio_unit).add(r.pair); }
+    if (r.factor2 && !unitF2.has(r.bio_unit)) unitF2.set(r.bio_unit, r.factor2); // two-way ANOVA: first label seen
     const ct = ctNum(r.ct, r.dc);
     const k = `${r.bio_unit}\u0000${r.target}`;
     if (!by.has(k)) by.set(k, { plate, unit: r.bio_unit, group: r.group, target: r.target, tech: [], missing: [] });
@@ -61,11 +62,12 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
   for (const u of ungrouped) if (unitGroups.has(u)) ungrouped.delete(u);
   for (const [u, gs] of unitGroups) if (gs.size > 1)
     out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} is labelled with more than one group (${[...gs].join(", ")}). I used ${[...gs][0]}; fix the labels in the plate map.`);
-  for (const [u, ps] of unitPairs) if (ps.size > 1 && s.test === "paired")
+  for (const [u, ps] of unitPairs) if (ps.size > 1 && TESTS[s.test].paired)
     out.warnings.push(`${plate ? `${plate}: ` : ""}biological unit ${u} has more than one pair label (${[...ps].join(", ")}). I used ${[...ps][0]}.`);
   for (const rec of by.values()) {
     rec.group = unitGroups.has(rec.unit) ? [...unitGroups.get(rec.unit)][0] : null;
     rec.pair = unitPairs.has(rec.unit) ? [...unitPairs.get(rec.unit)][0] : null;
+    rec.factor2 = unitF2.get(rec.unit) || null;
     if (rec.tech.length) out.records.push({ ...rec, ct: mean(rec.tech.map(t => t.ct)) });
   }
   const at = plate ? ` on ${plate}` : "";
@@ -162,10 +164,14 @@ export const TESTS = {
     help: "Each group against the control. Doesn't assume equal variances, which you can't check with 3 to 6 replicates. A safe default." },
   student: { label: "Student t-test", short: "Student t-test", stat: "t",
     help: "Each group against the control, assuming both groups have the same variance. Only better than Welch when that is really true." },
-  paired: { label: "Paired t-test", short: "paired t-test", stat: "t",
+  paired: { label: "Paired t-test", short: "paired t-test", stat: "t", paired: true,
     help: "When each treated unit has a matching control unit (same animal, donor or culture split). Needs a Pair label on the Plate step." },
+  wilcoxon: { label: "Wilcoxon signed-rank (paired, non-parametric)", short: "Wilcoxon signed-rank", stat: "W", rank: true, paired: true,
+    help: "The rank version of the paired t-test: same Pair labels, no normal distribution assumed. With 5 pairs or fewer it can never give p < 0.05." },
   tukey: { label: "One-way ANOVA + Tukey", short: "Tukey HSD", stat: "q", withinTarget: true,
     help: "Three or more groups, every group against every other. p values are already adjusted for all those pairs." },
+  gameshowell: { label: "One-way ANOVA (Welch) + Games–Howell", short: "Games–Howell", stat: "q", withinTarget: true, welchOmnibus: true,
+    help: "Three or more groups whose spreads differ. Every group against every other without assuming equal variances; p values are already adjusted for all those pairs." },
   dunnett: { label: "One-way ANOVA + Dunnett vs control", short: "Dunnett", stat: "t", withinTarget: true,
     help: "Three or more groups, each against the control only. More power than Tukey when the control is all you compare with." },
   mannwhitney: { label: "Mann–Whitney (non-parametric)", short: "Mann–Whitney U", stat: "U", rank: true,
@@ -182,7 +188,7 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
     const r = (s.test === "welch" ? S.welch : S.student)(x.v, ctrl);
     set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, testNote: r.reason || "" });
   }
-  else if (s.test === "paired") {
+  else if (TESTS[s.test].paired) {
     if (!byGroup.some(x => x.d.some(d => d.u.pair))) { notes.none = true; for (const x of others) set(x.g, { testNote: "no pair labels" }); return; }
     // pair label → unit, per group; a label used twice in one group can't be paired
     const byPair = x => {
@@ -196,8 +202,19 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
       const m = byPair(x), labels = [...m.keys()].filter(p => cm.has(p));
       for (const p of labels) { used.add(m.get(p).u.unit); used.add(cm.get(p).u.unit); }
       for (const d of x.d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
-      const r = S.paired(labels.map(p => m.get(p).dct), labels.map(p => cm.get(p).dct));
-      set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, pairs: labels.length, testNote: r.reason || "" });
+      const xs = labels.map(p => m.get(p).dct), cs = labels.map(p => cm.get(p).dct);
+      // Fold change from the pairs: 2^−(mean of the within-pair differences in ΔCt), with its paired 95% CI.
+      // It equals the group-mean fold change only when every unit of both groups is in a pair.
+      const pci = S.meanCi(xs.map((v, i) => v - cs[i]));
+      set(x.g, { pairedDdct: pci.mean, pairedFold: pci.mean === null ? null : 2 ** -pci.mean,
+        pairedFoldCiLow: pci.high === null ? null : 2 ** -pci.high, pairedFoldCiHigh: pci.low === null ? null : 2 ** -pci.low });
+      if (s.test === "wilcoxon") {
+        const r = S.wilcoxon(xs, cs);
+        set(x.g, { stat: r.W, statName: "W", p: r.p, method: r.method, pairs: labels.length, zeros: r.zeros, minP: S.wilcoxonMinP(r.n), testNote: r.reason || "" });
+      } else {
+        const r = S.paired(xs, cs);
+        set(x.g, { stat: r.t, statName: "t", t: r.t, df: r.df, p: r.p, pairs: labels.length, testNote: r.reason || "" });
+      }
     }
     for (const d of byGroup[ci].d) if (!used.has(d.u.unit)) notes.unmatched.push(`${d.u.unit} (${t})`);
   }
@@ -207,9 +224,19 @@ function testTarget(s, t, byGroup, control, rowOf, base, notes) {
     for (const pr of r.pairs) {
       // a pair with the control is listed as "group vs control", so its fold change matches the main table
       const flip = byGroup[pr.i].g === control, a = byGroup[flip ? pr.j : pr.i].g, b = byGroup[flip ? pr.i : pr.j].g, diff = flip ? -pr.diff : pr.diff;
-      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: r.df, p: pr.p });
+      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: r.df, p: pr.p, test: "tukey" });
       const other = a === control ? b : b === control ? a : null;
       if (other !== null) set(other, { stat: pr.q, statName: "q", df: r.df, p: pr.p });
+    }
+  }
+  else if (s.test === "gameshowell") {
+    const r = S.gamesHowell(byGroup.map(x => x.v));
+    all(r);
+    for (const pr of r.pairs) {
+      const flip = byGroup[pr.i].g === control, a = byGroup[flip ? pr.j : pr.i].g, b = byGroup[flip ? pr.i : pr.j].g, diff = flip ? -pr.diff : pr.diff;
+      base.pairwise.push({ target: t, a, b, diff, fold: 2 ** -diff, q: pr.q, df: pr.df, p: pr.p, test: "gameshowell", note: pr.reason || "" });
+      const other = a === control ? b : b === control ? a : null;
+      if (other !== null) set(other, { stat: pr.q, statName: "q", df: pr.df, p: pr.p, testNote: pr.reason || "" });
     }
   }
   else if (s.test === "dunnett") {
@@ -240,6 +267,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     const u = units.get(r.unit);
     u.plates.add(r.plate);
     u.pair ||= r.pair || null;
+    u.factor2 ||= r.factor2 || null;
     if (r.group) { u.groups.add(r.group); u.group ||= r.group; }
     (u.t[r.target] ||= { per: [], tech: [] }).per.push(r.ct);
     u.t[r.target].tech.push(...r.tech);
@@ -249,7 +277,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     if (u.groups.size > 1) warnings.push(`Biological unit ${u.unit} has different groups on different plates (${[...u.groups].join(", ")}). I used ${u.group}.`);
   }
   const multi = [...units.values()].filter(u => u.plates.size > 1);
-  if (plates.length > 1 && multi.length) warnings.push(`${multi.length} biological unit(s) appear on more than one plate (${list(multi.map(u => u.unit))}). Units with the same name are treated as the same biological sample and their plates are averaged.`);
+  if (plates.length > 1 && multi.length) warnings.push(`${multi.length} biological unit(s) appear on more than one plate (${list(multi.map(u => u.unit))}). Units with the same name are treated as the same biological sample: after any plate correction their values are averaged across plates, so each counts once (not once per plate) in n and in the tests.`);
 
   const allTargets = uniq(records.map(r => r.target));
   const groupsSeen = uniq(records.map(r => r.group).filter(Boolean));
@@ -262,7 +290,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   const groups = control ? [control, ...groupsSeen.filter(g => g !== control)] : groupsSeen;
   const targets = allTargets.filter(t => !refs.includes(t));
   if (refs.length && !targets.length) needs.push("targets");
-  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], kruskal: [], pairwise: [], refStability: [], efficiency: {},
+  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], kruskal: [], pairwise: [], twoWay: [], refStability: [], efficiency: {},
     test: TESTS[s.test] };
   if (needs.length) return { ...base, ok: false };
 
@@ -293,7 +321,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   }
 
   // ΔCt per unit and target, then ΔΔCt against the control group's mean ΔCt.
-  const comps = [], pairNotes = { none: false, unmatched: [], duplicate: [] };
+  const comps = [], pairNotes = { none: false, unmatched: [], duplicate: [] }, twoWayLeft = new Set();
   for (const t of targets) {
     const data = [...units.values()].filter(u => u.group && u.ref !== null && u.t[t]).map(u => ({ u, dct: w(t) * u.t[t].ct - u.ref }));
     const ctrl = data.filter(d => d.u.group === control).map(d => d.dct);
@@ -306,23 +334,46 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     const rowOf = new Map();
     for (const { g, v } of byGroup) {
       const m = mean(v) - cm, sdv = S.sd(v), semv = S.sem(v), err = s.error === "sem" ? semv : sdv;
+      // 95% CIs: of the group's mean ΔΔCt (t with n − 1 df), and of its difference from the control (Welch df).
+      // Both are worked out on the ΔΔCt scale and transformed back, so low and high swap places.
+      const ci = S.meanCi(v), dci = g === control ? null : S.welchCi(v, ctrl);
+      const ciLow = ci.low === null ? null : 2 ** -(ci.high - cm), ciHigh = ci.low === null ? null : 2 ** -(ci.low - cm);
+      const lo = s.error === "ci" ? ciLow : err === null ? null : 2 ** -(m + err), hi = s.error === "ci" ? ciHigh : err === null ? null : 2 ** -(m - err);
       const row = { target: t, group: g, isControl: g === control, n: v.length, meanDct: mean(v), sdDct: sdv, semDct: semv, meanDdct: m,
-        fold: 2 ** -m, foldLow: err === null ? null : 2 ** -(m + err), foldHigh: err === null ? null : 2 ** -(m - err), log2fc: -m,
+        fold: 2 ** -m, foldLow: lo, foldHigh: hi, log2fc: -m,
+        ddctCiLow: ci.low === null ? null : ci.low - cm, ddctCiHigh: ci.low === null ? null : ci.high - cm, foldCiLow: ciLow, foldCiHigh: ciHigh,
+        diffCiLow: dci?.low ?? null, diffCiHigh: dci?.high ?? null, diffCiDf: dci?.df ?? null,
+        foldDiffCiLow: dci?.high == null ? null : 2 ** -dci.high, foldDiffCiHigh: dci?.low == null ? null : 2 ** -dci.low,
         test: g === control ? null : TESTS[s.test].short, stat: null, statName: null, t: null, df: null, p: null, pBH: null, pBonferroni: null, pAdj: null, testNote: "" };
       if (g !== control) { comps.push(row); rowOf.set(g, row); }
       base.summary.push(row);
     }
     testTarget(s, t, byGroup, control, rowOf, base, pairNotes);
     if (byGroup.length > 2 && !TESTS[s.test].rank) {
-      const a = S.anova(byGroup.map(x => x.v));
-      base.anova.push({ target: t, F: a.F, df1: a.df1, df2: a.df2, p: a.p, groups: byGroup.length, note: a.reason || "" });
+      const welchF = !!TESTS[s.test].welchOmnibus, a = (welchF ? S.welchAnova : S.anova)(byGroup.map(x => x.v));
+      base.anova.push({ target: t, F: a.F, df1: a.df1, df2: a.df2, p: a.p, groups: byGroup.length, note: a.reason || "", welch: welchF });
     }
     if (byGroup.length > 2 && TESTS[s.test].rank) {
       const k = S.kruskal(byGroup.map(x => x.v));
       base.kruskal.push({ target: t, H: k.H, df: k.df, p: k.p, groups: byGroup.length, note: k.reason || "" });
     }
+    // Two-way ANOVA (type II sums of squares) of ΔCt on group and a second factor: the factor2 label (with the
+    // interaction) or the plate as a block (additive: each plate shifts every group by the same amount).
+    if (s.twoWay && !(s.twoWay === "plate" && plates.length < 2)) {
+      const second = d => (s.twoWay === "plate" ? (d.u.plates.size === 1 ? [...d.u.plates][0] : null) : d.u.factor2 || null);
+      const use = data.filter(d => second(d) !== null);
+      for (const d of data) if (second(d) === null) twoWayLeft.add(d.u.unit);
+      const r = S.twoWayAnova(use.map(d => d.dct), use.map(d => d.u.group), use.map(second), { interaction: s.twoWay === "factor2" });
+      const term = k => r.terms.find(x => x.term === k) || null;
+      base.twoWay.push({ target: t, n: use.length, group: term("a"), second: term("b"), interaction: term("ab"), residual: r.residual,
+        levels: r.levelsB, note: [r.reason, ...r.notes].filter(Boolean).join("; ") });
+    }
   }
-  if (pairNotes.none) warnings.push("The paired t-test needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.");
+  if (s.twoWay === "plate" && plates.length < 2) warnings.push("Plate as a block only makes sense in a study of several plates, so no two-way ANOVA was worked out for this single plate.");
+  if (twoWayLeft.size) warnings.push(s.twoWay === "plate"
+    ? `Left out of the two-way ANOVA because they were measured on more than one plate, so they have no single plate to be blocked by: ${list([...twoWayLeft])}.`
+    : `Left out of the two-way ANOVA because they have no second-factor label: ${list([...twoWayLeft])}. Set it on the Plate step (More options, "Second factor") or give your file a Factor2 column.`);
+  if (pairNotes.none) warnings.push(`The ${s.test === "wilcoxon" ? "Wilcoxon signed-rank test" : "paired t-test"} needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.`);
   if (pairNotes.unmatched.length) warnings.push(`Left out of the paired test because no unit in the other group has the same pair label: ${list(uniq(pairNotes.unmatched))}.`);
   if (pairNotes.duplicate.length) warnings.push(`These pair labels are used by more than one unit in the same group, so their pairs can't be formed: ${list(uniq(pairNotes.duplicate))}. Each pair label should appear once per group.`);
   // Multiple testing. Two-group tests: across every comparison with the control (all targets and groups together).
@@ -337,12 +388,17 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     const abh = S.benjaminiHochberg(om.map(a => a.p)), abf = S.bonferroni(om.map(a => a.p));
     om.forEach((a, i) => { a.pBH = abh[i]; a.pBonferroni = abf[i]; });
   }
+  for (const k of ["group", "second", "interaction"]) { // two-way ANOVA: each effect corrected across targets
+    const rows = base.twoWay.filter(x => x[k]), bh = S.benjaminiHochberg(rows.map(x => x[k].p)), bf = S.bonferroni(rows.map(x => x[k].p));
+    rows.forEach((x, i) => { x[k].pBH = bh[i]; x[k].pBonferroni = bf[i]; });
+  }
 
   const small = base.summary.filter(r => r.n < MIN_N);
   if (small.length) warnings.push(`Fewer than ${MIN_N} biological replicates in: ${list(small.map(r => `${r.group} / ${r.target} (n = ${r.n})`))}. With so few, the test has little power and the p value is unreliable` +
     (small.some(r => r.n < 2) ? "; groups with one replicate get no p value at all" : "") + (TESTS[s.test].rank ? ". Rank tests have even less power than t-tests with groups this small" : "") + ".");
   const floor = comps.filter(r => r.minP > ALPHA);
-  if (floor.length) warnings.push(`With these group sizes the Mann–Whitney test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target}`))}. With 3 per group the smallest possible p is 0.1.`);
+  if (floor.length && s.test === "wilcoxon") warnings.push(`With this few pairs the Wilcoxon signed-rank test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target} (${r.pairs} pairs)`))}. It needs at least 6 pairs with no zero differences to get below 0.05.`);
+  else if (floor.length) warnings.push(`With these group sizes the Mann–Whitney test can't give a p value below ${fmtP(Math.min(...floor.map(r => r.minP)))}, however large the difference, so it can never reach 0.05 for: ${list(floor.map(r => `${r.group} / ${r.target}`))}. With 3 per group the smallest possible p is 0.1.`);
   base.efficiency = eff;
   base.comparisons = comps.length;
   base.method = methodText({ ...base, eff });
@@ -383,6 +439,7 @@ export function fmtP(p) {
 }
 export const stars = p => (p === null || !Number.isFinite(p) ? "" : p < 0.001 ? "***" : p < 0.01 ? "**" : p < ALPHA ? "*" : "ns");
 const CORR = { bh: "Benjamini–Hochberg", bonferroni: "Bonferroni" };
+export const ERR = { sd: "SD", sem: "SEM", ci: "95% CI" };
 function methodText(a) {
   const s = a.settings, e = s.efficiency;
   const refs = a.refs.length > 1 ? `the mean Ct of ${a.refs.join(", ")} (the geometric mean of their quantities)` : a.refs[0];
@@ -394,7 +451,10 @@ function methodText(a) {
   return `Ct values of technical replicates were averaged per biological unit${s.skipOmitted ? ", leaving out wells marked Omit" : ""}. ` +
     `ΔCt = Ct(target) − Ct(reference), with ${refs} as reference. ΔΔCt = ΔCt − mean ΔCt of the control group (${a.control}); fold change = 2^−ΔΔCt` +
     (e ? `, with amplification efficiencies from standard curves (Pfaffl 2001; each Ct multiplied by log2 of its efficiency factor)` : " (Livak & Schmittgen 2001, assuming 100% efficiency)") + "." + calText +
-    ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${s.error === "sem" ? "SEM" : "SD"} of ΔΔCt.`;
+    ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${ERR[s.error]} of ΔΔCt.` +
+    " 95% confidence intervals: for each group's mean ΔΔCt from the t distribution with n − 1 df, and for its difference from the control with Welch's standard error and df; both transformed back to fold change." +
+    (a.twoWay?.length ? (s.twoWay === "plate" ? " Two-way ANOVA of ΔCt on group with plate as a block (additive model, type II sums of squares)." : " Two-way ANOVA of ΔCt on group and the second factor with their interaction (type II sums of squares; the interaction is left out where a combination has no units).") : "") +
+    (TESTS[s.test].paired ? " With the paired test, the fold change from the pairs (2^− the mean within-pair difference in ΔCt, with a paired t 95% CI) is given alongside the group-mean fold change." : "");
 }
 function testMethod(a) {
   const s = a.settings, omni = a.anova?.length ? "; one-way ANOVA across all groups for targets with more than two groups" : a.kruskal?.length ? "; Kruskal–Wallis across all groups for targets with more than two groups" : "";
@@ -402,7 +462,9 @@ function testMethod(a) {
     welch: "each group was compared with the control by Welch's t-test (Welch 1947), two-sided",
     student: "each group was compared with the control by Student's t-test with pooled variance (Student 1908), two-sided",
     paired: "each group was compared with the control by a paired t-test, two-sided: each unit was matched with the control unit that has the same pair label, and the differences in ΔCt were tested against zero",
+    wilcoxon: "each group was compared with the control by the Wilcoxon signed-rank test (Wilcoxon 1945), two-sided: each unit was matched with the control unit that has the same pair label, pairs with a difference of exactly zero were dropped (Wilcoxon's rule, SciPy's default), and p is exact (from all 2^n sign patterns) up to 13 pairs or without ties up to 50, otherwise from the normal approximation with the tie correction",
     tukey: "one-way ANOVA per target, then Tukey's honestly significant difference test for every pair of groups (Tukey 1949; Tukey–Kramer form for unequal n), which adjusts p for all pairs within the target",
+    gameshowell: "Welch's one-way ANOVA per target, which doesn't assume equal variances (Welch 1951), then the Games–Howell test for every pair of groups (Games & Howell 1976): Welch's standard error and df for each pair, with p from the studentized range, adjusted for all pairs within the target",
     dunnett: "one-way ANOVA per target, then Dunnett's test of each group against the control (Dunnett 1955), two-sided, which adjusts p for the comparisons within the target",
     mannwhitney: "each group was compared with the control by the Mann–Whitney U test (Mann & Whitney 1947), two-sided: exact p when there are no ties and a group has 8 or fewer units, otherwise the normal approximation with tie and continuity corrections",
     kruskal: `Kruskal–Wallis test per target with the tie correction (Kruskal & Wallis 1952), then Dunn's test of each group against the control (Dunn 1964), with p adjusted within the target by ${CORR[s.correction]}`,
@@ -417,15 +479,20 @@ function correctionText(a) {
   return nt > 1 ? ` Because ${TESTS[s.test].short} already adjusts within a target, p values were then adjusted only across the ${nt} targets, separately for each comparison, with Benjamini–Hochberg and Bonferroni; graphs show ${CORR[s.correction]}.`
     : ` With one target there is nothing more to adjust, so the graphs show the ${TESTS[s.test].short} p.`;
 }
+export const fmtDf = x => (x === null || x === undefined || !Number.isFinite(x) ? "—" : Number.isInteger(x) ? String(x) : x.toFixed(1));
 const n4 = x => (x === null || x === undefined || !Number.isFinite(x) ? "" : String(+x.toFixed(6)));
 export function resultsCsv(a) {
   const head = ["target", "group", "is_control", "n_biological", "mean_dCt", "sd_dCt", "sem_dCt", "mean_ddCt", "fold_change", "fold_low", "fold_high",
-    "test", "statistic", "statistic_value", "df", "p", "p_bh", "p_bonferroni"];
+    "test", "statistic", "statistic_value", "df", "p", "p_bh", "p_bonferroni", "fold_ci95_low", "fold_ci95_high", "fold_vs_control_ci95_low", "fold_vs_control_ci95_high", "ci_vs_control_df",
+    "paired_mean_ddCt", "paired_fold_change", "paired_fold_ci95_low", "paired_fold_ci95_high"];
   const rows = (a.summary || []).map(r => [r.target, r.group, r.isControl ? "yes" : "no", r.n, n4(r.meanDct), n4(r.sdDct), n4(r.semDct), n4(r.meanDdct), n4(r.fold),
-    n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? ""]);
+    n4(r.foldLow), n4(r.foldHigh), r.isControl ? "" : r.test, r.statName || "", n4(r.stat), n4(r.df), r.p ?? "", r.pBH ?? "", r.pBonferroni ?? "",
+    n4(r.foldCiLow), n4(r.foldCiHigh), n4(r.foldDiffCiLow), n4(r.foldDiffCiHigh), n4(r.diffCiDf),
+    n4(r.pairedDdct), n4(r.pairedFold), n4(r.pairedFoldCiLow), n4(r.pairedFoldCiHigh)]);
   const units = (a.rows || []).map(r => [r.target, r.group, r.unit, r.plates.join(" | "), n4(r.ct), n4(r.refCt), n4(r.dct), n4(r.ddct), n4(r.fold), r.tech.map(t => n4(t.ct)).join(" ")]);
-  const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", "tukey_q", "df", "p_tukey"],
-    ...a.pairwise.map(x => [x.target, x.a, x.b, n4(x.fold), n4(x.q), x.df, x.p ?? ""])] : [];
+  const gh = a.settings?.test === "gameshowell";
+  const pw = (a.pairwise || []).length ? [[], ["target", "group_a", "group_b", "fold_change_a_vs_b", gh ? "games_howell_q" : "tukey_q", "df", gh ? "p_games_howell" : "p_tukey"],
+    ...a.pairwise.map(x => [x.target, x.a, x.b, n4(x.fold), n4(x.q), n4(x.df), x.p ?? ""])] : [];
   return toCsv([head, ...rows, ...pw, [], ["target", "group", "biological_unit", "plates", "mean_ct", "reference_level", "dCt", "ddCt", "fold_change", "technical_ct"], ...units]);
 }
 
@@ -435,14 +502,54 @@ export function analysisReportHtml(exp, res, esc) {
   let a;
   try { a = analyzeRun(exp, res); } catch (e) { return `<h2>Analysis</h2><p>The analysis couldn't be worked out: ${esc(e.message)}</p>`; }
   if (!a.ok) return `<h2>Analysis</h2><p>The analysis is switched on, but ${esc([a.needs.includes("refs") && "no reference gene", a.needs.includes("control") && "no control group", a.needs.includes("targets") && "no target gene besides the references"].filter(Boolean).join(" and "))} has been chosen yet.</p>`;
+  return `<h2>Analysis</h2>\n${analysisResultsHtml(a, esc)}`;
+}
+// The method, results table and notes as HTML; shared by the run report and the study report (report.js).
+export function analysisResultsHtml(a, esc) {
   const f = x => (x === null || !Number.isFinite(x) ? "—" : x.toFixed(2));
-  const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
-  return `<h2>Analysis</h2>
-<p>${esc(a.method)}</p>
+  const body = a.summary.map(r => `<tr><td>${esc(r.target)}</td><td>${esc(r.group)}${r.isControl ? " (control)" : ""}</td><td>${r.n}</td><td>${f(r.fold)}</td><td>${f(r.foldLow)}–${f(r.foldHigh)}</td><td>${f(r.foldCiLow)}–${f(r.foldCiHigh)}</td><td>${r.isControl ? "" : `${f(r.foldDiffCiLow)}–${f(r.foldDiffCiHigh)}`}</td><td>${r.isControl ? "" : esc(fmtP(r.p))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBH))}</td><td>${r.isControl ? "" : esc(fmtP(r.pBonferroni))}</td></tr>`).join("");
+  return `<p>${esc(a.method)}</p>
 <p>Reference gene${a.refs.length > 1 ? "s" : ""}: ${esc(a.refs.join(", "))}. Control group: ${esc(a.control)}. Test: ${esc(a.test.short)}${a.test.withinTarget ? " (p already adjusted for the comparisons within each target)" : ""}. Biological replicates (n) per group are in the table; technical replicates were averaged first and not counted as n.</p>
-<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>± ${a.settings.error === "sem" ? "SEM" : "SD"}</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
-${a.pairwise.length ? `<p class="sub small">Tukey HSD, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+<table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>${a.settings.error === "ci" ? "95% CI (error bars)" : `± ${ERR[a.settings.error]}`}</th><th>95% CI of the group mean</th><th>95% CI vs control (Welch)</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
+${a.pairwise.length ? `<p class="sub small">${esc(a.test.short)}, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.test.paired && a.summary.some(r => Number.isFinite(r.pairedFold)) ? `<p class="sub small">Fold change from the pairs (2^−mean of the within-pair ΔΔCt, only units that have a partner; 95% CI from the paired t): ${a.summary.filter(r => Number.isFinite(r.pairedFold)).map(r => `${esc(r.target)} ${esc(r.group)} ${f(r.pairedFold)} (${f(r.pairedFoldCiLow)}–${f(r.pairedFoldCiHigh)})`).join("; ")}. The table above shows the group-mean fold change.</p>` : ""}
+${a.twoWay?.length ? `<p class="sub small">Two-way ANOVA (${a.settings.twoWay === "plate" ? "group + plate as a block" : "group × second factor"}, type II): ${a.twoWay.map(x => `${esc(x.target)}: ` +
+  [["group", x.group], [a.settings.twoWay === "plate" ? "plate" : "second factor", x.second], ["interaction", x.interaction]].filter(([, v]) => v)
+    .map(([k, v]) => `${k} F(${v.df}, ${x.residual?.df}) = ${f(v.F)}, p = ${esc(fmtP(v.p))}`).join(", ") + (x.note ? ` (${esc(x.note)})` : "")).join("; ")}.</p>` : ""}
 ${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
-${a.anova.length ? `<p class="sub small">One-way ANOVA: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${x.df2}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
+${a.anova.length ? `<p class="sub small">${a.anova[0].welch ? "Welch's one-way ANOVA" : "One-way ANOVA"}: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${fmtDf(x.df2)}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.warnings.length ? `<p><b>Notes on the analysis</b></p><ul>${a.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
+}
+
+// ---------------------------------------------------------------- references behind an analysis (for the study report)
+const REFS = {
+  livak: ["Livak KJ, Schmittgen TD (2001). Analysis of relative gene expression data using real-time quantitative PCR and the 2^−ΔΔCT method. Methods 25(4):402–408.", "10.1006/meth.2001.1262"],
+  pfaffl: ["Pfaffl MW (2001). A new mathematical model for relative quantification in real-time RT-PCR. Nucleic Acids Research 29(9):e45.", "10.1093/nar/29.9.e45"],
+  vandesompele: ["Vandesompele J et al. (2002). Accurate normalization of real-time quantitative RT-PCR data by geometric averaging of multiple internal control genes. Genome Biology 3(7):research0034.", "10.1186/gb-2002-3-7-research0034"],
+  hellemans: ["Hellemans J, Mortier G, De Paepe A, Speleman F, Vandesompele J (2007). qBase relative quantification framework and software for management and automated analysis of real-time quantitative PCR data. Genome Biology 8(2):R19.", "10.1186/gb-2007-8-2-r19"],
+  johnson: ["Johnson WE, Li C, Rabinovic A (2007). Adjusting batch effects in microarray expression data using empirical Bayes methods. Biostatistics 8(1):118–127.", "10.1093/biostatistics/kxj037"],
+  bh: ["Benjamini Y, Hochberg Y (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. Journal of the Royal Statistical Society, Series B 57(1):289–300.", "10.2307/2346101"],
+  welch: ["Welch BL (1947). The generalization of “Student's” problem when several different population variances are involved. Biometrika 34(1–2):28–35.", "10.1093/biomet/34.1-2.28"],
+  student: ["Student (1908). The probable error of a mean. Biometrika 6(1):1–25.", "10.1093/biomet/6.1.1"],
+  wilcoxon: ["Wilcoxon F (1945). Individual comparisons by ranking methods. Biometrics Bulletin 1(6):80–83.", "10.2307/3001968"],
+  tukey: ["Tukey JW (1949). Comparing individual means in the analysis of variance. Biometrics 5(2):99–114.", "10.2307/3001913"],
+  welch51: ["Welch BL (1951). On the comparison of several mean values: an alternative approach. Biometrika 38(3–4):330–336.", "10.1093/biomet/38.3-4.330"],
+  gameshowell: ["Games PA, Howell JF (1976). Pairwise multiple comparison procedures with unequal N's and/or variances: a Monte Carlo study. Journal of Educational Statistics 1(2):113–125.", "10.3102/10769986001002113"],
+  dunnett: ["Dunnett CW (1955). A multiple comparison procedure for comparing several treatments with a control. Journal of the American Statistical Association 50(272):1096–1121.", "10.1080/01621459.1955.10501294"],
+  mannwhitney: ["Mann HB, Whitney DR (1947). On a test of whether one of two random variables is stochastically larger than the other. Annals of Mathematical Statistics 18(1):50–60.", "10.1214/aoms/1177730491"],
+  kruskal: ["Kruskal WH, Wallis WA (1952). Use of ranks in one-criterion variance analysis. Journal of the American Statistical Association 47(260):583–621.", "10.1080/01621459.1952.10483441"],
+  dunn: ["Dunn OJ (1964). Multiple comparisons using rank sums. Technometrics 6(3):241–252.", "10.1080/00401706.1964.10490181"],
+};
+// [{ text, doi }] for the methods an analysis result actually used.
+export function analysisReferences(a) {
+  const s = a.settings, keys = ["livak"];
+  if (s.efficiency) keys.push("pfaffl");
+  if (a.refs.length > 1) keys.push("vandesompele");
+  if (a.calibration?.mode === "calibrator") keys.push("hellemans");
+  if (a.calibration?.mode === "combat" && a.calibration.applied) keys.push("johnson");
+  keys.push(...({ welch: ["welch"], student: ["student"], paired: ["student"], wilcoxon: ["wilcoxon"], tukey: ["tukey"], gameshowell: ["welch51", "gameshowell"],
+    dunnett: ["dunnett"], mannwhitney: ["mannwhitney"], kruskal: ["kruskal", "dunn"] }[s.test] || []));
+  if (!keys.includes("welch")) keys.push("welch"); // the CI against the control uses Welch's df
+  keys.push("bh");
+  return [...new Set(keys)].map(k => ({ text: REFS[k][0], doi: REFS[k][1] }));
 }

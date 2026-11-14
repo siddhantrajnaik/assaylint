@@ -241,7 +241,7 @@ test("saved analysis settings survive normalizeExperiment and a packet round tri
     excluded: ["A1", null], scale: "linear", refMaxShift: 0.8, test: "dunnett", junk: "<script>" };
   C.normalizeExperiment(exp);
   assert.deepEqual(exp.analysis, { on: true, refs: ["GAPDH"], control: "control", efficiency: true, error: "sem", correction: "bonferroni", skipOmitted: false,
-    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett" });
+    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett", twoWay: "" });
   const again = await C.verifyPacket(JSON.parse(R.packetJson(exp, res)));
   assert.deepEqual(again.analysis, exp.analysis);
   for (const junk of [null, 5, "x", [], { on: "yes", refs: "GAPDH", error: "var", correction: "holm", refMaxShift: -1, test: "anova; drop table" }]) {
@@ -426,4 +426,129 @@ test("the report names the test", () => {
   assert.match(html, /Test: Dunnett/);
   exp.analysis = C.cleanAnalysisSettings(setFor("tukey"));
   assert.match(R.reportHtml(exp, res), /Tukey HSD, every pair of groups/);
+});
+
+// ---------------------------------------------------------------- Wilcoxon, Games–Howell, two-way ANOVA, CIs, paired fold change
+const PAIRS = { c1: "m1", a1: "m1", c2: "m2", a2: "m2", c3: "m3", a3: "m3", b1: "m1", b2: "m2", b3: "m3" };
+test("Wilcoxon signed-rank uses the pair labels like the paired t-test", () => {
+  const { exp, res } = threeRun(["Pair"], r => [PAIRS[r[1]] || ""]);
+  const a = A.analyzeRun(exp, res, setFor("wilcoxon"));
+  const rA = a.summary.find(x => x.group === "drugA");
+  near(rA.p, S.wilcoxon(groupDct("a"), groupDct("c")).p, 1e-12, "Wilcoxon p");
+  assert.equal(rA.statName, "W"); assert.equal(rA.pairs, 3);
+  near(rA.p, 0.25, 1e-12, "3 pairs, all the same sign: the smallest p possible");
+  assert.ok(a.warnings.some(w => /Wilcoxon signed-rank test can't give a p value below 0\.250/.test(w)), a.warnings.join("\n"));
+  assert.match(a.method, /Wilcoxon 1945/);
+  assert.equal(a.kruskal.length, 1, "a rank test gets Kruskal–Wallis alongside");
+  const plain = threeRun();
+  const none = A.analyzeRun(plain.exp, plain.res, setFor("wilcoxon"));
+  assert.ok(none.warnings.some(w => /Wilcoxon signed-rank test needs a pair label/.test(w)));
+  assert.equal(C.cleanAnalysisSettings(setFor("wilcoxon")).test, "wilcoxon");
+});
+
+test("Welch ANOVA + Games–Howell gives the stats.js values and lists every pair", () => {
+  const { exp, res } = threeRun();
+  const c = groupDct("c"), da = groupDct("a"), db = groupDct("b");
+  const a = A.analyzeRun(exp, res, setFor("gameshowell")), ref = S.gamesHowell([c, da, db]);
+  near(a.summary.find(x => x.group === "drugA").p, ref.pairs.find(p => p.i === 0 && p.j === 1).p, 1e-12, "Games–Howell vs control");
+  assert.equal(a.pairwise.length, 3);
+  assert.equal(a.anova[0].welch, true);
+  near(a.anova[0].p, S.welchAnova([c, da, db]).p, 1e-12, "Welch ANOVA");
+  assert.match(a.method, /Games & Howell 1976/); assert.match(a.method, /Welch 1951/);
+  assert.match(A.resultsCsv(a), /games_howell_q/);
+  exp.analysis = C.cleanAnalysisSettings(setFor("gameshowell"));
+  assert.match(R.reportHtml(exp, res), /Games–Howell, every pair of groups/);
+});
+
+test("95% confidence intervals: group mean (t, n − 1 df) and difference from the control (Welch), back-transformed", () => {
+  const { exp, res } = threeRun();
+  const c = groupDct("c"), da = groupDct("a"), cm = S.mean(c);
+  const a = A.analyzeRun(exp, res, setFor("welch")), r = a.summary.find(x => x.group === "drugA");
+  const t = S.tQuantile(0.975, 2), h = t * S.sd(da) / Math.sqrt(3);
+  near(t, 4.302652729749462, 1e-12, "t(0.975, 2) from scipy.stats.t.ppf");
+  near(r.foldCiLow, 2 ** -(S.mean(da) + h - cm), 1e-12, "group CI low"); near(r.foldCiHigh, 2 ** -(S.mean(da) - h - cm), 1e-12, "group CI high");
+  const w = S.welch(da, c), hw = S.tQuantile(0.975, w.df) * Math.sqrt(S.variance(da) / 3 + S.variance(c) / 3);
+  near(r.foldDiffCiLow, 2 ** -(w.diff + hw), 1e-12, "difference CI low"); near(r.foldDiffCiHigh, 2 ** -(w.diff - hw), 1e-12, "difference CI high");
+  assert.ok(r.foldDiffCiLow < r.fold && r.fold < r.foldDiffCiHigh);
+  near(r.foldLow, 2 ** -(r.meanDdct + S.sd(da)), 1e-12, "default error bars are still SD");
+  const ci = A.analyzeRun(exp, res, { ...setFor("welch"), error: "ci" }), rc = ci.summary.find(x => x.group === "drugA");
+  near(rc.foldLow, r.foldCiLow, 1e-15, "CI error bars"); near(rc.p, r.p, 1e-15, "the test doesn't change");
+  assert.match(A.resultsCsv(a), /fold_ci95_low,fold_ci95_high,fold_vs_control_ci95_low/);
+  assert.equal(C.cleanAnalysisSettings({ error: "ci" }).error, "ci");
+  assert.equal(C.cleanAnalysisSettings({ error: "iqr" }).error, "sd");
+  exp.analysis = C.cleanAnalysisSettings({ ...setFor("welch"), error: "ci" });
+  assert.match(R.reportHtml(exp, res), /95% CI vs control \(Welch\)/);
+});
+
+test("study: a unit on two plates counts once, and the study gets its own HTML report", () => {
+  const irc = { IRC: [null, { GAPDH: [17.5, 17.6], IL6: [26.0, 26.2] }] };
+  const strip = rows => rows.filter(r => !(r[3] >= 30)).map(r => (r[4] == null ? [...r.slice(0, 4), ""] : r));
+  const pa = run(strip(plate({ c1: HAND.c1, c2: HAND.c2, t1: HAND.t1, ...irc })), { title: "Plate A" });
+  const pb = run(strip(plate({ c1: HAND.c1, c3: HAND.c3, t2: HAND.t2, t3: HAND.t3, ...irc }, { shift: { IL6: 1.0 } })), { title: "Plate B" });
+  const sd = { title: "Two plates", settings: { on: true, refs: ["GAPDH"], control: "control" }, mode: "calibrator", calibrators: ["IRC"] };
+  const a = A.analyzeStudy([pa, pb], sd);
+  assert.equal(a.summary.find(r => r.group === "control").n, 3, "c1 is on both plates but counts once");
+  assert.equal(a.rows.filter(r => r.unit === "c1").length, 1);
+  assert.deepEqual(a.rows.find(r => r.unit === "c1").plates, ["Plate A", "Plate B"]);
+  assert.ok(a.warnings.some(w => /counts once/.test(w)));
+  const html = R.studyReportHtml(sd, a, { plates: [{ title: "Plate A", date: "2026-01-01", id: "AL-1" }, { title: "Plate B", date: "2026-01-02", id: "AL-2" }],
+    svgs: ['<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"><text>fold</text></svg>'], generatedAt: "2026-11-14T10:00:00Z" });
+  assert.match(html, /<h1>Two plates<\/h1>/);
+  assert.match(html, /Inter-run calibration/); assert.match(html, /Calibrator sample: IRC/);
+  assert.match(html, /<td>Plate B<\/td><td>2026-01-02<\/td>/);
+  assert.match(html, /<h2>Graphs<\/h2><div[^>]*><svg/); assert.doesNotMatch(html, /<\?xml/);
+  assert.match(html, /Hellemans J/); assert.match(html, /Livak KJ/);
+  assert.match(html, /<td>IL6<\/td><td>treated<\/td><td>3<\/td>/);
+  const none = R.studyReportHtml({ title: "<x>" }, A.analyzeStudy([pa, pb], { settings: { on: true } }), {});
+  assert.match(none, /&lt;x&gt;/); assert.match(none, /can't run yet/);
+});
+
+test("two-way ANOVA: group × second factor from the Factor2 column, and plate as a block in a study", () => {
+  const F2 = { c1: "d1", a1: "d1", b1: "d1", c2: "d1", a2: "d2", b2: "d2", c3: "d2", a3: "d2", b3: "" };
+  const { exp, res } = threeRun(["Factor2"], r => [F2[r[1]]]);
+  assert.equal(res.rows.find(r => r.sample === "a2").factor2, "d2", "the Factor2 column is read");
+  const a = A.analyzeRun(exp, res, { ...setFor("welch"), twoWay: "factor2" });
+  const units = ["c1", "c2", "c3", "a1", "a2", "a3", "b1", "b2"];
+  const ref = S.twoWayAnova(units.map(u => dctOf(u)), units.map(u => ({ c: "control", a: "drugA", b: "drugB" })[u[0]]), units.map(u => F2[u]));
+  const tw = a.twoWay[0];
+  assert.equal(tw.n, 8);
+  near(tw.group.p, ref.terms[0].p, 1e-12, "group p"); near(tw.second.p, ref.terms[1].p, 1e-12, "second factor p");
+  assert.ok(tw.interaction === null || Number.isFinite(tw.interaction.df));
+  assert.ok(a.warnings.some(w => /no second-factor label: b3/.test(w)), a.warnings.join("\n"));
+  near(a.summary.find(x => x.group === "drugA").p, A.analyzeRun(exp, res, setFor("welch")).summary.find(x => x.group === "drugA").p, 1e-15, "the main test is unchanged");
+  assert.match(a.method, /Two-way ANOVA/);
+  exp.analysis = C.cleanAnalysisSettings({ ...setFor("welch"), twoWay: "factor2" });
+  assert.match(R.reportHtml(exp, res), /Two-way ANOVA \(group × second factor, type II\)/);
+  assert.match(C.mapTemplateCsv(res.rows), /,factor2\n/);
+  assert.equal(A.analyzeRun(exp, res, { ...setFor("welch"), twoWay: "plate" }).twoWay.length, 0, "plate as block needs several plates");
+  // plate as a block in a study
+  const strip = rows => rows.filter(r => !(r[3] >= 30));
+  const pa = run(strip(plate({ c1: HAND.c1, c2: HAND.c2, t1: HAND.t1, t2: HAND.t2 })), { title: "P1" });
+  const pb = run(strip(plate({ c3: HAND.c3, t3: HAND.t3, c4: HAND.c1, t4: HAND.t2 }, { shift: { IL6: 0.7 } })), { title: "P2" });
+  const st = A.analyzeStudy([pa, pb], { settings: { on: true, refs: ["GAPDH"], control: "control", twoWay: "plate" }, mode: "none" });
+  const b = st.twoWay[0];
+  assert.equal(b.interaction, null, "a block has no interaction term");
+  const r2 = S.twoWayAnova(st.rows.map(r => r.dct), st.rows.map(r => r.group), st.rows.map(r => r.plates[0]), { interaction: false });
+  near(b.group.p, r2.terms[0].p, 1e-12, "block: group p"); near(b.second.p, r2.terms[1].p, 1e-12, "block: plate p");
+});
+
+test("paired tests also give the fold change from the within-pair differences", () => {
+  // b3 has no partner, so the paired fold change for drugB uses b1 and b2 only and differs from the group mean.
+  const { exp, res } = threeRun(["Pair"], r => [{ ...PAIRS, b3: "" }[r[1]] || ""]);
+  for (const test of ["paired", "wilcoxon"]) {
+    const a = A.analyzeRun(exp, res, setFor(test)), rB = a.summary.find(x => x.group === "drugB");
+    const d = [dctOf("b1") - dctOf("c1"), dctOf("b2") - dctOf("c2")];
+    near(rB.pairedDdct, S.mean(d), 1e-12, `${test}: mean paired ΔΔCt`);
+    near(rB.pairedFold, 2 ** -S.mean(d), 1e-12, `${test}: fold from pairs`);
+    const ci = S.meanCi(d);
+    near(rB.pairedFoldCiLow, 2 ** -ci.high, 1e-12, "paired CI low");
+    assert.ok(Math.abs(rB.pairedFold - rB.fold) > 1e-6, "differs from the group mean when a unit is unpaired");
+    const rA = a.summary.find(x => x.group === "drugA");
+    near(rA.pairedFold, rA.fold, 1e-12, "every unit paired: the two agree");
+    assert.match(A.resultsCsv(a), /paired_fold_change/);
+    exp.analysis = C.cleanAnalysisSettings(setFor(test));
+    assert.match(R.reportHtml(exp, res), /Fold change from the pairs/);
+  }
+  const w = A.analyzeRun(exp, res, setFor("welch"));
+  assert.equal(w.summary.find(x => x.group === "drugB").pairedFold, undefined, "only for paired tests");
 });
