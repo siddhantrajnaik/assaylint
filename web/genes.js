@@ -337,6 +337,7 @@ export function cleanTargets(v) {
     for (const [k, max] of [["asked", 40], ["geneName", 300],["description", 600], ["descSource", 80], ["dbType", 60], ["lookupNote", 600], ["checkedAt", 40], ["confirmedBy", 120], ["confirmedAt", 40]]) { const s = str(t[k], max); if (s) r[k] = s; }
     if (t.source in SOURCES) r.source = t.source;
     if (["found", "alias", "not_found"].includes(t.status)) r.status = t.status;
+    if (Array.isArray(t.go)) r.go = t.go.filter(x => typeof x === "string" && GO_ENTRY.test(x)).slice(0, GO_MAX); // [gsea] GO terms for gene sets
     if (Object.keys(r).length) putTarget(out, name, r);
   }
   return out;
@@ -384,6 +385,19 @@ export const describe = t => [t?.geneName, t?.description && t.description !== t
 export const sendable = s => typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/.test(s);
 const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,genomic_pos.chr,genomic_pos.ensemblgene,type_of_gene,summary,locus_tag,HGNC,MGI,RGD,ZFIN,FLYBASE,WormBase,SGD,TAIR,Xenbase";
 const EXTRA_FIELDS = "go.BP,generif";
+// [gsea] Asked for every species when "Use GO terms for gene sets" is ticked: only the parts of each GO
+// biological-process entry the gene sets need, which keeps the answer small for well-studied human genes.
+const GO_FIELDS = "go.BP.id,go.BP.term,go.BP.qualifier,go.BP.evidence";
+const GO_ENTRY = /^GO:\d{7} \S.{0,149}$/, GO_MAX = 300;
+// GO biological-process terms of a hit as "GO:0006915 apoptotic process", NOT annotations left out, experimental
+// evidence first, at most GO_MAX per gene.
+export function goTerms(hit) {
+  const seen = new Set();
+  return [hit?.go?.BP].flat().filter(t => t && typeof t.term === "string" && /^GO:\d{7}$/.test(String(t.id)) && !/^NOT/i.test(String(t.qualifier || "")))
+    .map((t, i) => ({ t, i, r: evidenceRank(t.evidence) })).sort((a, b) => a.r - b.r || a.i - b.i)
+    .filter(({ t }) => !seen.has(t.id) && seen.add(t.id)).map(({ t }) => `${t.id} ${t.term.replace(/\s+/g, " ").trim().slice(0, 150)}`)
+    .filter(x => GO_ENTRY.test(x)).slice(0, GO_MAX);
+}
 // Ensembl gene ID prefixes, to pick the reference-assembly ID when MyGene.info lists several (it lists a dozen for pig).
 const ENS_PREFIX = { human: "ENSG", mouse: "ENSMUSG", rat: "ENSRNOG", zebrafish: "ENSDARG", chicken: "ENSGALG", pig: "ENSSSCG", cow: "ENSBTAG",
   dog: "ENSCAFG", macaque: "ENSMMUG", xenopus: "ENSXETG" };
@@ -445,10 +459,12 @@ export function describeHit(hit) {
   if (rif) return { description: firstSentence(rif.text), descSource: `GeneRIF${/^\d{1,9}$/.test(String(rif.pubmed)) ? `, PubMed ${rif.pubmed}` : ""}` };
   return { description: "", descSource: "" };
 }
-function fromMyGene(hit, species, now) {
+function fromMyGene(hit, species, now, go = false) {
   const ens = chooseEnsembl(hit, species);
   const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "").replace(/^Dmel_/, "");
-  return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), ...describeHit(hit),
+  // [gsea] Human and mouse descriptions never used GO terms; asking for them for gene sets doesn't change that.
+  const plain = species === "human" || species === "mouse" ? { ...hit, go: undefined } : hit;
+  return { ...(go ? { go: goTerms(hit) } : {}), ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), ...describeHit(plain),
     entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.id, hgncId: id,
     dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now,
     ...(ens.note ? { lookupNote: ens.note } : {}) };
@@ -466,7 +482,7 @@ function fromHgnc(doc, now) {
 // Arabidopsis loci are asked for as locus tags. Never throws: returns { status: "found" | "alias" | "not_found" |
 // "error", ... }. `fetch` is passed in so the tests (and the monkey test) never touch the network.
 // Only the symbol and the species are sent: "human", "mouse" or "rat" as before, otherwise the NCBI taxonomy ID.
-export async function lookupGene(symbol, { species = "human", taxid = "", extra = [], fetch: fetchFn = globalThis.fetch, now = new Date().toISOString() } = {}) {
+export async function lookupGene(symbol, { species = "human", taxid = "", extra = [], fetch: fetchFn = globalThis.fetch, now = new Date().toISOString(), go = false } = {}) {
   if (!sendable(symbol)) return { status: "error", error: "That isn't a gene symbol, so I didn't send it." };
   if (!SPECIES_LABEL[species]) return { status: "error", error: "Choose a species to look this gene up." };
   const sp = ["human", "mouse", "rat"].includes(species) ? species : species === "other" ? String(taxid ?? "") : TAXID[species];
@@ -474,7 +490,7 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
   if (typeof fetchFn !== "function") return { status: "error", error: "This browser can't make the request." };
   const cands = [symbol, ...extra.filter(sendable)];
   // GO terms and GeneRIFs are only asked for where RefSeq summaries are rare: human TP53 alone has 1.8 MB of GeneRIFs.
-  const fields = species === "human" || species === "mouse" ? MYGENE_FIELDS : `${MYGENE_FIELDS},${EXTRA_FIELDS}`;
+  const fields = (species === "human" || species === "mouse" ? MYGENE_FIELDS : `${MYGENE_FIELDS},${EXTRA_FIELDS}`) + (go ? `,${GO_FIELDS}` : ""); // [gsea]
   const mg = (q, size = 3) => getJson(fetchFn, `https://mygene.info/v3/query?q=${encodeURIComponent(q)}&species=${sp}&fields=${fields}&size=${size}`);
   let myGeneError = null;
   try {
@@ -482,13 +498,13 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       const want = symbol.toUpperCase(), d = await mg(`locus_tag:${want}`);
       const hit = (d?.hits || []).find(x => String(first1(x.locus_tag) ?? "").toUpperCase() === want);
       // A locus with a gene name (YFL039C is ACT1) comes back like an alias, so the panel says which name it found.
-      if (hit) return { status: String(hit.symbol || want).toUpperCase() === want ? "found" : "alias", ...fromMyGene(hit, species, now), asked: want, others: [] };
+      if (hit) return { status: String(hit.symbol || want).toUpperCase() === want ? "found" : "alias", ...fromMyGene(hit, species, now, go), asked: want, others: [] };
     }
     // FlyBase annotation IDs (CG4027) are stored in MyGene.info as locus tags with a Dmel_ prefix. Some genes keep the ID as their symbol (CG10000).
     if (species === "fly" && FLY_ANNOT.test(symbol)) {
       const d = await mg(`locus_tag:Dmel_${symbol}`);
       const hit = (d?.hits || []).find(x => String(first1(x.locus_tag) ?? "") === `Dmel_${symbol}`);
-      if (hit) return { status: hit.symbol === symbol ? "found" : "alias", ...fromMyGene(hit, species, now), asked: symbol, others: [] };
+      if (hit) return { status: hit.symbol === symbol ? "found" : "alias", ...fromMyGene(hit, species, now, go), asked: symbol, others: [] };
     }
     for (const c of cands) {
       const d = await mg(`symbol:${c}`);
@@ -499,20 +515,20 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       const hit = exact || hits.find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
       if (hit && species === "fly" && !exact) {
         const al = ((await mg(`alias:${c}`, 5))?.hits || []).map(x => String(x.symbol)).filter(x => x !== hit.symbol);
-        return { status: "found", ...withNote(fromMyGene(hit, species, now), `FlyBase has ${hit.symbol}${hit.name ? ` (${hit.name})` : ""}, which differs from ${c} only in case. Fly symbols are case-sensitive, so check this is the gene you mean.${al.length ? ` ${c} is also an old name or alias of ${al.join(", ")}.` : ""}`), asked: c };
+        return { status: "found", ...withNote(fromMyGene(hit, species, now, go), `FlyBase has ${hit.symbol}${hit.name ? ` (${hit.name})` : ""}, which differs from ${c} only in case. Fly symbols are case-sensitive, so check this is the gene you mean.${al.length ? ` ${c} is also an old name or alias of ${al.join(", ")}.` : ""}`), asked: c };
       }
-      if (hit) return { status: "found", ...fromMyGene(hit, species, now) };
+      if (hit) return { status: "found", ...fromMyGene(hit, species, now, go) };
     }
     // X. laevis: a symbol without .L or .S usually names both homeologs, so ask for both in one request and say which was used.
     if (species === "xlaevis" && !HOMEOLOG.test(symbol) && !/^mir/i.test(symbol)) {
       const d = await mg(`symbol:${symbol}.L OR symbol:${symbol}.S`);
       const hits = (d?.hits || []).filter(x => HOMEOLOG.test(x.symbol) && String(x.symbol).slice(0, -2).toLowerCase() === symbol.toLowerCase());
       hits.sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))); // .L before .S
-      if (hits.length) return { status: "alias", ...withNote(fromMyGene(hits[0], species, now), `X. laevis has ${hits.length === 2 ? "two copies" : "one copy"} of ${symbol}: ${hits.map(x => x.symbol).join(" and ")}. I used ${hits[0].symbol}${hits.length === 2 ? `; if your primers are for ${hits[1].symbol}, enter that symbol instead` : ""}.`),
+      if (hits.length) return { status: "alias", ...withNote(fromMyGene(hits[0], species, now, go), `X. laevis has ${hits.length === 2 ? "two copies" : "one copy"} of ${symbol}: ${hits.map(x => x.symbol).join(" and ")}. I used ${hits[0].symbol}${hits.length === 2 ? `; if your primers are for ${hits[1].symbol}, enter that symbol instead` : ""}.`),
         asked: symbol, others: hits.slice(1).map(x => String(x.symbol)) };
     }
     const d = await mg(`alias:${symbol}`, 5), hits = d?.hits || [];
-    if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), others: hits.slice(1).map(x => String(x.symbol)), asked: symbol };
+    if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now, go), others: hits.slice(1).map(x => String(x.symbol)), asked: symbol };
     return { status: "not_found", source: "MyGene.info", checkedAt: now, asked: symbol };
   } catch (e) { myGeneError = e; }
   if (species !== "human") return { status: "error", error: `MyGene.info couldn't be reached (${myGeneError.message}). The fallback, HGNC, only has human genes.` };

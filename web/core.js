@@ -773,7 +773,23 @@ export function cleanAnalysisSettings(a) {
     error: ["sem", "ci"].includes(a.error) ? a.error : "sd", correction: a.correction === "bonferroni" ? "bonferroni" : "bh", skipOmitted: a.skipOmitted !== false,
     excluded: names(a.excluded), scale: a.scale === "linear" ? "linear" : "log2", test: ANALYSIS_TESTS.includes(a.test) ? a.test : "welch",
     refMaxShift: typeof shift === "number" && Number.isFinite(shift) && shift > 0 && shift <= 10 ? shift : 0.5,
-    twoWay: ["factor2", "plate"].includes(a.twoWay) ? a.twoWay : "" }; // second factor for a two-way ANOVA; "" = none
+    twoWay: ["factor2", "plate"].includes(a.twoWay) ? a.twoWay : "", // second factor for a two-way ANOVA; "" = none
+    gsea: cleanGsea(a.gsea) }; // [gsea] gene set enrichment settings (web/gsea.js)
+}
+// [gsea] Settings of the gene set enrichment card. source "" means none chosen, so nothing is worked out by default.
+// GMT files are kept only as the sets that touch the panel (genes on the panel, plus each set's full size).
+function cleanGsea(g) {
+  if (!isObj(g)) g = {};
+  const int = (v, lo, hi, d) => (Number.isInteger(v) && v >= lo && v <= hi ? v : d);
+  const gene = x => typeof x === "string" && x.trim() && x.length <= 60;
+  const sets = (v, max) => (Array.isArray(v) ? v : []).filter(s => isObj(s) && asStr(s.name).trim() && Array.isArray(s.genes)).slice(0, max)
+    .map(s => ({ name: asStr(s.name).trim().slice(0, 200), genes: [...new Set(s.genes.filter(gene).map(x => x.trim()))].slice(0, 2000), ...(Number.isInteger(s.total) && s.total > 0 ? { total: s.total } : {}) }))
+    .filter(s => s.genes.length);
+  const gmt = isObj(g.gmt) ? { name: asStr(g.gmt.name).slice(0, 200), sets: sets(g.gmt.sets, 5000), read: int(g.gmt.read, 0, 1e6, 0), offPanel: int(g.gmt.offPanel, 0, 1e7, 0) } : null;
+  return { source: ["gmt", "go", "custom"].includes(g.source) ? g.source : "", method: ["rank", "gsea"].includes(g.method) ? g.method : "auto",
+    group: asStr(g.group).slice(0, 200), stat: g.stat === "t" ? "t" : "logp", minSize: int(g.minSize, 2, 1000, 3), maxSize: int(g.maxSize, 0, 1000, 0),
+    nperm: int(g.nperm, 100, 10000, 1000), seed: int(g.seed, 1, 2 ** 31 - 1, 1), goTerms: g.goTerms === true,
+    gmt: gmt && gmt.sets.length ? gmt : null, custom: sets(g.custom, 200), plotSet: asStr(g.plotSet).slice(0, 200) };
 }
 export function normalizeExperiment(exp) {
   if (!isObj(exp)) throw new ParseError("This saved run is damaged and can't be opened.");

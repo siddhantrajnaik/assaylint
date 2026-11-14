@@ -1,12 +1,13 @@
 // "Targets" panel on the Method details tab: RNA type, gene symbol and species per target, an optional
 // database lookup, and notes for each RNA type in the run. app.js passes in what this needs (see targetsPanel).
 import * as G from "./genes.js";
+import { cleanAnalysisSettings } from "./core.js"; // [gsea] the "Use GO terms for gene sets" setting lives with the analysis settings
 
 let busy = null; // { id, done, total } while a lookup runs
 const lastError = new Map(); // experiment id → message from the last lookup
 const memo = new Map(); // "species|taxid|symbol" → result, so one session doesn't ask twice
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "locus", "geneName", "description", "descSource", "dbType", "lookupNote", "source", "checkedAt", "status", "asked"];
+const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "locus", "geneName", "description", "descSource", "dbType", "lookupNote", "source", "checkedAt", "status", "asked", "go"];
 
 // ctx: { h, card, exp, rows, actor, change, flash, rerender, current }
 //   change(action, detail, fn) logs, re-analyses, saves and re-renders (app.js change()).
@@ -51,7 +52,14 @@ export function targetsPanel(ctx) {
         h("button", { class: "btn primary", type: "button", disabled: running || !toLook.length, onclick: () => lookUp(ctx) },
           running ? `Looking up ${busy.done + 1} of ${busy.total}…` : "Look up genes"))),
     h("p", { class: "fine" }, "“Look up genes” sends only the gene symbols below (for example ACTB or MIR21) and their species to MyGene.info, and, for human genes only, to HGNC if MyGene.info can't be reached, to get the Entrez and Ensembl IDs and a one-line description. Nothing else leaves your browser: no sample names, Ct values or file contents. Nothing is sent until you press the button."),
-    err && h("p", { class: "error" }, err),
+    // [gsea] Same button, same host, same symbols; the answer also carries each gene's GO biological-process terms.
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!exp.analysis?.gsea?.goTerms,
+      onchange: ev => ctx.change("analysis.edit", `Use GO terms for gene sets: ${ev.target.checked ? "on" : "off"}`, () => {
+        const a = cleanAnalysisSettings(exp.analysis || {});
+        exp.analysis = cleanAnalysisSettings({ ...a, gsea: { ...a.gsea, goTerms: ev.target.checked } });
+      }) }), "Use GO terms for gene sets",
+      h("small", { class: "muted" }, " (the lookup then also brings back each gene's Gene Ontology biological-process terms, for the gene set enrichment on the Analysis step; still only the symbols are sent)")),
+    err &&h("p", { class: "error" }, err),
     h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
       h("thead", null, h("tr", null, ["Target in file", "Gene symbol", "Species", "RNA type", "IDs", "Description", "Status", ""].map(x => h("th", null, x)))),
       h("tbody", null, rows.map(r => h("tr", null,
@@ -98,7 +106,8 @@ function confirmAll(ctx, rows) {
 // Looks up every target that has a usable symbol and hasn't been looked up with that symbol yet.
 async function lookUp(ctx) {
   const exp = ctx.exp, all = G.targetTable(exp, ctx.rows).filter(r => r.lookup);
-  const fresh = all.filter(r => !(r.saved.checkedAt && (r.saved.asked === r.symbol || r.saved.symbol === r.symbol)));
+  const go = !!exp.analysis?.gsea?.goTerms; // [gsea] with GO terms wanted, a gene looked up without them counts as not looked up
+  const fresh = all.filter(r => !(r.saved.checkedAt && (r.saved.asked === r.symbol || r.saved.symbol === r.symbol) && (!go || r.saved.status === "not_found" || Array.isArray(r.saved.go))));
   const rows = fresh.length ? fresh : all; // everything already looked up: pressing again refreshes it
   if (!rows.length || busy) return;
   busy = { id: exp.id, done: 0, total: rows.length };
@@ -107,10 +116,10 @@ async function lookUp(ctx) {
   const results = [];
   let failures = 0, error = "";
   for (const r of rows) {
-    const key = `${r.species}|${r.taxid}|${r.symbol}`;
+    const key = `${r.species}|${r.taxid}|${r.symbol}${go ? "|go" : ""}`;
     let res = memo.get(key);
     if (!res || !fresh.length) {
-      try { res = await G.lookupGene(r.symbol, { species: r.species, taxid: r.taxid, extra: r.symbol === r.guess.symbol ? r.guess.extra : [] }); }
+      try { res = await G.lookupGene(r.symbol, { species: r.species, taxid: r.taxid, extra: r.symbol === r.guess.symbol ? r.guess.extra : [], go }); }
       catch (e) { res = { status: "error", error: String(e?.message || e) }; }
       if (res.status !== "error") memo.set(key, res);
     }
@@ -130,7 +139,7 @@ async function lookUp(ctx) {
       const patch = x.status === "not_found"
         ? { ...clearLookup(), status: "not_found", source: x.source, checkedAt: x.checkedAt, asked: x.asked }
         : { ...clearLookup(), symbol: x.symbol, entrez: x.entrez, ensembl: x.ensembl, hgncId: x.hgncId, locus: x.locus, geneName: x.geneName, description: x.description, descSource: x.descSource,
-          dbType: x.dbType, lookupNote: x.lookupNote, source: x.source, checkedAt: x.checkedAt, status: x.status, asked: x.asked || r.symbol,
+          dbType: x.dbType, lookupNote: x.lookupNote, source: x.source, checkedAt: x.checkedAt, status: x.status, asked: x.asked || r.symbol, go: x.go,
           // The user's own choice of type wins; otherwise take the database's.
           type: cur.confirmedBy && cur.type ? cur.type : x.type || r.type };
       G.putTarget(exp.targets, r.name, record({ ...ctx, exp }, r, patch, false));

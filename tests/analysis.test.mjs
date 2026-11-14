@@ -241,7 +241,7 @@ test("saved analysis settings survive normalizeExperiment and a packet round tri
     excluded: ["A1", null], scale: "linear", refMaxShift: 0.8, test: "dunnett", junk: "<script>" };
   C.normalizeExperiment(exp);
   assert.deepEqual(exp.analysis, { on: true, refs: ["GAPDH"], control: "control", efficiency: true, error: "sem", correction: "bonferroni", skipOmitted: false,
-    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett", twoWay: "" });
+    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett", twoWay: "", gsea: A.DEFAULT_SETTINGS.gsea });
   const again = await C.verifyPacket(JSON.parse(R.packetJson(exp, res)));
   assert.deepEqual(again.analysis, exp.analysis);
   for (const junk of [null, 5, "x", [], { on: "yes", refs: "GAPDH", error: "var", correction: "holm", refMaxShift: -1, test: "anova; drop table" }]) {
