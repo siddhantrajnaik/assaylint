@@ -196,6 +196,7 @@ export const RULESET_FIELDS = [
   { key: "meltChecks", label: "Run melt-curve checks (intercalating-dye assay)", type: "bool" },
   { key: "meltTmTolerance", label: "Melt Tm tolerance from target median (°C)", type: "number", step: 0.1 },
   { key: "meltSecondaryRatio", label: "Flag secondary melt peaks at ≥ this fraction of the main peak", type: "number", step: 0.05 },
+  { key: "meltPeakSeparation", label: "Count a second melt peak only if it is at least this far from the main peak (°C)", type: "number", step: 0.1 },
   { key: "effMin", label: "Standard curve efficiency minimum (%)", type: "number", step: 1 },
   { key: "effMax", label: "Standard curve efficiency maximum (%)", type: "number", step: 1 },
   { key: "r2Min", label: "Standard curve minimum R²", type: "number", step: 0.005 },
@@ -206,7 +207,7 @@ export const DEFAULT_PROFILE = {
   id: "assaylint-default", name: "PlateCheck defaults", version: 1,
   values: { sdThreshold: 0.3, sdCtDependent: false, sdPoissonK: 1.5, lateCtThreshold: 35,
     ntcCtThreshold: 35, expectNtc: true, expectPositive: false, expectNrt: false, nrtMargin: 5,
-    ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3,
+    ctTolerance: 2, meltChecks: false, meltTmTolerance: 1, meltSecondaryRatio: 0.3, meltPeakSeparation: 2,
     effMin: 90, effMax: 110, r2Min: 0.98, minStdLevels: 3, minStdRange: 3 },
 };
 
@@ -275,8 +276,11 @@ const THRESHOLD_EVIDENCE = {
     evidence: "For dye-based assays, MIQE 2.0 calls melt curve analysis essential. Off by default because probe assays have no melt step.",
     detail: "Intercalating dyes report every double-stranded product, so the melt curve is the main check that one product amplified. MIQE 2.0 calls it essential for dye assays. Probe-based assays do not need it." },
   meltTmTolerance: { refs: ["ririe1997", "miqe2025"],
-    evidence: "Melt curves can tell apart products less than 2 °C apart (Ririe et al. 1997); 1 °C is half that.",
+    evidence: "Melt curves can tell apart products less than 2 °C apart (Ririe et al. 1997). The 1 °C cut-off is my own choice inside that range, not a published value.",
     detail: "Ririe et al. (1997) separated products whose Tm differed by less than 2 °C. A shift of more than 1 °C from the target's median therefore may be a different product, though salt, volume and instrument calibration also move Tm (MIQE 2.0). On high-resolution melt instruments you can tighten this to about 0.5 °C." },
+  meltPeakSeparation: { refs: ["ririe1997"],
+    evidence: "My own default, not a published value. Ririe et al. (1997) separated products less than 2 °C apart, so a real second product closer than 2 °C to the main peak is missed at this setting.",
+    detail: "Peaks closer than this are treated as one product. Lowering it to 1–1.5 °C catches close second products, but noisy or GC-uneven amplicons then give more false second peaks; check the expected melt shape (for example with uMELT) before acting on one. A second product that only shows as a shoulder on the main peak, without a maximum of its own, isn't detected at any setting." },
   meltSecondaryRatio: { refs: ["miqe2025", "ririe1997"],
     evidence: "No published cut-off. My heuristic: a second peak at 30% or more of the main peak is big enough to affect Ct.",
     detail: "I found no paper that sets a height ratio. MIQE 2.0 notes that amplicons with uneven GC content can melt in blocks and show more than one peak from a single product, so check the expected melt shape (for example with uMELT) before acting on this flag. Lower the ratio to catch small primer-dimer peaks; raise it for amplicons known to melt in two domains." },
@@ -876,7 +880,8 @@ export function summarize(findings, reviews = {}, hasData = true) {
   const real = findings.filter(f => f.severity !== "info");
   const isOpen = f => !CLOSED.has(reviews[f.id]?.disposition);
   const open = real.filter(isOpen);
-  const status = !hasData ? "no_data" : open.some(f => f.severity === "high" || f.severity === "medium") ? "review_needed"
+  // Missing method details are listed but don't make a run "Review needed": nothing is wrong with the data, it's paperwork.
+  const status = !hasData ? "no_data" : open.some(f => (f.severity === "high" || f.severity === "medium") && f.rule !== "missing_metadata") ? "review_needed"
     : real.length ? "findings_present" : "no_flags";
   const count = (list, key) => Object.fromEntries([...groupBy(list, f => f[key])].map(([k, v]) => [k, v.length]));
   return { status, label: STATUS_LABEL[status] + (status === "findings_present" && !open.length ? " (all reviewed)" : ""),
@@ -1124,10 +1129,10 @@ export function analyze(exp) {
     res.stdCurves.push({ target: t, ...fit, efficiency: eff, levels, range, points: pts });
     const ev = `slope ${fit.slope.toFixed(3)}, intercept ${fit.intercept.toFixed(2)}, R² ${fit.r2.toFixed(4)}, efficiency ${eff.toFixed(1)}%, ${levels} levels, ${pts.length} wells`;
     add("std_curve_summary", t, { wells: pts.map(p => p.well), target: t, description: `Standard curve for '${t}': efficiency ${eff.toFixed(1)}%, R² ${fit.r2.toFixed(4)}.`, evidence: ev, next_check: "None." });
-    if (!(eff >= v.effMin && eff <= v.effMax)) add("std_curve_efficiency", t, { wells: pts.map(p => p.well), target: t,
+    if (!(eff >= v.effMin - 1e-3 && eff <= v.effMax + 1e-3)) add("std_curve_efficiency", t, { wells: pts.map(p => p.well), target: t,
       description: `Efficiency for '${t}' is ${eff.toFixed(1)}%, outside ${v.effMin}–${v.effMax}%.`, evidence: ev,
       next_check: "Check dilution accuracy, inhibition at high concentrations and outlying standard wells." });
-    if (fit.r2 < v.r2Min) add("std_curve_r2", t, { wells: pts.map(p => p.well), target: t,
+    if (fit.r2 < v.r2Min - 1e-9) add("std_curve_r2", t, { wells: pts.map(p => p.well), target: t,
       description: `Standard curve R² for '${t}' is ${fit.r2.toFixed(4)}, below ${v.r2Min}.`, evidence: ev,
       next_check: "Inspect individual standards for outliers or pipetting errors." });
     if (v.minStdRange > 0 && range < v.minStdRange - 1e-9) add("std_curve_range", t, { wells: pts.map(p => p.well), target: t,
@@ -1211,13 +1216,13 @@ export function analyze(exp) {
             evidence: `largest peak height ${s.main.h.toFixed(3)} vs target median ${medH.toFixed(3)} (needs ≥ 20%)`, next_check: "Inspect the amplification and melt curves together." });
           continue;
         }
-        const sec = s.peaks.filter(p => p !== s.main && Math.abs(p.t - s.main.t) >= 2 && p.h >= v.meltSecondaryRatio * s.main.h);
+        const sec = s.peaks.filter(p => p !== s.main && Math.abs(p.t - s.main.t) >= v.meltPeakSeparation && p.h >= v.meltSecondaryRatio * s.main.h);
         if (sec.length) add("melt_multiple_peaks", r.line, { ...at(r), uncertain: true, description: `Well ${name(r)} has ${sec.length + 1} melt peaks.`,
           evidence: `main peak ${s.main.t.toFixed(1)} °C (height ${s.main.h.toFixed(3)}); secondary ${sec.map(p => `${p.t.toFixed(1)} °C (${(p.h / s.main.h * 100).toFixed(0)}%)`).join(", ")}`,
           next_check: "Check for non-specific products or primer-dimer, for example on a gel or with a primer redesign." });
-        if (Math.abs(s.main.t - medTm) > v.meltTmTolerance) add("melt_tm_deviation", r.line, { ...at(r),
-          description: `Melt Tm for ${name(r)} is ${s.main.t.toFixed(1)} °C; the median for '${t}' is ${medTm.toFixed(1)} °C.`,
-          evidence: `difference ${(s.main.t - medTm).toFixed(1)} °C; tolerance ±${v.meltTmTolerance} °C`, next_check: "Compare with replicates; check whether a different product amplified in this well." });
+        if (Math.abs(s.main.t - medTm) > v.meltTmTolerance + 1e-9) add("melt_tm_deviation", r.line, { ...at(r),
+          description: `Melt Tm for ${name(r)} is ${s.main.t.toFixed(2)} °C; the median for '${t}' is ${medTm.toFixed(2)} °C.`,
+          evidence: `difference ${(s.main.t - medTm).toFixed(2)} °C; tolerance ±${v.meltTmTolerance} °C`, next_check: "Compare with replicates; check whether a different product amplified in this well." });
       }
       for (const r of rs.filter(r => r.role === "ntc")) {
         const k = find(r), s = k ? ms[k] : null; r.meltKey = k;

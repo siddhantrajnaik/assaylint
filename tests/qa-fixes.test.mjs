@@ -82,3 +82,22 @@ test("lines that couldn't be read are listed in the well-data CSV with their raw
   assert.match(csv[2], /^3,.*not read.*20\.1/);
   assert.equal(csv.length >= 4, true);
 });
+
+// ---- Blocks 6-8
+const stdRun = (slope, extra = {}) => { const text = "Well,Sample,Target,Ct,Task,Quantity\n" + [6, 5, 4, 3, 2].map((l, i) => `A${i + 1},s${i},G,${(40 + slope * l).toFixed(6)},Standard,1e${l}`).join("\n") + "\n"; const e = exp(text); Object.assign(e.ruleset.values, extra); return C.analyze(e); };
+test("efficiency exactly at 90% or 110% is inside the range", () => {
+  for (const eff of [90, 110]) assert.ok(!stdRun(-1 / Math.log10(1 + eff / 100)).findings.some(f => f.rule === "std_curve_efficiency"), `${eff}%`);
+  assert.ok(stdRun(-1 / Math.log10(1.89)).findings.some(f => f.rule === "std_curve_efficiency"));
+});
+test("a run whose only medium findings are missing method details is not 'Review needed'", () => {
+  const r = C.analyze(exp("Well,Sample,Target,Ct,Task\nA1,s,G,20,Unknown\nA2,s,G,20.1,Unknown\nH1,NTC,G,Undetermined,NTC\n"));
+  assert.ok(r.findings.some(f => f.rule === "missing_metadata" && f.severity === "medium"));
+  assert.notEqual(r.summary.status, "review_needed");
+});
+test("second melt peaks closer than the separation setting are counted when the setting is lowered", () => {
+  const temps = []; for (let t = 70; t <= 90; t += 0.05) temps.push(+t.toFixed(2));
+  const g = (t, m, h) => h * Math.exp(-((t - m) ** 2) / 0.32); // narrow peaks, so 1.5 °C apart gives two maxima
+  const melt = "Temperature,A1,A2,A3\n" + temps.map(t => `${t},${g(t, 82, 1).toFixed(5)},${g(t, 82, 1).toFixed(5)},${(g(t, 82, 1) + g(t, 80.5, 0.6)).toFixed(5)}`).join("\n") + "\n";
+  const run2 = sep => { const e = exp("Well,Sample,Target,Ct\nA1,a,G,22\nA2,b,G,22\nA3,c,G,22\n"); e.melt = C.fileRecord({ name: "m", text: melt, sha: "x", actor: "qa", valueType: "derivative" }); Object.assign(e.ruleset.values, { meltChecks: true, meltPeakSeparation: sep }); return C.analyze(e).findings.some(f => f.rule === "melt_multiple_peaks"); };
+  assert.equal(run2(2), false); assert.equal(run2(1), true);
+});

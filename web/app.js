@@ -712,7 +712,7 @@ function setNA(role, target, reason) {
 }
 // Thresholds workstream: sdCtDependent, sdPoissonK, lateCtThreshold, nrtMargin and minStdRange added.
 const RULE_GROUPS = [["Replicates", ["sdThreshold", "sdCtDependent", "sdPoissonK", "lateCtThreshold"]], ["Controls", ["expectNtc", "expectPositive", "expectNrt", "ntcCtThreshold", "nrtMargin"]],
-  ["Curves", ["ctTolerance", "meltChecks", "meltTmTolerance", "meltSecondaryRatio"]], ["Standard curve", ["effMin", "effMax", "r2Min", "minStdLevels", "minStdRange"]]];
+  ["Curves", ["ctTolerance", "meltChecks", "meltTmTolerance", "meltSecondaryRatio", "meltPeakSeparation"]], ["Standard curve", ["effMin", "effMax", "r2Min", "minStdLevels", "minStdRange"]]];
 const onoff = v => (v === true ? "on" : v === false ? "off" : String(v));
 VIEWS.context = () => {
   const e = st.exp, rs = e.ruleset, fileInst = Object.entries(st.res?.parsed?.metadata || {}).find(([k]) => /instrument/i.test(k));
