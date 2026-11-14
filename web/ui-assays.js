@@ -127,7 +127,7 @@ export function assayView(ctx) {
       h("p", { class: "fine" }, "For each set: the total DNA recovered in the IP and in the input (elution volume × concentration), and how many ng of each went into a qPCR well. If the IgG ng per well is empty, the IP value is used."),
       h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, h("th", null, "Set"), F.map(([, l]) => h("th", null, l)))),
         h("tbody", null, setNames.map(set => h("tr", null, h("td", { class: "mono" }, set), F.map(([f, l]) => h("td", null,
-          h("input", { type: "number", class: "num-in", min: 0, step: "any", value: dna[set]?.[f] != null ? String(dna[set][f]) : "", "aria-label": `${l} for ${set}`, onchange: ev => setDna(set, f, ev.target.value) })))))))))));
+          h("input", { type: "number", class: "num-in", min: 0, step: "any", value: dna[set]?.[f] != null ? String(dna[set][f]) : "", "aria-label": `${l} for ${set}`, onchange: ev => setDna(set, f, ev.target.value) }))))))))));
   }
 
   // ---- PCR efficiency per primer pair: 100% unless the user picks the plate's standard curve or types a value
