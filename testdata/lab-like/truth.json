@@ -1,0 +1,86 @@
+{
+ "E1": {
+  "experiment": "E1",
+  "truth_fold_LPS_vs_control": {
+   "GAPDH": 1.0,
+   "ACTB": 1.0,
+   "HPRT1": 1.0,
+   "IL6": 16.0,
+   "TNF": 6.0,
+   "CXCL8": 1.0
+  },
+  "efficiency": {
+   "GAPDH": 0.97,
+   "ACTB": 0.95,
+   "HPRT1": 0.93,
+   "IL6": 0.94,
+   "TNF": 0.92,
+   "CXCL8": 0.96
+  },
+  "planted": [
+   "NTC H11 GAPDH Ct ~36.4 with a primer-dimer melt peak at 76 C",
+   "no-RT H12 (Ctrl-1, ACTB) amplifies about 12.5 cycles after the sample (gDNA)",
+   "LPS-2 / TNF replicate in column 10 is +1.3 cycles (pipetting)",
+   "Ctrl-3 / IL6 has a second melt peak 4.5 C below the main one",
+   "LPS-4 / CXCL8 has no wells (dropped for the controls), so that unit has CXCL8 missing"
+  ],
+  "std_true_efficiency": {
+   "IL6": 94.0,
+   "GAPDH": 97.0
+  }
+ },
+ "E2": {
+  "experiment": "E2",
+  "files": [
+   "E2 CFX96 siMYC P1 - Quantification Cq Results.csv",
+   "E2 CFX96 siMYC P2 - Quantification Cq Results.csv"
+  ],
+  "truth_fold_siMYC_vs_siCtrl": {
+   "RPLP0": 1.0,
+   "B2M": 1.0,
+   "MYC": 0.25,
+   "CDKN1A": 3.0
+  },
+  "plate_shift_P2": {
+   "RPLP0": 0.15,
+   "B2M": 0.2,
+   "MYC": 0.9,
+   "CDKN1A": 0.6
+  },
+  "calibrator": "IRC",
+  "design": "3 siCtrl + 3 siMYC per plate (balanced)"
+ },
+ "E3": {
+  "experiment": "E3",
+  "file": "E3 CFX96 ChIP H3K27ac WT vs KO - Quantification Cq Results.csv",
+  "truth_pct_input": {
+   "MYC-promoter": {
+    "WT": 4.0,
+    "KO": 0.8
+   },
+   "MYC-enhancer": {
+    "WT": 1.5,
+    "KO": 1.2
+   },
+   "Desert": {
+    "WT": 0.08,
+    "KO": 0.08
+   }
+  },
+  "truth_fold_over_IgG": {
+   "MYC-promoter": {
+    "WT": 66.66666666666667,
+    "KO": 13.333333333333334
+   },
+   "MYC-enhancer": {
+    "WT": 25.0,
+    "KO": 20.000000000000004
+   },
+   "Desert": {
+    "WT": 1.3333333333333335,
+    "KO": 1.3333333333333335
+   }
+  },
+  "input_percent": 1
+ }
+}

@@ -434,6 +434,8 @@ export const ctNum = (ct, dc = false) => (isNoAmp(ct) ? null : toNum(ct, dc));
 const isNonNumeric = (ct, dc) => !isNoAmp(ct) && ctNum(ct, dc) === null;
 const NTC_NAME_RE = /^(ntc|no[\s_-]?template([\s_-]?control)?|water|h2o|blank)$/i;
 // No-RT controls are usually named after their sample: "c1 noRT", "c1 -RT", "c1_RT-", "NRT c1", "c1 minus RT".
+// Sample names that describe the reaction rather than the biological sample (ChIP, RIP, MeDIP, MSRE layouts).
+const ASSAY_WORD_RE = /^(ip|chip|pull-?down|input|igg|mock( ip)?|no[ -]?ab|beads|digested|undigested|cut|uncut|mock digest)$/i;
 export const NRT_NAME_RE = /(?:^|[\s_(-])(?:no[\s_-]?rt|minus[\s_-]?rt|nrt|rt[\s_-]?(?:neg|minus))(?=$|[\s_)-])|-rt(?=$|[\s_)])|(?:^|[\s_])rt-(?=$|[\s_)])/i;
 
 export function normalizeRole(raw) {
@@ -452,7 +454,8 @@ export function normalizeRole(raw) {
 // Looks at the first line that has a delimiter in it (a title line on its own says nothing). On a tie, tab wins:
 // tab-separated text often has commas inside cells, but CSV files almost never contain tabs.
 function detectDelimiter(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+  // Run-detail lines ("* Experiment Name = a, b") and section headers ("[Results]") say nothing about the table's delimiter.
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== "" && !/^\s*\*/.test(l) && !/^\s*\[.+\]\s*$/.test(l));
   const first = lines.find(l => /[,\t;]/.test(l)) || lines[0] || "";
   const count = ch => first.split(ch).length - 1;
   return ["\t", ",", ";"].map(d => [d, count(d)]).sort((a, b) => b[1] - a[1])[0][0];
@@ -622,9 +625,12 @@ const Y_ALIASES = {
 };
 export function parseCurves(input, kind) {
   const text = String(input ?? "").replace(/^﻿/, "");
-  const delim = detectDelimiter(text), dc = delim === ";", all = splitDelimited(text, delim);
   // The header is the first row with a cycle or temperature column. QuantStudio puts a block of run details above it.
-  const hi = all.slice(0, 500).findIndex(r => r.cells.some(c => X_ALIASES[kind].includes(normHeader(c.trim()))));
+  // If the guessed delimiter doesn't produce such a header (a comma in a note line, say), try the others.
+  const headerAt = rows => rows.slice(0, 500).findIndex(r => r.cells.some(c => X_ALIASES[kind].includes(normHeader(c.trim()))));
+  let delim = detectDelimiter(text), all = splitDelimited(text, delim), hi = headerAt(all);
+  for (const d of ["\t", ",", ";"]) { if (hi >= 0) break; if (d === delim) continue; const t = splitDelimited(text, d), h = headerAt(t); if (h >= 0) { delim = d; all = t; hi = h; } }
+  const dc = delim === ";";
   const rows = hi > 0 ? all.slice(hi) : all;
   if (rows.length < 2) throw new ParseError("The curve file has no data rows.");
   const hdr = rows[0].cells.map(s => s.trim()), norm = hdr.map(normHeader);
@@ -869,6 +875,9 @@ export function effectiveRows(exp, parsed) {
     else [role, roleSource] = ["sample", r.roleRaw ? `default (file role '${r.roleRaw}' not recognised)` : "default"];
     let [bio_unit, bioSource] = take("bio_unit");
     if (!bio_unit && bioSource !== "user") { bio_unit = sample; bioSource = sample ? "default (sample name)" : null; }
+    // ChIP-style plates name every well by what it is ("IP", "Input", "IgG") and keep the chromatin prep in the group
+    // column (Bio-Rad "Biological Set Name"). Then the sample name isn't a biological unit; sample + set is.
+    if (bioSource === "default (sample name)" && group && ASSAY_WORD_RE.test(sample.trim())) { bio_unit = `${sample.trim()} · ${group}`; bioSource = "default (sample name + group)"; }
     return { id: r.id, line: r.line, well: r.well, key: r.key, ct: r.ct, dc: r.dc, fluor: r.fluor,
       sample, sampleSource, target, targetSource, group, quantity, pair, factor2, role, roleSource, roleRaw: r.roleRaw,
       fileRoleUnmapped: !!(r.roleRaw && !r.role), bio_unit, bioSource, omit: r.omit,
