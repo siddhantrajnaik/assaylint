@@ -498,11 +498,12 @@ function mapHeaders(headers) {
   for (const [field, aliases] of Object.entries(FIELD_ALIASES))
     for (const a of aliases) { const i = norm.indexOf(a); if (i >= 0) { columns[field] = i; names[field] = headers[i].trim(); break; } }
   const used = new Set(Object.values(columns));
-  // A field that more than one column could fill (two "Ct" columns, say). The first is used; the parser warns.
+  // The same column name twice (two "Ct" columns, say): the first is used and the parser warns. Different names for one
+  // field ("Well" and "Well Position" in QuantStudio files) are expected; the preferred one is chosen by FIELD_ALIASES order.
   const duplicates = {};
-  for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
-    const idx = norm.map((n, i) => (aliases.includes(n) ? i : -1)).filter(i => i >= 0);
-    if (idx.length > 1) duplicates[field] = idx.map(i => `“${headers[i].trim()}” (column ${i + 1})`);
+  for (const [field, i] of Object.entries(columns)) {
+    const idx = norm.map((n, j) => (n === norm[i] ? j : -1)).filter(j => j >= 0);
+    if (idx.length > 1) duplicates[field] = { used: i, cols: idx.map(j => `“${headers[j].trim()}” (column ${j + 1})`) };
   }
   const unrecognized = headers.map((h, i) => [String(h).trim(), i]).filter(([h, i]) => h && !used.has(i)).map(([h]) => h);
   return { columns, names, unrecognized, duplicates };
@@ -601,8 +602,8 @@ export function parseResults(input, opts = {}) {
     warnings.push(`Well positions were derived from well numbers assuming a ${plateSize}-well plate numbered row by row (1 = A1, ${cols + 1} = B1)` +
       (opts.plateSize ? ", as you chose." : stated ? ", as stated in the file header." : `, because the largest well number is ${max}.`) + " Check a few wells against your plate layout.");
   }
-  for (const [f, cols] of Object.entries(headerMap.duplicates || {}))
-    warnings.push(`More than one column could be the ${FIELD_LABEL[f] || f} column: ${cols.join(" and ")}. I used the first one; check that it's the right one, and remove or rename the other column if not.`);
+  for (const [f, d] of Object.entries(headerMap.duplicates || {}))
+    warnings.push(`More than one column could be the ${FIELD_LABEL[f] || f} column: ${d.cols.join(" and ")}. I used column ${d.used + 1}; check that it's the right one, and remove or rename the other column if not.`);
   if (!("target" in columns)) warnings.push("No target column was found. Assign targets in the plate map.");
   if (!("sample" in columns)) warnings.push("No sample column was found. Assign samples in the plate map.");
   if (out.some(r => r.omit)) warnings.push(`${out.filter(r => r.omit).length} well(s) are marked Omit in the instrument software. PlateCheck keeps and checks them, and flags them for review.`);

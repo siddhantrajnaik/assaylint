@@ -21,7 +21,10 @@ test("a sheet named exactly Results wins over 'Old results', and the other candi
 test("two columns that could be Ct: the first is used and a warning names both", () => {
   const p = C.parseResults("Well,Sample,Target,Ct,Ct\nA1,s1,GAPDH,20.1,30.1\n");
   assert.equal(p.rows[0].ct, "20.1");
-  assert.ok(p.warnings.some(w => /More than one column could be the Ct\/Cq column/.test(w) && /column 4/.test(w) && /column 5/.test(w)));
+  assert.ok(p.warnings.some(w => /More than one column could be the Ct\/Cq column/.test(w) && /column 4/.test(w) && /column 5/.test(w) && /I used column 4/.test(w)));
+  // QuantStudio's Well (number) + Well Position (A1) are two names for one field, not a duplicate.
+  const qs = ["Well\tWell Position\tSample Name\tTarget Name\tCT", "1\tA1\ts\tG\t20"].join("\n") + "\n";
+  assert.ok(!C.parseResults(qs).warnings.some(w => /More than one column/.test(w)));
 });
 
 test("no-RT controls are recognised from their names, NTC names still win, lookalikes are left alone", () => {
