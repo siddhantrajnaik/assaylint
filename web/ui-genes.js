@@ -6,7 +6,7 @@ let busy = null; // { id, done, total } while a lookup runs
 const lastError = new Map(); // experiment id → message from the last lookup
 const memo = new Map(); // "species|taxid|symbol" → result, so one session doesn't ask twice
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "locus", "geneName", "description", "dbType", "lookupNote", "source", "checkedAt", "status", "asked"];
+const LOOKUP_FIELDS = ["entrez", "ensembl", "hgncId", "locus", "geneName", "description", "descSource", "dbType", "lookupNote", "source", "checkedAt", "status", "asked"];
 
 // ctx: { h, card, exp, rows, actor, change, flash, rerender, current }
 //   change(action, detail, fn) logs, re-analyses, saves and re-renders (app.js change()).
@@ -129,7 +129,7 @@ async function lookUp(ctx) {
       const cur = own(exp.targets, r.name) ? exp.targets[r.name] : {};
       const patch = x.status === "not_found"
         ? { ...clearLookup(), status: "not_found", source: x.source, checkedAt: x.checkedAt, asked: x.asked }
-        : { ...clearLookup(), symbol: x.symbol, entrez: x.entrez, ensembl: x.ensembl, hgncId: x.hgncId, locus: x.locus, geneName: x.geneName, description: x.description,
+        : { ...clearLookup(), symbol: x.symbol, entrez: x.entrez, ensembl: x.ensembl, hgncId: x.hgncId, locus: x.locus, geneName: x.geneName, description: x.description, descSource: x.descSource,
           dbType: x.dbType, lookupNote: x.lookupNote, source: x.source, checkedAt: x.checkedAt, status: x.status, asked: x.asked || r.symbol,
           // The user's own choice of type wins; otherwise take the database's.
           type: cur.confirmedBy && cur.type ? cur.type : x.type || r.type };

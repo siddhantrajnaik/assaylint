@@ -372,6 +372,32 @@ test("fly lookup: CG numbers as Dmel_ locus tags, exact case wins, case-only mat
   assert.equal(ex.symbol, "Dl"); assert.equal(ex.lookupNote, undefined); assert.equal(e.calls.length, 1);
 });
 
+// ---------------------------------------------------------------- descriptions for species without RefSeq summaries
+test("descriptions: RefSeq summary, else GO biological process, else a GeneRIF, each labelled", async () => {
+  assert.deepEqual(G.describeHit(ACTB_HIT), { description: "This gene encodes one of six different actin proteins.", descSource: "RefSeq summary" });
+  const go = { BP: [{ evidence: "IEA", term: "cytoskeleton organization", qualifier: "involved_in" }, { evidence: "IMP", term: "mitotic cytokinesis", qualifier: "involved_in" },
+    { evidence: "IDA", term: "mitotic cytokinesis" }, { evidence: "IMP", term: "wing disc development", qualifier: "NOT|involved_in" }, { evidence: "IBA", term: "muscle contraction" }] };
+  assert.deepEqual(G.describeHit({ go, generif: [{ pubmed: 1, text: "x" }] }),
+    { description: "Involved in mitotic cytokinesis, muscle contraction and cytoskeleton organization.", descSource: "Gene Ontology biological process, experimental evidence" });
+  // go.BP can be a single object rather than a list.
+  assert.equal(G.describeHit({ go: { BP: { evidence: "IEA", term: "cytoskeleton organization" } } }).descSource, "Gene Ontology biological process, electronic annotation only");
+  assert.deepEqual(G.describeHit({ generif: [{ pubmed: 20167579, text: "HnRNP-R-mediated axonal beta-actin mRNA translocation plays an essential role. More." }] }),
+    { description: "HnRNP-R-mediated axonal beta-actin mRNA translocation plays an essential role.", descSource: "GeneRIF, PubMed 20167579" });
+  assert.deepEqual(G.describeHit({ name: "actin beta" }), { description: "", descSource: "" });
+  assert.equal(G.describe({ geneName: "Actin 5C", description: "Involved in x.", descSource: "Gene Ontology biological process, experimental evidence" }),
+    "Actin 5C. Involved in x. (Gene Ontology biological process, experimental evidence)");
+  assert.equal(G.cleanTargets({ a: { descSource: "GeneRIF, PubMed 1" } }).a.descSource, "GeneRIF, PubMed 1");
+  // The extra fields are asked for in the same request, and not for human or mouse (huge GeneRIF lists, and RefSeq covers them).
+  const f = fakeFetch(() => json({ hits: [{ symbol: "Act5C", name: "Actin 5C", go }] }));
+  const r = await G.lookupGene("Act5C", { species: "fly", fetch: f });
+  assert.equal(f.calls.length, 1);
+  assert.match(new URL(f.calls[0].url).searchParams.get("fields"), /,go\.BP,generif$/);
+  assert.match(r.descSource, /^Gene Ontology/);
+  const h = fakeFetch(() => json({ hits: [ACTB_HIT] }));
+  await G.lookupGene("ACTB", { fetch: h });
+  assert.doesNotMatch(new URL(h.calls[0].url).searchParams.get("fields"), /generif|go\.BP/);
+});
+
 // ---------------------------------------------------------------- Ensembl ID choice
 test("Ensembl: the reference-assembly ID is chosen and the others are listed", async () => {
   // Shapes as MyGene.info returned them in Nov 2026 (trimmed).

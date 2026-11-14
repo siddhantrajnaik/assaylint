@@ -334,7 +334,7 @@ export function cleanTargets(v) {
     if (t.type in RNA_TYPE_LABEL) r.type = t.type;
     if (t.species in SPECIES_LABEL) r.species = t.species;
     for (const [k, re] of Object.entries(FIELD_RE)) if (typeof t[k] === "string" && re.test(t[k])) r[k] = t[k];
-    for (const [k, max] of [["asked", 40], ["geneName", 300],["description", 600], ["dbType", 60], ["lookupNote", 600], ["checkedAt", 40], ["confirmedBy", 120], ["confirmedAt", 40]]) { const s = str(t[k], max); if (s) r[k] = s; }
+    for (const [k, max] of [["asked", 40], ["geneName", 300],["description", 600], ["descSource", 80], ["dbType", 60], ["lookupNote", 600], ["checkedAt", 40], ["confirmedBy", 120], ["confirmedAt", 40]]) { const s = str(t[k], max); if (s) r[k] = s; }
     if (t.source in SOURCES) r.source = t.source;
     if (["found", "alias", "not_found"].includes(t.status)) r.status = t.status;
     if (Object.keys(r).length) putTarget(out, name, r);
@@ -378,10 +378,12 @@ export function firstSentence(text, max = 240) {
 // RefSeq summaries shared by a whole gene family say nothing about this gene, so they're left out.
 const BOILERPLATE = /^\s*(microRNAs \(miRNAs\) are short|45S ribosomal DNA|This gene encodes a small nucleolar RNA|Small nucleolar RNAs)/i;
 // One line for a table: the gene name, then the first sentence of its summary when there is one.
-export const describe = t => [t?.geneName, t?.description && t.description !== t.geneName ? t.description : ""].filter(Boolean).join(". ");
+// The description's source is named after it, since a GO term list or a GeneRIF reads differently from a RefSeq summary.
+export const describe = t => [t?.geneName, t?.description && t.description !== t.geneName ? `${t.description}${t.descSource ? ` (${t.descSource})` : ""}` : ""].filter(Boolean).join(". ");
 // Only symbols that look like symbols are ever sent.
 export const sendable = s => typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/.test(s);
 const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,genomic_pos.chr,genomic_pos.ensemblgene,type_of_gene,summary,locus_tag,HGNC,MGI,RGD,ZFIN,FLYBASE,WormBase,SGD,TAIR,Xenbase";
+const EXTRA_FIELDS = "go.BP,generif";
 // Ensembl gene ID prefixes, to pick the reference-assembly ID when MyGene.info lists several (it lists a dozen for pig).
 const ENS_PREFIX = { human: "ENSG", mouse: "ENSMUSG", rat: "ENSRNOG", zebrafish: "ENSDARG", chicken: "ENSGALG", pig: "ENSSSCG", cow: "ENSBTAG",
   dog: "ENSCAFG", macaque: "ENSMMUG", xenopus: "ENSXETG" };
@@ -421,10 +423,32 @@ export function chooseEnsembl(hit, species) {
   const others = ids.filter(x => x !== best);
   return { id: best, note: `MyGene.info lists ${ids.length} Ensembl gene IDs. I used ${best}${why.length ? `, which is ${why.join(" and ")}` : ", the first listed, because none is marked as on the reference assembly"}. Others: ${others.slice(0, 12).join(", ")}${others.length > 12 ? ` and ${others.length - 12} more` : ""}.` };
 }
+// One-line description and where it came from. RefSeq summaries exist mostly for human, mouse and rat. For other species
+// MyGene.info returns no summary, so the line comes from fields in the same answer: Gene Ontology biological-process terms
+// (curated by the model organism databases: ZFIN, FlyBase, WormBase, SGD, TAIR, Xenbase), or failing that a GeneRIF, a one-line
+// statement about the gene from a paper. I checked in Nov 2026 which species have which: zebrafish actb1 has GeneRIFs but no GO
+// terms, fly, worm, yeast, Arabidopsis and X. laevis have both, pig ACTB has neither (only the gene name is shown then).
+// Reactome pathways are left out: for these species they are inferred from human and say little (actin is in "Hemostasis").
+const EXPERIMENTAL = new Set(["EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "HTP", "HDA", "HMP", "HGI", "HEP"]);
+const evidenceRank = e => (EXPERIMENTAL.has(e) ? 0 : e === "IEA" ? 2 : 1);
+export function describeHit(hit) {
+  if (hit.summary && !BOILERPLATE.test(hit.summary)) return { description: firstSentence(hit.summary), descSource: "RefSeq summary" };
+  const bp = [hit.go?.BP].flat().filter(t => t && typeof t.term === "string" && !/^NOT/i.test(String(t.qualifier || "")))
+    .map((t, i) => ({ term: t.term, rank: evidenceRank(t.evidence), i })).sort((a, b) => a.rank - b.rank || a.i - b.i);
+  const terms = [...new Set(bp.map(t => t.term))].slice(0, 3);
+  if (terms.length) {
+    const list = terms.length > 1 ? `${terms.slice(0, -1).join(", ")} and ${terms.at(-1)}` : terms[0];
+    const ev = ["experimental evidence", "curated or inferred evidence", "electronic annotation only"][bp[0].rank];
+    return { description: firstSentence(`Involved in ${list}.`, 300), descSource: `Gene Ontology biological process, ${ev}` };
+  }
+  const rif = [hit.generif].flat().find(r => r && typeof r.text === "string" && r.text.trim());
+  if (rif) return { description: firstSentence(rif.text), descSource: `GeneRIF${/^\d{1,9}$/.test(String(rif.pubmed)) ? `, PubMed ${rif.pubmed}` : ""}` };
+  return { description: "", descSource: "" };
+}
 function fromMyGene(hit, species, now) {
   const ens = chooseEnsembl(hit, species);
   const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "").replace(/^Dmel_/, "");
-  return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), description: BOILERPLATE.test(hit.summary || "") ? "" : firstSentence(hit.summary),
+  return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), ...describeHit(hit),
     entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.id, hgncId: id,
     dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now,
     ...(ens.note ? { lookupNote: ens.note } : {}) };
@@ -449,7 +473,9 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
   if (!/^(human|mouse|rat|\d{1,9})$/.test(sp)) return { status: "error", error: "For “Other”, enter the species' NCBI taxonomy ID (digits only, for example 4932) to look its genes up." };
   if (typeof fetchFn !== "function") return { status: "error", error: "This browser can't make the request." };
   const cands = [symbol, ...extra.filter(sendable)];
-  const mg = (q, size = 3) => getJson(fetchFn, `https://mygene.info/v3/query?q=${encodeURIComponent(q)}&species=${sp}&fields=${MYGENE_FIELDS}&size=${size}`);
+  // GO terms and GeneRIFs are only asked for where RefSeq summaries are rare: human TP53 alone has 1.8 MB of GeneRIFs.
+  const fields = species === "human" || species === "mouse" ? MYGENE_FIELDS : `${MYGENE_FIELDS},${EXTRA_FIELDS}`;
+  const mg = (q, size = 3) => getJson(fetchFn, `https://mygene.info/v3/query?q=${encodeURIComponent(q)}&species=${sp}&fields=${fields}&size=${size}`);
   let myGeneError = null;
   try {
     if (isLocusId(symbol)) {
