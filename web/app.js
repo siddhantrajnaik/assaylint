@@ -851,7 +851,7 @@ function curvesBlock() {
     h("figcaption", null, `Amplification, baseline-subtracted. Dashed line: PlateCheck's common threshold (${fmt(res.amp.threshold, 3)}), used only to compare wells.`)));
   if (res.melt) parts.push(h("figure", null, chart({ series: seriesFor(Object.entries(res.melt.stats), s => s.curve), xLabel: "Temperature (°C)", yLabel: "−dF/dT", empty: "No curves" }, "Melt curves"),
     h("figcaption", null, "Melt curves, first derivative.")));
-  else if (st.exp.melt) parts.push(h("p", { class: "fine" }, "Melt data is imported, but melt checks are off for this assay. Turn them on under Context & rules."));
+  else if (st.exp.melt) parts.push(h("p", { class: "fine" }, "Melt data is imported, but melt checks are off for this assay. Turn them on under More, then Method details and thresholds."));
   return h("div", { class: "block" }, ...parts);
 }
 VIEWS.findings = () => {

@@ -101,3 +101,15 @@ test("second melt peaks closer than the separation setting are counted when the 
   const run2 = sep => { const e = exp("Well,Sample,Target,Ct\nA1,a,G,22\nA2,b,G,22\nA3,c,G,22\n"); e.melt = C.fileRecord({ name: "m", text: melt, sha: "x", actor: "qa", valueType: "derivative" }); Object.assign(e.ruleset.values, { meltChecks: true, meltPeakSeparation: sep }); return C.analyze(e).findings.some(f => f.rule === "melt_multiple_peaks"); };
   assert.equal(run2(2), false); assert.equal(run2(1), true);
 });
+
+// ---- Blocks 9-11
+test("an implausible standard-curve efficiency is not used for the Pfaffl correction", () => {
+  const rows = ["Well,Sample,Target,Ct,Group,Task,Quantity"]; let w = 0; const wk = () => `${"ABCDEFGH"[Math.floor(w / 12)]}${(w++ % 12) + 1}`;
+  for (const [u, g, r] of [["c1", 24, 18], ["c2", 24.2, 18.1], ["t1", 26, 18], ["t2", 26.3, 18.1]]) { rows.push(`${wk()},${u},GENE1,${g},${u[0] === "c" ? "ctrl" : "trt"},Unknown,`); rows.push(`${wk()},${u},REF1,${r},${u[0] === "c" ? "ctrl" : "trt"},Unknown,`); }
+  const sl = -1 / Math.log10(2.5); for (const l of [6, 5, 4, 3]) rows.push(`${wk()},std-${l},REF1,${(38 + sl * l).toFixed(4)},,Standard,1e${l}`);
+  const e = exp(rows.join("\n") + "\n"); e.analysis = C.cleanAnalysisSettings({ on: true, control: "ctrl", refs: ["REF1"], efficiency: true });
+  const a = A.analyzeRun(e, C.analyze(e));
+  assert.equal(a.efficiency.REF1.E, 2);
+  assert.match(a.efficiency.REF1.source, /not used/);
+  assert.ok(a.warnings.some(x => /150\.0% efficiency, outside 80–120%/.test(x)));
+});

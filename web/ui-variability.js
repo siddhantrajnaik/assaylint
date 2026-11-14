@@ -87,7 +87,9 @@ export function variabilityCard(res, threshold, defer) {
     if (t.techPooled != null) seg.push({ pts: [[i - 0.3, t.techPooled], [i, t.techPooled]], color: TECH, width: 2.5 });
     if (t.bioPooled != null) seg.push({ pts: [[i, t.bioPooled], [i + 0.3, t.bioPooled]], color: BIO, width: 2.5 });
   });
-  const noisy = targets.filter(t => t.techPooled != null && t.bioPooled != null && t.techPooled >= t.bioPooled);
+  // Only compare when there are at least 3 biological units in some group; with fewer, the biological SD says little.
+  const noisy = targets.filter(t => t.techPooled != null && t.bioPooled != null && t.techPooled >= t.bioPooled && t.bio.some(b => b.n >= 3));
+  const thin = targets.filter(t => !t.bio.some(b => b.n >= 3)).map(t => t.target);
   return h("section", { class: "sec variability" },
     h("h2", null, "Spread of technical and biological replicates"),
     h("p", { class: "lede" }, "Use these before changing the SD threshold: they show whether this plate is unusual or the threshold is simply too tight for how late your targets come up."),
@@ -95,7 +97,7 @@ export function variabilityCard(res, threshold, defer) {
       h("figcaption", null, `Technical SD of all ${d.sds.length} replicate groups with two or more Ct values; median ${fmt(median(d.sds), 3)} cycles. ${over} ${over === 1 ? "is" : "are"} ${ctDep ? `flagged. The dashed line is the fixed threshold of ${threshold}; on this run the limit rises for late Ct.` : `above the threshold of ${threshold} (dashed line).`}`)),
     h("figure", null, chart("Technical SD against mean Ct", { points: d.groups.map(g => ({ x: g.mean, y: g.sd, color: g.over ? "#B42318" : TECH })), series: [...(curve.length > 1 ? [{ pts: curve, color: "#5B6762", width: 1.25 }] : []), ...(limit.length > 1 ? [{ pts: limit, color: "#B42318", width: 1.25 }] : [])], hline: threshold, xLabel: "Mean Ct of the group", yLabel: "Technical SD (cycles)" }),
       h("figcaption", null, "Each dot is one replicate group. The grey curve is the SD expected from Poisson sampling alone, taking about 10 copies at Ct 35 and 100% efficiency; pipetting adds to it. Groups above the dashed threshold but near the curve are probably low-copy, not badly pipetted.",
-        ctDep ? ` The red line is the limit used on this run: the larger of ${threshold} and ${rules.sdPoissonK} × the grey curve.` : " If that describes most of your flagged groups, the Ct-dependent SD option under Context & rules lets the threshold follow the curve.")),
+        ctDep ? ` The red line is the limit used on this run: the larger of ${threshold} and ${rules.sdPoissonK} × the grey curve.` : " If that describes most of your flagged groups, the Ct-dependent SD option under More, then Method details and thresholds lets the threshold follow the curve.")),
     targets.length > 0 && h("figure", null, chart("Technical and biological SD per target", { points: pts, series: seg, hline: threshold, xTicks: targets.map((t, i) => ({ x: i, label: t.target })), yLabel: "SD of Ct (cycles)" }),
       h("figcaption", null, h("span", { style: `color:${TECH};font-weight:600` }, "Teal"), ": technical SD of each sample's replicates. ",
         h("span", { style: `color:${BIO};font-weight:600` }, "Orange"), ": biological SD, the SD of the biological units' mean Ct within each group. Short bars are pooled values; dashed line is the SD threshold.")),
@@ -104,6 +106,7 @@ export function variabilityCard(res, threshold, defer) {
       h("tbody", null, targets.map(t => h("tr", null, h("td", null, t.target), h("td", { class: "num" }, fmt(t.techPooled, 3)), h("td", { class: "num" }, fmt(t.bioPooled, 3)),
         h("td", { class: "num" }, t.bio.filter(b => b.n > 1).length)))))),
     h("p", { class: "fine" }, noisy.length
-      ? `For ${noisy.length > 1 ? noisy.slice(0, -1).map(t => t.target).join(", ") + " and " + noisy.at(-1).target : noisy[0].target}, technical spread is as large as the spread between biological units. Check first whether one group is causing it (the dots above). If not, Ruiz-Villalba et al. (2021) treat this as the limit of quantification: more technical replicates or more template will help more than more samples.`
-      : "Biological SD includes a little technical noise, since each unit's mean comes from a few wells. Where technical SD reaches the biological SD, the assay is at its limit of quantification (Ruiz-Villalba et al. 2021)."));
+      ? `For ${noisy.length > 1 ? noisy.slice(0, -1).map(t => t.target).join(", ") + " and " + noisy.at(-1).target : noisy[0].target}, technical spread is as large as the spread between biological units. Check first whether one group or one outlying well is causing it (the dots above). If not, the assay may be at its limit of quantification (Ruiz-Villalba et al. 2021), and more technical replicates or more template will help more than more samples.`
+      : "Biological SD includes a little technical noise, since each unit's mean comes from a few wells. Where technical SD reaches the biological SD, the assay may be at its limit of quantification (Ruiz-Villalba et al. 2021)."),
+    thin.length > 0 && h("p", { class: "fine" }, `${thin.join(", ")}: fewer than 3 biological units in every group, so the biological SD is too rough to compare with the technical SD.`));
 }

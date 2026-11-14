@@ -1006,7 +1006,7 @@ export function analyze(exp) {
       add("late_ct", t, { wells: gs.flatMap(g => g.wells), lines: gs.flatMap(g => g.lines), target: t, sample: gs.length === 1 ? gs[0].unit : null,
         description: `${gs.length} of ${sampleGroups.filter(g => g.target === t).length} sample group(s) for '${t}' have a mean Ct above ${v.lateCtThreshold}.`,
         evidence: gs.slice(0, 12).map(one).join("; ") + (gs.length > 12 ? `; … ${gs.length - 12} more` : "") + ". About 10 copies per well reach Ct 35 at 90–100% efficiency",
-        next_check: "Read these as detected or not detected rather than as exact quantities, or run more replicates or more template. If you have measured this assay's limit of quantification, set that Ct under Context & rules." });
+        next_check: "Read these as detected or not detected rather than as exact quantities, or run more replicates or more template. If you have measured this assay's limit of quantification, set that Ct under More, then Method details and thresholds." });
     }
   } else res.notAssessed.push("Late Ct: the late-Ct note is switched off in the rule set.");
   for (const [, rs] of groupBy(active.filter(r => r.role === "sample" && r.target && r.bio_unit), r => `${r.group ?? ""}\u0000${r.target}`)) {
@@ -1190,7 +1190,7 @@ export function analyze(exp) {
 
   // Melt curves (FR-12): only when configured for the assay
   if (!exp.melt) res.notAssessed.push("Melt curves: no melt data was provided.");
-  else if (!v.meltChecks) res.notAssessed.push("Melt curves: data was provided, but melt-curve checks are not enabled for this assay (Context & rules). PlateCheck does not assume melt analysis applies.");
+  else if (!v.meltChecks) res.notAssessed.push("Melt curves: data was provided, but melt-curve checks are not enabled for this assay (More, then Method details and thresholdses). PlateCheck does not assume melt analysis applies.");
   else {
     const mp = parseCurves(exp.melt.text, "melt"), isDer = exp.melt.valueType !== "fluorescence", ms = {};
     for (const [k, pts] of Object.entries(mp.series)) ms[k] = meltStats(pts, isDer);
