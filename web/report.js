@@ -177,8 +177,10 @@ ${svgs.length ? `<h2>Graphs</h2>${svgs.map(s => `<div style="overflow-x:auto;mar
 export function wellsCsv(res) {
   return toCsv([["source_line", "well_raw", "well", "sample", "target", "group", "role", "role_source", "bio_unit", "quantity", "ct_raw",
     "file_sample", "file_target", "file_group", "file_role", "file_bio_unit", "file_quantity"],
-    ...res.rows.map(r => [r.line, r.well, r.key ?? "", r.sample, r.target, r.group, r.role, r.roleSource, r.bio_unit, r.quantity, r.ct,
-      r.file.sample, r.file.target, r.file.group, r.file.role, r.file.bio_unit, r.file.quantity])]);
+    ...[...res.rows.map(r => [r.line, r.well, r.key ?? "", r.sample, r.target, r.group, r.role, r.roleSource, r.bio_unit, r.quantity, r.ct,
+      r.file.sample, r.file.target, r.file.group, r.file.role, r.file.bio_unit, r.file.quantity]),
+    // Lines that couldn't be read are listed too, with their raw text, so nothing from the file is missing from this export.
+    ...(res.parsed?.malformed || []).map(m => [m.line, "", "", "", "", "", "not read", m.reason, "", "", "", m.raw, "", "", "", "", ""])].sort((a, b) => a[0] - b[0])]);
 }
 export function findingsCsv(exp, res) {
   return toCsv([["finding_id", "rule", "rule_version", "category", "severity", "title", "description", "wells", "source_lines", "target", "evidence", "next_check", "disposition", "note", "reviewed_by", "reviewed_at"],

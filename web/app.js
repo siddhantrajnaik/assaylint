@@ -559,17 +559,18 @@ VIEWS.map = () => {
       return "";
     };
     gridHost.replaceChildren(h("div", { class: "plate-body" + (plateDims(all).cols === 24 ? " p384" : "") }, plateGrid({ ...plateDims(all),
-      cls: k => (roleOf(k) ? (roleOf(k) === "mixed" ? "mixed" : "r-" + roleOf(k)) : "none") + (st.sel.has(k) ? " sel" : ""),
+      cls: k => (roleOf(k) ? (roleOf(k) === "mixed" ? "mixed" : "r-" + roleOf(k)) : "none") + (rows.get(k)?.some(r => r.omit) ? " omit" : "") + (st.sel.has(k) ? " sel" : ""),
       style: wellStyle,
-      title: k => rows.get(k)?.map(r => `${k}: ${r.sample ?? "—"} / ${r.target ?? "—"} (${C.ROLE_LABEL[r.role]})`).join("\n") ?? "",
+      title: k => rows.get(k)?.map(r => `${k}: ${r.sample ?? "—"} / ${r.target ?? "—"} (${C.ROLE_LABEL[r.role]})${r.omit ? ", marked Omit in the instrument" : ""}`).join("\n") ?? "",
       onCell: k => rows.has(k) && toggle([k]), onRow: L => toggle(present.filter(k => k[0] === L)), onCol: c => toggle(present.filter(k => k.slice(1) === String(c))) })));
     const roles = new Set([...rows.keys()].map(roleOf));
     const item = (swatch, text) => h("span", null, swatch, text);
     legendHost.replaceChildren(
       ...groups.map(g => item(h("span", { class: "sw", style: `background:${tone(g)}` }), g ? g : "Sample, no group")),
-      roles.has("standard") && item(h("span", { class: "sw sw-std" }), "Standard, darker = more template"),
+      ...(roles.has("standard") ? [item(h("span", { class: "sw sw-std" }), "Standard, darker = more template")] : []),
       ...[["positive", "Positive control"], ["ntc", "No-template control"], ["nrt", "No-RT control"], ["empty", "Not used"], ["mixed", "Mixed roles"]]
         .filter(([k]) => roles.has(k)).map(([k, l]) => item(h("span", { class: "sw pc " + (k === "mixed" ? "mixed" : "r-" + k) }), l)),
+      ...(all.some(r => r.omit) ? [item(h("span", { class: "sw pc omit" }), "Marked Omit in the instrument (dashed ring)")] : []),
       item(h("span", { class: "sw pc none" }), "No data"));
     count.textContent = `${st.sel.size} well${st.sel.size === 1 ? "" : "s"} selected`;
   };
@@ -800,7 +801,7 @@ function plateFlags() {
 async function mountPlate() {
   const data = { ...plateDims(st.res.rows), flags: plateFlags(), present: new Set(st.res.rows.map(r => r.key).filter(Boolean)) };
   const pick = k => { st.selFinding = null; st.sel = new Set([k]); renderMain(); };
-  if (!webglFailed) {
+  if (!webglFailed && !S.getSetting("flatPlate")) {
     try {
       if (!plate3d) { const { createPlate } = await import("./plate3d.js"); plate3d = createPlate(plateHost, pick); }
       plate3d.setData(data); plate3d.select([...st.sel]); return;
@@ -899,7 +900,8 @@ VIEWS.findings = () => {
         sel ? findingDetail(sel) : h("p", { class: "muted pick" }, "Pick a flag on the left to see what was checked and why, or click a well on the plate."),
         h("div", { class: "block" }, h("h3", null, "Plate"), plateHost,
           h("div", { class: "legend" }, [["high", "High"], ["medium", "Medium"], ["low", "Low"], ["ok", "No open finding"]].map(([k, l]) => h("span", null, h("span", { class: "sw", style: `background:var(--w-${k})` }), l))),
-          h("p", { class: "fine" }, "Each well shows its worst open flag. Drag to rotate, scroll to zoom."),
+          h("p", { class: "fine" }, S.getSetting("flatPlate") || webglFailed ? "Each well shows its worst open flag. Click a well to see its rows." : "Each well shows its worst open flag. Drag to rotate, scroll to zoom."),
+          !webglFailed && h("label", { class: "check" }, h("input", { type: "checkbox", checked: !!S.getSetting("flatPlate"), onchange: ev => { try { S.setSetting("flatPlate", ev.target.checked); } catch { /* storage unavailable */ } plate3d = null; plateHost = null; renderMain(); } }), "Flat (2D) plate"),
           selRows.length > 0 && h("div", { class: "tablewrap" }, h("table", { class: "tbl" },
             h("thead", null, h("tr", null, ["Well", "Sample", "Target", "Role", "Ct/Cq as exported", "Line"].map(x => h("th", null, x)))),
             h("tbody", null, selRows.map(r => h("tr", null, h("td", null, r.key), h("td", null, r.sample ?? "—"), h("td", null, r.target ?? "—"), h("td", null, C.ROLE_LABEL[r.role]),

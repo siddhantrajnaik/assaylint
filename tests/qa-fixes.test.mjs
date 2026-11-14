@@ -51,3 +51,34 @@ test("version and build are exported, and the rule set has its own version", () 
   assert.equal(typeof C.BUILD, "string");
   assert.equal(C.DISPOSITION_LABEL.accepted, "Looks fine");
 });
+
+// ---- Blocks 3-5
+import * as A from "../web/analysis.js";
+import * as R from "../web/report.js";
+const DUP = "Well;Sample;Target;Ct;Group\nA1;c;GENE1;24,10;ctrl\nA2;c;GENE1;24,30;ctrl\nA3;c;REF;18,00;ctrl\nA4;c;REF;18,20;ctrl\nB1;t;GENE1;26,10;trt\nB2;t;GENE1;26,10;trt\nB3;t;REF;18,10;trt\nB4;t;REF;18,10;trt\nB1;t;GENE1;30,00;trt\n";
+const exp = text => { const e = C.newExperiment({ title: "qa" }, "qa"); e.source = C.fileRecord({ name: "qa.csv", text, sha: "x", actor: "qa", format: "generic-ct-csv" }); return e; };
+
+test("a duplicated well is left out of the analysis with a note, and comes back once one result is set to Not used", () => {
+  const e = exp(DUP); e.analysis = { ...A.DEFAULT_SETTINGS, enabled: true, refs: ["REF"], control: "ctrl" };
+  const a = A.analyzeRun(e, C.analyze(e));
+  const t = a.rows.find(r => r.target === "GENE1" && r.group === "trt");
+  assert.deepEqual(t.tech.map(x => x.ct), [26.1]);
+  assert.ok(a.warnings.some(w => /more than one result for the same target: B1 \(GENE1\)/.test(w)));
+  const res0 = C.analyze(e); const extra = res0.rows.find(r => r.key === "B1" && r.ct === "30,00");
+  e.map[extra.id] = { role: "empty" };
+  const res1 = C.analyze(e), a1 = A.analyzeRun(e, res1);
+  assert.ok(!res1.findings.some(f => f.rule === "duplicate_well_assignment"), "marking one Not used resolves the duplicate");
+  assert.deepEqual(a1.rows.find(r => r.target === "GENE1" && r.group === "trt").tech.map(x => x.ct), [26.1, 26.1]);
+});
+
+test("replicate SD exactly at the threshold is not flagged; just above is", () => {
+  const f = d => { const e = exp(`Well,Sample,Target,Ct\nA1,s,G,20\nA2,s,G,${(20 + d).toFixed(2)}\nA3,s,G,${(20 + 2 * d).toFixed(2)}\n`); return C.analyze(e).findings.some(x => x.rule === "replicate_dispersion"); };
+  assert.equal(f(0.30), false); assert.equal(f(0.31), true); assert.equal(f(0.29), false);
+});
+
+test("lines that couldn't be read are listed in the well-data CSV with their raw text", () => {
+  const e = exp("Well,Sample,Target,Ct\nA1,s,G,20\nA2,s,G,20.1,EXTRA\nA3,s,G,20.2\n");
+  const csv = R.wellsCsv(C.analyze(e)).split(/\r?\n/);
+  assert.match(csv[2], /^3,.*not read.*20\.1/);
+  assert.equal(csv.length >= 4, true);
+});

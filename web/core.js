@@ -915,7 +915,8 @@ export function analyze(exp) {
   for (const r of rows) if (!r.key)
     add("invalid_well_coordinate", r.line, { ...at(r), description: `Well '${r.well}' is not a valid plate position.`,
       evidence: `source line ${r.line}: well '${r.well}', raw Ct ${fmtRaw(r.ct)}`, next_check: "Check the export for a column shift or typo." });
-  for (const [k, rs] of groupBy(rows, r => `${r.key || r.well.toUpperCase()}|${r.target ?? ""}`)) if (rs.length > 1)
+  // Wells set to "Not used" don't count, so marking one of the two results Not used resolves the duplicate.
+  for (const [k, rs] of groupBy(active, r => `${r.key || r.well.toUpperCase()}|${r.target ?? ""}`)) if (rs.length > 1)
     add("duplicate_well_assignment", k, { wells: [rs[0].key || rs[0].well], lines: ln(rs), target: rs[0].target,
       description: `Well ${name(rs[0])} has ${rs.length} results for target '${rs[0].target ?? "(none)"}'.`,
       evidence: `source lines ${ln(rs).join(", ")}; raw Ct ${rs.map(r => fmtRaw(r.ct)).join(", ")}`,
@@ -975,7 +976,7 @@ export function analyze(exp) {
     const vals = rs.map(r => ctNum(r.ct, r.dc)).filter(x => x !== null), s = stats(vals);
     const g = { unit, target: rs[0].target, group: rs[0].group, role: rs[0].role, wells: wl(rs), lines: ln(rs), raw_ct: rs.map(r => r.ct),
       n: rs.length, n_numeric: vals.length, mean: s.mean, sd: s.sd, threshold: sdLimit(v, s.mean) };
-    g.over = s.sd !== null && s.sd > g.threshold;
+    g.over = s.sd !== null && s.sd > g.threshold + 1e-9; // tolerance: 20, 20.3, 20.6 gives SD 0.30000000000000071, which is 0.30
     res.replicateGroups.push(g);
     const raw = g.raw_ct.map(fmtRaw).join(", ");
     if (g.over) add("replicate_dispersion", k, { wells: g.wells, lines: g.lines, target: g.target, sample: unit,
@@ -1051,7 +1052,7 @@ export function analyze(exp) {
         if (v.nrtMargin > 0 && used.length) {
           const mean = stats(used.map(x => ctNum(x.ct, x.dc))).mean, margin = c - mean;
           const share = margin > 0 ? `about ${(100 / 2 ** margin).toFixed(margin < 3.3 ? 0 : 1)}% of the sample signal at 100% efficiency` : "as early as the samples, or earlier";
-          if (margin < v.nrtMargin) add("nrt_margin", r.line, { ...at(r), wells: [r.key || r.well, ...(own.length ? wl(own) : [])], lines: [r.line, ...(own.length ? ln(own) : [])], uncertain: true,
+          if (margin < v.nrtMargin - 1e-9) add("nrt_margin", r.line, { ...at(r), wells: [r.key || r.well, ...(own.length ? wl(own) : [])], lines: [r.line, ...(own.length ? ln(own) : [])], uncertain: true,
             description: `No-RT control ${name(r)} for '${t}' (Ct ${r.ct}) is ${margin.toFixed(1)} cycles after ${own.length ? `its sample ${own[0].sample ?? own[0].bio_unit}` : "the samples"} (mean Ct ${mean.toFixed(2)}); at least ${v.nrtMargin} are expected.`,
             evidence: `source line ${r.line}; ${own.length ? `matched by name to ${wl(own).join(", ")}` : `no sample name matches '${r.sample ?? ""}', so compared with all ${used.length} sample well(s) of '${t}'`}; margin ${margin.toFixed(2)} < ${v.nrtMargin} cycles; ${share}`,
             next_check: "Treat the Ct of these samples as partly genomic DNA. DNase-treat the RNA and repeat, use primers that span an exon junction, or measure and subtract the genomic signal." });

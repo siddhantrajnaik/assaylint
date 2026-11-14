@@ -370,3 +370,6 @@ dialog form { margin-top: 16px; }
 
 /* a warning line inside a note */
 .warn-line { color: #8A4B00; font-weight: 500; }
+
+/* wells marked Omit in the instrument */
+.pc.omit { border: 2px dashed #5B6762; }
