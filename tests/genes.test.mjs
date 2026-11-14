@@ -372,6 +372,33 @@ test("fly lookup: CG numbers as Dmel_ locus tags, exact case wins, case-only mat
   assert.equal(ex.symbol, "Dl"); assert.equal(ex.lookupNote, undefined); assert.equal(e.calls.length, 1);
 });
 
+// ---------------------------------------------------------------- Ensembl ID choice
+test("Ensembl: the reference-assembly ID is chosen and the others are listed", async () => {
+  // Shapes as MyGene.info returned them in Nov 2026 (trimmed).
+  const zf = { ensembl: [{ gene: "ENSDARG00000113649" }, { gene: "ENSDARG00000037746" }],
+    genomic_pos: [{ chr: "ALT_CTG1_1_1", ensemblgene: "ENSDARG00000113649" }, { chr: "1", ensemblgene: "ENSDARG00000037746" }] };
+  const z = G.chooseEnsembl(zf, "zebrafish");
+  assert.equal(z.id, "ENSDARG00000037746");
+  assert.match(z.note, /lists 2 Ensembl gene IDs\. I used ENSDARG00000037746, which is in the reference assembly's ID range \(ENSDARG00000…\) and on chromosome 1\. Others: ENSDARG00000113649\./);
+  const pigIds = [["ENSSSCG00045027458", "LUXT01070954.1"], ["ENSSSCG00070011353", "3"], ["ENSSSCG00005020690", "KQ003943.1"], ["ENSSSCG00000007585", "3"], ["ENSSSCG00030003451", "LUXR01007394.1"]];
+  const pig = { ensembl: pigIds.map(([gene]) => ({ gene })), genomic_pos: pigIds.map(([ensemblgene, chr]) => ({ ensemblgene, chr })) };
+  const p = G.chooseEnsembl(pig, "pig");
+  assert.equal(p.id, "ENSSSCG00000007585"); // ENSSSCG00070011353 is on a chromosome too, but in another breed's ID range
+  assert.match(p.note, /Others: ENSSSCG00045027458, ENSSSCG00070011353, ENSSSCG00005020690, ENSSSCG00030003451\./);
+  const hla = { ensembl: [{ gene: "ENSG00000235657" }, { gene: "ENSG00000206503" }], genomic_pos: [{ chr: "HSCHR6_MHC_DBB_CTG1", ensemblgene: "ENSG00000235657" }, { chr: "6", ensemblgene: "ENSG00000206503" }] };
+  assert.equal(G.chooseEnsembl(hla, "human").id, "ENSG00000206503");
+  // Without positions the standard prefix decides; with nothing to go on, the first ID and a note saying so.
+  assert.equal(G.chooseEnsembl({ ensembl: [{ gene: "ENSSSCG00045027458" }, { gene: "ENSSSCG00000007585" }] }, "pig").id, "ENSSSCG00000007585");
+  const none = G.chooseEnsembl({ ensembl: [{ gene: "ENSXXXG1" }, { gene: "ENSXXXG2" }] }, "other");
+  assert.equal(none.id, "ENSXXXG1"); assert.match(none.note, /the first listed/);
+  assert.deepEqual(G.chooseEnsembl({ ensembl: { gene: "FBgn0000042" } }, "fly"), { id: "FBgn0000042", note: "" });
+  // In a lookup the note travels with the result, and the field list asks for the positions.
+  const f = fakeFetch(() => json({ hits: [{ symbol: "actb1", ZFIN: "ZDB-GENE-000329-1", ...zf }] }));
+  const r = await G.lookupGene("actb1", { species: "zebrafish", fetch: f });
+  assert.equal(r.ensembl, "ENSDARG00000037746"); assert.match(r.lookupNote, /ENSDARG00000113649/);
+  assert.match(new URL(f.calls[0].url).searchParams.get("fields"), /genomic_pos\.chr,genomic_pos\.ensemblgene/);
+});
+
 // ---------------------------------------------------------------- Xenopus laevis
 test("Xenopus laevis: taxid 8355, xla- prefix, .L/.S suffix in guess and check", () => {
   assert.equal(G.TAXID.xlaevis, "8355");

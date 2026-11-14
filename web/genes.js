@@ -381,7 +381,7 @@ const BOILERPLATE = /^\s*(microRNAs \(miRNAs\) are short|45S ribosomal DNA|This 
 export const describe = t => [t?.geneName, t?.description && t.description !== t.geneName ? t.description : ""].filter(Boolean).join(". ");
 // Only symbols that look like symbols are ever sent.
 export const sendable = s => typeof s === "string" && /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/.test(s);
-const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,type_of_gene,summary,locus_tag,HGNC,MGI,RGD,ZFIN,FLYBASE,WormBase,SGD,TAIR,Xenbase";
+const MYGENE_FIELDS = "symbol,name,entrezgene,ensembl.gene,genomic_pos.chr,genomic_pos.ensemblgene,type_of_gene,summary,locus_tag,HGNC,MGI,RGD,ZFIN,FLYBASE,WormBase,SGD,TAIR,Xenbase";
 // Ensembl gene ID prefixes, to pick the reference-assembly ID when MyGene.info lists several (it lists a dozen for pig).
 const ENS_PREFIX = { human: "ENSG", mouse: "ENSMUSG", rat: "ENSRNOG", zebrafish: "ENSDARG", chicken: "ENSGALG", pig: "ENSSSCG", cow: "ENSBTAG",
   dog: "ENSCAFG", macaque: "ENSMMUG", xenopus: "ENSXETG" };
@@ -404,14 +404,33 @@ async function getJson(fetchFn, url, headers) {
   if (!r || !r.ok) throw new Error(`the server answered ${r ? r.status : "nothing"}`);
   return r.json();
 }
+// Picks one Ensembl gene ID when MyGene.info lists several. MyGene.info doesn't name the assembly, but its genomic_pos field
+// says where each ID sits: reference-assembly genes are on a chromosome ("1", "3", "X"), while alternate haplotypes and other
+// strains' assemblies sit on contigs (ALT_CTG1_1_1, HSCHR6_MHC_COX_CTG1, LUXT01070954.1). Ensembl also gives the reference
+// assembly the plain ID range (ENSSSCG00000…) and other pig breeds their own (ENSSSCG00045…). Checked live in Nov 2026:
+// zebrafish actb1 lists an ALT_CTG ID first, pig ACTB lists 11 IDs, human HLA-A 8.
+const ON_CHROMOSOME = /^(chr)?(\d{1,2}[A-Z]?|[XYZWM]|MT|[IVX]{1,4}|[23][LR])$/i;
+export function chooseEnsembl(hit, species) {
+  const ids = [...new Set([hit.ensembl].flat().map(e => e?.gene).filter(e => typeof e === "string"))];
+  if (ids.length < 2) return { id: ids[0] || "", note: "" };
+  const chr = new Map([hit.genomic_pos].flat().filter(p => p && typeof p.ensemblgene === "string").map(p => [p.ensemblgene, String(p.chr ?? "")]));
+  const pre = ENS_PREFIX[species];
+  const score = id => (pre && id.startsWith(pre + "00000") ? 2 : 0) + (ON_CHROMOSOME.test(chr.get(id) || "") ? 1 : 0);
+  const best = ids.reduce((a, b) => (score(b) > score(a) ? b : a));
+  const why = [pre && best.startsWith(pre + "00000") && `in the reference assembly's ID range (${pre}00000…)`, chr.get(best) && ON_CHROMOSOME.test(chr.get(best)) && `on chromosome ${chr.get(best).replace(/^chr/i, "")}`].filter(Boolean);
+  const others = ids.filter(x => x !== best);
+  return { id: best, note: `MyGene.info lists ${ids.length} Ensembl gene IDs. I used ${best}${why.length ? `, which is ${why.join(" and ")}` : ", the first listed, because none is marked as on the reference assembly"}. Others: ${others.slice(0, 12).join(", ")}${others.length > 12 ? ` and ${others.length - 12} more` : ""}.` };
+}
 function fromMyGene(hit, species, now) {
-  const ens = [hit.ensembl].flat().map(e => e?.gene).filter(e => typeof e === "string");
-  const want = ENS_PREFIX[species] || "-";
+  const ens = chooseEnsembl(hit, species);
   const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "").replace(/^Dmel_/, "");
   return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), description: BOILERPLATE.test(hit.summary || "") ? "" : firstSentence(hit.summary),
-    entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.find(e => e.startsWith(want + "00000")) || ens.find(e => e.startsWith(want + "0")) || ens[0] || "", hgncId: id,
-    dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now };
+    entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.id, hgncId: id,
+    dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now,
+    ...(ens.note ? { lookupNote: ens.note } : {}) };
 }
+// Adds a note in front of any note fromMyGene() already made (the Ensembl choice).
+const withNote = (rec, note) => ({ ...rec, lookupNote: [note, rec.lookupNote].filter(Boolean).join(" ") });
 function fromHgnc(doc, now) {
   return { symbol: String(doc.symbol || ""), geneName: String(doc.name || ""), description: "",
     entrez: doc.entrez_id ? String(doc.entrez_id) : "", ensembl: doc.ensembl_gene_id ? String(doc.ensembl_gene_id) : "", hgncId: String(doc.hgnc_id || ""),
@@ -454,8 +473,7 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       const hit = exact || hits.find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
       if (hit && species === "fly" && !exact) {
         const al = ((await mg(`alias:${c}`, 5))?.hits || []).map(x => String(x.symbol)).filter(x => x !== hit.symbol);
-        return { status: "found", ...fromMyGene(hit, species, now), asked: c,
-          lookupNote: `FlyBase has ${hit.symbol}${hit.name ? ` (${hit.name})` : ""}, which differs from ${c} only in case. Fly symbols are case-sensitive, so check this is the gene you mean.${al.length ? ` ${c} is also an old name or alias of ${al.join(", ")}.` : ""}` };
+        return { status: "found", ...withNote(fromMyGene(hit, species, now), `FlyBase has ${hit.symbol}${hit.name ? ` (${hit.name})` : ""}, which differs from ${c} only in case. Fly symbols are case-sensitive, so check this is the gene you mean.${al.length ? ` ${c} is also an old name or alias of ${al.join(", ")}.` : ""}`), asked: c };
       }
       if (hit) return { status: "found", ...fromMyGene(hit, species, now) };
     }
@@ -464,8 +482,8 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       const d = await mg(`symbol:${symbol}.L OR symbol:${symbol}.S`);
       const hits = (d?.hits || []).filter(x => HOMEOLOG.test(x.symbol) && String(x.symbol).slice(0, -2).toLowerCase() === symbol.toLowerCase());
       hits.sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))); // .L before .S
-      if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), asked: symbol, others: hits.slice(1).map(x => String(x.symbol)),
-        lookupNote: `X. laevis has ${hits.length === 2 ? "two copies" : "one copy"} of ${symbol}: ${hits.map(x => x.symbol).join(" and ")}. I used ${hits[0].symbol}${hits.length === 2 ? `; if your primers are for ${hits[1].symbol}, enter that symbol instead` : ""}.` };
+      if (hits.length) return { status: "alias", ...withNote(fromMyGene(hits[0], species, now), `X. laevis has ${hits.length === 2 ? "two copies" : "one copy"} of ${symbol}: ${hits.map(x => x.symbol).join(" and ")}. I used ${hits[0].symbol}${hits.length === 2 ? `; if your primers are for ${hits[1].symbol}, enter that symbol instead` : ""}.`),
+        asked: symbol, others: hits.slice(1).map(x => String(x.symbol)) };
     }
     const d = await mg(`alias:${symbol}`, 5), hits = d?.hits || [];
     if (hits.length) return { status: "alias", ...fromMyGene(hits[0], species, now), others: hits.slice(1).map(x => String(x.symbol)), asked: symbol };
