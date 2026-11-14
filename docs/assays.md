@@ -17,6 +17,7 @@ PlateCheck's own roles (sample, NTC, positive control, no-RT, standard, not used
 | 3C library, Control template (BAC) | 3C-qPCR |
 | Fraction (with a number or a name) | Polysome profiling, TRAP |
 | Test sample, Blank | Immuno-PCR, PLA, PEA |
+| Test sample, Blank (negative control), Inter-plate control (IPC) | PEA in NPX (Olink-style) |
 | Thiol-treated (NEM), Mock-treated | 4sU labelling, treated vs mock |
 | IP / pulldown, Input | 4sU labelling, biotin pulldown vs total |
 
@@ -96,7 +97,20 @@ The input % is how much of the chromatin going into one IP you kept as input: 1%
 - Solomon ER, Caldwell KK, Allan AM. A novel method for the normalization of ChIP-qPCR data. *MethodsX* 2021;8:101504. https://doi.org/10.1016/j.mex.2021.101504
 - Mukhopadhyay A, Deplancke B, Walhout AJM, Tissenbaum HA. Chromatin immunoprecipitation (ChIP) coupled to detection by quantitative real-time PCR to study transcription factor binding to DNA in *Caenorhabditis elegans*. *Nat Protoc* 2008;3:698–709. https://doi.org/10.1038/nprot.2008.38
 
-**Caveats.** % input assumes the same volume of IP and input DNA goes into each qPCR well; Solomon et al. show how to correct when equal nanograms were loaded instead, which PlateCheck doesn't do. For RNA pulldowns the input and IP have to go through the same reverse transcription. Fold over IgG says nothing about absolute occupancy, and a low IgG can make a weak IP look strong.
+**% input by DNA amount (optional).** The usual % input assumes the same volume of IP and input DNA goes into each qPCR well, from isolates eluted in the same volume. If you loaded a measured amount (ng) of each instead, set "How much IP and input DNA went into each qPCR well" to the amount option and enter, for each set, the total DNA recovered in the IP and in the input (elution volume × concentration) and the ng per well. Solomon et al. (2021) call this the constant-amount method. Their dilution factor is
+
+    DFa = DFv × (input DNA recovered / IP DNA recovered),   DFv = 100 / input %
+
+and % input is the same equation as above with DFa in place of DFv. They load the same ng of IP and input, so the ng per well cancels. I keep it in so unequal loading also works:
+
+    DFa = DFv × (input recovered / ng per input well) ÷ (IP recovered / ng per IP well)
+    adjusted input Ct = Ct(input) − log_E(DFa);   % input = 100 × E^(adjusted input Ct − Ct(IP))
+
+IgG % input uses the IgG DNA recovered if you enter it; otherwise it's left empty with a note. A set without the amounts gets no % input and a high-severity flag. The default stays the constant-volume calculation.
+
+**Worked example (by amount).** 10% input (DFv 10), 500 ng recovered in the input and 50 ng in the IP, 1.25 ng of each per well: DFa = 10 × 500 / 50 = 100. Input Ct 25, IP Ct 26: % input = 100/100 × 2^(25 − 26) = 0.5%. Read as constant volume it would have been 10% × 2^−1 = 5%. With 2.5 ng IP and 1.25 ng input per well, DFa = 10 × (500/1.25) / (50/2.5) = 200 and % input = 0.25%.
+
+**Caveats.** Solomon et al. note that measuring the IP yield can use up most of a low-yield IP; then the constant-volume method is the better choice. For RNA pulldowns the input and IP have to go through the same reverse transcription. Fold over IgG says nothing about absolute occupancy, and a low IgG can make a weak IP look strong.
 
 ## 2. % methylation from digested vs mock (MSRE-qPCR)
 
@@ -140,7 +154,16 @@ With a region without a cut site, its ΔCt is subtracted from each region's ΔCt
 - Campan M, Weisenberger DJ, Trinh B, Laird PW. MethyLight. *Methods Mol Biol* 2009;507:325–337. https://doi.org/10.1007/978-1-59745-522-0_23
 - Weisenberger DJ, Campan M, Long TI, et al. Analysis of repetitive element DNA methylation by MethyLight. *Nucleic Acids Res* 2005;33:6823–6836. https://doi.org/10.1093/nar/gki987
 
-**Caveats.** The papers calculate PMR from standard curves; the ΔΔCt form here is the same ratio if both reactions are 100% efficient, or if you set each reaction's efficiency. PMR can be above 100.
+**With a standard curve.** Eads et al. (2000) put serial dilutions of a control sample on each plate as a standard curve, and Weisenberger et al. (2005) made the curve from serial dilutions of bisulfite-converted, M.SssI-treated DNA and used it as the methylated reference. If the plate has standard wells (PlateCheck's Standard role, with a quantity) for both the methylation reaction and the control reaction, PlateCheck reads amounts off the two curves instead of using one reference level:
+
+    Q = 10^((Ct − intercept) / slope), from each reaction's own curve
+    PMR = 100 × [Q(gene) / Q(control)] in the sample ÷ [Q(gene) / Q(control)] in the reference
+
+If reference wells are also labelled "Fully methylated reference", their ratio is the denominator. If not, the standards are the reference: both curves are in the same units of the same DNA, so the reference ratio is 1. Without curves for both reactions it stays on the single reference level, and the "Reference method" column says which was used.
+
+**Worked example (curves).** Both curves have slope −3.32 (100%); the MLH1 curve's intercept is 25 and the ALU curve's is 18. Sample MLH1 30, ALU 20: Q(MLH1) = 2^−5, Q(ALU) = 2^−2, so PMR = 100 × (1/32)/(1/4) = 12.5, the same as the ΔΔCt example. With an MLH1 slope of −3.5: Q = 10^(5/−3.5) = 0.0373 and PMR = 14.9.
+
+**Caveats.** The ΔΔCt form is the same ratio as the curve form only if both reactions are 100% efficient, or if you set each reaction's efficiency. PMR can be above 100.
 
 ## 3. Accessibility relative to a closed region (DNase, MNase, ATAC, FAIRE)
 
@@ -189,7 +212,17 @@ There are two directions, and you choose which:
 
 - Hagège H, Klous P, Braem C, et al. Quantitative analysis of chromosome conformation capture assays (3C-qPCR). *Nat Protoc* 2007;2:1722–1733. https://doi.org/10.1038/nprot.2007.243
 
-**Caveats.** The protocol uses a standard curve of the control template for every primer pair; PlateCheck uses one template level. Put several template dilutions on the plate as standards and the standard-curve check fits an efficiency per primer pair, which you can then pick under PCR efficiency.
+**With a template standard curve.** Hagège et al. normalise to the BAC control template to correct for the efficiency of each primer pair, using a dilution series of the template. Later 3C-qPCR papers that follow the protocol write the step out: Zhang et al. (2012) ran standard curves from serial dilutions of the BAC control template on every run and calculated each value as 10^((Ct − b)/a), with b the intercept and a the slope. If you mark the template dilutions as Standard wells with their amounts, PlateCheck fits a curve per primer pair (the same fit as the standard-curve check) and uses
+
+    signal = 10^((Ct(3C library) − intercept) / slope)
+
+for every pair that has one. Because the template holds every ligation product at the same amount, these amounts can be compared between primer pairs. A pair without a curve keeps the one-level calculation above, the "Template method" column says which was used, and a plate that mixes both gets a note, since the two only share units if the single level is the curve's unit amount. The loading-control step is unchanged.
+
+**Worked example (curve).** F19 curve with slope −3.5 and intercept 20, library Ct 30: signal = 10^(10/−3.5) = 0.00139.
+
+- Zhang J, Markus J, Bies J, Paul T, Wolff L. Three murine leukemia virus integration regions within 100 kilobases upstream of c-myb are proximal to the 5′ regulatory region of the gene through DNA looping. *J Virol* 2012;86:10524–10532. https://doi.org/10.1128/JVI.01077-12
+
+**Caveats.** I couldn't read the full Hagège protocol (it's behind a paywall), so the dilution scheme is up to you; the formula above is the standard-curve read-off as written by Zhang et al. A primer pair that only has an efficiency set (no curve) still uses one template level.
 
 ## 5. Distribution across fractions (polysome profiling, TRAP)
 
@@ -235,7 +268,7 @@ Optionally, the share in the polysome fractions (from a fraction number you give
 - Lundberg M, Eriksson A, Tran B, Assarsson E, Fredriksson S. Homogeneous antibody-based proximity extension assays provide sensitive and specific detection of low-abundant proteins in human blood. *Nucleic Acids Res* 2011;39:e102. https://doi.org/10.1093/nar/gkr424
 - Armbruster DA, Pry T. Limit of blank, limit of detection and limit of quantitation. *Clin Biochem Rev* 2008;29 Suppl 1:S49–S52. PMID 18852857
 
-**Caveats.** The SD multiplier is a choice: Lundberg et al. used 2 SD, Armbruster and Pry define the limit of blank as mean + 1.645 SD (in concentration units) and the LOD from low-concentration samples as well. PlateCheck works in Ct, not concentration, and uses k = 3 unless you change it. Commercial PEA panels (NPX values) use extension and inter-plate controls that PlateCheck doesn't model.
+**Caveats.** The SD multiplier is a choice: Lundberg et al. used 2 SD, Armbruster and Pry define the limit of blank as mean + 1.645 SD (in concentration units) and the LOD from low-concentration samples as well. PlateCheck works in Ct, not concentration, and uses k = 3 unless you change it. For commercial PEA panels in NPX, use "PEA with NPX (Olink-style)" (section 8).
 
 ## 7. New RNA after 4sU labelling (Roadblock-qPCR, 4sU-tagging, "SLAM-qPCR")
 
@@ -280,6 +313,62 @@ I checked all four on PubMed in November 2026.
 
 **Caveats.** A transcript only drops out of the NEM-treated cDNA if the RT runs over at least one 4sU, so short amplicons on RNA with few uridines, or short labelling times, under-count new RNA. The pulldown never captures every labelled molecule, so "% new" from a pulldown is a lower bound and is best compared between conditions, not read as an absolute fraction. Neither read-out is a half-life; for that you need a time course.
 
+## 8. PEA in NPX (Olink-style)
+
+**Scope.** This is for proximity extension assays read out by qPCR, such as Olink Target 96/48 panels, when you have the Ct values or the NPX values. It follows the normalisation that Olink published. It doesn't replace Olink's software, it doesn't know their per-assay correction factors, and it doesn't do their bridging or intensity normalisation between plates. The older "PEA-qPCR" entry (signal over blank, section 6) is unchanged.
+
+**Plate.** Every sample measured with each assay and with the extension control. The inter-plate control (IPC) run as a sample, in triplicate as Olink does; label those wells IPC, each replicate as its own set. Negative controls (buffer run as a sample), also in triplicate, labelled Blank. Optionally incubation controls 1 and 2 and the detection control measured in each sample.
+
+**Formula (Ct values)**
+
+    ΔCt   = Ct(assay) − Ct(extension control), in the same sample
+    ΔΔCt  = ΔCt − median ΔCt of the inter-plate controls, per assay
+    NPX   = correction factor − ΔΔCt                 (log2; higher means more protein)
+    LOD   = mean NPX of the negative controls + 3 × SD, per assay
+    Sample QC: incubation control 2 or detection control more than 0.3 NPX from the plate median of the samples
+
+The first three lines are the equations in Olink's white paper; Assarsson et al. (2014) describe the extension-control step, the IPC median and how NPX was introduced. Olink sets the correction factor for each assay during panel validation, from negative controls, so that background sits near 0. If you don't enter one it is 0, NPX is then relative to the IPC, and the app says so; differences between samples don't change. Olink's validation data define the LOD as 3 SD above background; the multiplier can be changed. For the QC rule I use the extension-normalised control values (−ΔCt): a constant per assay doesn't change the distance from the median, so this is the same as using their NPX.
+
+**NPX given directly.** If the Ct column holds NPX values (from Olink's software or a service), choose "NPX values already". Nothing is normalised; the LOD and the QC rule use the numbers as given.
+
+**Worked example.** IPC IL6 Ct 12, 12.2 and 12.6, each with extension control 13: ΔCt −1, −0.8, −0.4, median −0.8. Sample S1: IL6 18, extension 13.5, so ΔCt 4.5, ΔΔCt 5.3, and with a correction factor of 10, NPX = 4.7. Negatives: IL6 22, 22.5 and 23 with extension 13 give NPX 0.2, −0.3 and −0.8: mean −0.3, SD 0.5, LOD 1.2. S1 is above the LOD. Detection control in S1, S2 and S3 at 14, 14.5 and 14.1 with extension 13.5: −0.5, −1.0 and −0.6 against a median of −0.6, so S2 is 0.4 NPX off and fails QC.
+
+**What gets flagged:** no extension control chosen or missing in a sample; no IPC (then NPX is ΔCt only and can't be compared between plates); fewer than three IPC sets; fewer than two negative controls (no LOD); a sample whose incubation control 2 or detection control is more than 0.3 NPX off; no correction factor.
+
+**Sources**
+
+- Assarsson E, Lundberg M, Holmquist G, et al. Homogenous 96-plex PEA immunoassay exhibiting high sensitivity, specificity, and excellent scalability. *PLoS One* 2014;9:e95192. https://doi.org/10.1371/journal.pone.0095192
+- Olink Proteomics. Data normalization and standardization. White paper 1096, v2.1, 2022-04-08. Olink's own document, not peer reviewed; listed at https://olink.com/knowledge/documents. I checked the equations, the ±0.3 NPX QC rule and the role of the negative controls against v2.1.
+
+## Comparing conditions (biological replicates)
+
+**What it does.** Each set is one chromatin, DNA or lysate, so one biological replicate. Under "Comparing conditions" you give each set a condition (WT-1, WT-2 and WT-3 are WT; KO-1, KO-2 and KO-3 are KO). "Fill in from set names" takes the replicate number off the end of the name. Each region (or target, or fraction) is then compared between conditions with the tests from the Analysis step (`web/stats.js`); each set counts once, and technical replicates were already averaged as Ct.
+
+This works for every calculation: % input, fold over IgG or the negative region, % methylation, PMR, accessibility, 3C, fractions (fraction by fraction, or the polysome share), 4sU labelling, ΔCt over blank and NPX. Pick what to compare if the calculation has more than one result. The fully methylated control set (MSRE) and the no-4sU set (4sU labelling) are references inside the calculation and are never counted as replicates.
+
+**Tests.** Welch t-test (default), Student t-test, Mann–Whitney, one-way ANOVA + Tukey (every pair) and one-way ANOVA + Dunnett (each condition against the control). With more than two conditions and a t-test or Mann–Whitney, each condition is compared with the control, and the ANOVA (or Kruskal–Wallis) p for the region is shown alongside. The formulas are in docs/analysis.md.
+
+**Multiple testing.** For the t-tests and Mann–Whitney, Benjamini–Hochberg (default) or Bonferroni over every comparison in the table, so across regions. Tukey and Dunnett already adjust within a region, so across regions only, one comparison (for example KO vs WT) at a time, the same as the Analysis step.
+
+**Scale.** The table shows the arithmetic mean ± SD in the units of the result, and the test runs on a scale chosen for each kind of number:
+
+- **% input, fold enrichment, PMR, accessibility index, 3C frequencies, % in a pulldown: log2.** These are ratios: each came from a Ct difference as E^ΔCt, so log2 of the value is just the Ct difference again (log2 % input = adjusted input Ct − Ct(IP) + log2 100 at 100% efficiency). Testing on log2 is testing on the Ct scale, the same as the Analysis step tests ΔCt. It also treats a halving and a doubling as the same size of change, which a test on raw % input doesn't. The graph uses a log2 axis with the geometric mean and ×/÷ SD, and the effect is given as a fold change of geometric means.
+- **% methylation, % left after digestion, % of total in a fraction, % new RNA: logit by default, raw as an option.** A percentage is squeezed near 0 and 100%, so its spread depends on where it sits. Du et al. (2010) showed that the M-value, log2(β / (1 − β)), the logit of the methylated fraction, removes most of this and finds differences better than the raw β-value, especially near 0 and 100%; they recommend testing on M-values and reporting β-values. I do the same: the test uses log2(p / (100 − p)) and the table reports the percentages. A region where any value is at or beyond 0% or 100% (MSRE can give 104%) has no logit, so that region is tested on raw percentages and the table says so. You can switch every percentage to raw.
+- **ΔCt over blank and NPX: as they are.** Both are already on a log2 scale.
+- Mann–Whitney uses only ranks, so the scale makes no difference to it.
+
+Values of 0 or below can't go on a log scale (for example a 3C library with no product, counted as 0); those sets are left out of that region and named.
+
+**Output.** A table with each condition's mean ± SD and n, the effect, the p, the adjusted p and a mark (*** < 0.001, ** < 0.01, * < 0.05, ns). A graph with one panel per region: a dot for each set, the mean and SD, and a bracket with the mark for each comparison. Download as SVG, PNG (300 dpi) or CSV (comparisons, then every replicate value on both scales). The same table and graph go into the report.
+
+**Worked example.** % input at one region, 1% input, input Ct 26: WT IP Ct 24, 23, 24 (4%, 8%, 4%), KO 26, 25, 26 (1%, 2%, 1%). On log2: WT 2, 3, 2 and KO 0, 1, 0, a difference of −2 with SD 0.577 in each. Welch: SE = sqrt(2 × 0.333/3) = 0.471, t = −4.24 with 4 df, p = 0.0132. The table shows WT 5.33 ± 2.31 and KO 1.33 ± 0.58, effect ×0.25. With 3 replicates per condition, Mann–Whitney can't go below p = 2/20 = 0.1, and the app says so.
+
+**Warnings.** One replicate in a condition (no spread, no p); two replicates (very uncertain); sets with no condition; Mann–Whitney with 3 or fewer per condition; more than two conditions with a two-group test.
+
+- Du P, Zhang X, Huang CC, et al. Comparison of Beta-value and M-value methods for quantifying methylation levels by microarray analysis. *BMC Bioinformatics* 2010;11:587. https://doi.org/10.1186/1471-2105-11-587
+
+The sample file `sample-data/7 ChIP-qPCR replicates WT vs KO - results.csv` has three WT and three KO chromatin sets for trying it.
+
 ## iCLIP and eCLIP
 
 iCLIP (König et al. 2010) and eCLIP are listed with RIP and CLIP under % input and fold enrichment. Both are normally read out by sequencing; if you check a few targets by qPCR, the size-matched input is the input and the IgG or no-crosslink sample is the background.
@@ -289,5 +378,6 @@ iCLIP (König et al. 2010) and eCLIP are listed with RIP and CLIP under % input 
 ## Not covered yet
 
 - Allele-specific qPCR for SLAM-seq T-to-C conversions. Nobody has published it as far as I could find, and it would need primers designed over each converted position.
-- Reading quantities straight off a standard curve per primer pair (as the 3C and MethyLight protocols do), rather than correcting ΔCt with an efficiency.
-- Statistics across biological replicates; the Analysis module (roadmap workstream 2) will take these numbers as input.
+- Reading quantities off a standard curve for calculations other than 3C and PMR (% input, MSRE and the rest still correct ΔCt with an efficiency).
+- Olink's bridging and intensity normalisation between plates, and their per-assay correction factors.
+- Paired designs in "Comparing conditions" (for example WT and KO chromatin made on the same day); the Analysis step has a paired t-test, this page doesn't yet.

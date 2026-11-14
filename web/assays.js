@@ -35,6 +35,7 @@ export const REFS = {
   konig2010: { cite: "König J, Zarnack K, Rot G, et al. iCLIP reveals the function of hnRNP particles in splicing at individual nucleotide resolution. Nat Struct Mol Biol 2010;17:909–915.", doi: "10.1038/nsmb.1838" },
   assarsson2014: { cite: "Assarsson E, Lundberg M, Holmquist G, et al. Homogenous 96-plex PEA immunoassay exhibiting high sensitivity, specificity, and excellent scalability. PLoS One 2014;9:e95192.", doi: "10.1371/journal.pone.0095192" },
   olink2022: { cite: "Olink Proteomics. Data normalization and standardization. White paper 1096, v2.1, 2022-04-08 (Olink's own document, not peer reviewed).", doi: null, url: "https://olink.com/knowledge/documents" },
+  zhang2012: { cite: "Zhang J, Markus J, Bies J, Paul T, Wolff L. Three murine leukemia virus integration regions within 100 kilobases upstream of c-myb are proximal to the 5' regulatory region of the gene through DNA looping. J Virol 2012;86:10524–10532.", doi: "10.1128/JVI.01077-12" },
   du2010: { cite: "Du P, Zhang X, Huang CC, et al. Comparison of Beta-value and M-value methods for quantifying methylation levels by microarray analysis. BMC Bioinformatics 2010;11:587.", doi: "10.1186/1471-2105-11-587" },
   armbruster2008: { cite: "Armbruster DA, Pry T. Limit of blank, limit of detection and limit of quantitation. Clin Biochem Rev 2008;29 Suppl 1:S49–S52.", doi: null, pmid: "18852857" },
 };
@@ -122,7 +123,7 @@ export const FAMILIES = {
   threec: { name: "Relative crosslinking frequency", roles: ["library", "template"], params: [P.loadingTarget, P.controlTarget3c],
     formula: ["With a template dilution series (Standard wells) for the pair: signal = 10^((Ct(3C library) − intercept) / slope)",
       "Otherwise one template level: signal = E^−(Ct(3C library) − Ct(control template)), per primer pair", "Loading-corrected = signal × E^(Ct(loading, this sample) − mean Ct(loading, all samples))", "Relative to the control interaction = loading-corrected / loading-corrected(control pair)"],
-    refs: ["hagege2007"] },
+    refs: ["hagege2007", "zhang2012"] },
   fractions: { name: "Distribution across fractions", roles: ["fraction"], params: [P.spikeTarget, P.polysomeFrom],
     formula: ["Relative amount in fraction i = E^−(Ct_i − lowest Ct) (with a spike-in: Ct_i − Ct(spike-in)_i)", "% of total in fraction i = 100 × relative_i / sum of relative over all fractions"],
     refs: ["panda2017", "gandin2014", "heiman2014"] },
