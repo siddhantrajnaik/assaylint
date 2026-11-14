@@ -113,3 +113,19 @@ test("an implausible standard-curve efficiency is not used for the Pfaffl correc
   assert.match(a.efficiency.REF1.source, /not used/);
   assert.ok(a.warnings.some(x => /150\.0% efficiency, outside 80–120%/.test(x)));
 });
+
+// ---- Blocks 12-14
+test("plate centring refuses a design where each plate holds one group; the calibrator isn't reported as a repeated unit", () => {
+  const plate = (title, units, shift) => { const L = ["Well,Sample,Target,Ct,Group"]; let w = 0;
+    for (const [u, g] of units) for (const d of [-0.03, 0.03]) { L.push(`A${++w},${u},REF,${(18 + shift.REF + d).toFixed(3)},${g}`); L.push(`A${++w},${u},GENE,${(18 + (g === "trt" ? 8 : 6) + shift.GENE + d).toFixed(3)},${g}`); }
+    for (const d of [-0.03, 0.03]) { L.push(`B${++w},CAL,REF,${(17 + shift.REF + d).toFixed(3)},`); L.push(`B${++w},CAL,GENE,${(23 + shift.GENE + d).toFixed(3)},`); }
+    const e = exp(L.join("\n") + "\n"); e.title = title; return { exp: e, res: C.analyze(e) }; };
+  const runs = [plate("P1", [["c1", "ctrl"], ["c2", "ctrl"], ["c3", "ctrl"]], { GENE: 0, REF: 0 }), plate("P2", [["t1", "trt"], ["t2", "trt"], ["t3", "trt"]], { GENE: 1, REF: 0.2 })];
+  const settings = { on: true, refs: ["REF"], control: "ctrl" };
+  const centre = A.analyzeStudy(runs, { settings, mode: "centre" });
+  assert.equal(centre.calibration.mode, "none");
+  assert.ok(centre.warnings.some(w => /Plate centring was not applied/.test(w)));
+  const cal = A.analyzeStudy(runs, { settings, mode: "calibrator", calibrators: ["CAL"] });
+  assert.ok(Math.abs(cal.summary.find(r => r.target === "GENE" && r.group === "trt").meanDdct - 2) < 1e-9);
+  assert.ok(!cal.warnings.some(w => /appear on more than one plate \(CAL\)/.test(w)));
+});
