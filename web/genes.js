@@ -28,6 +28,16 @@ const PREFIX_RE = new RegExp(`^(${Object.keys(MIR_PREFIX).join("|")})[-_]`, "i")
 const YEAST_ORF = /^Y[A-P][LR]\d{3}[WC](-[A-Z])?$/i; // S. cerevisiae systematic names (YFL039C)
 const AGI_LOCUS = /^AT[1-5CM]G\d{5}$/i; // Arabidopsis loci (AT3G18780)
 export const isLocusId = s => YEAST_ORF.test(s) || AGI_LOCUS.test(s);
+// FlyBase annotation IDs: CG for protein-coding genes, CR for non-coding ones, then four or five digits (FlyBase nomenclature
+// page, "Annotation IDs"). MyGene.info keeps them as locus tags with a Dmel_ prefix (Dmel_CG4027 for Act5C).
+const FLY_ANNOT = /^C[GR]\d{4,5}$/;
+// Fly genes often used as qPCR references or markers, keyed in lower case, so a case slip (RPL32, act5c) gets the FlyBase
+// spelling. Case carries meaning in FlyBase (dl is dorsal; Delta used to be Dl), so only names with one clear owner are
+// listed. I checked each as an exact symbol in MyGene.info in Nov 2026. rp49 and ef1a are lab names, not case slips.
+const FLY_SYMBOLS = Object.fromEntries(["Act5C", "Act42A", "Act57B", "Act79B", "Act87E", "Act88F", "RpL32", "RpL11", "RpL13", "RpS3", "RpS20",
+  "alphaTub84B", "betaTub56D", "Gapdh1", "Gapdh2", "Tbp", "eEF1alpha1", "Ubx", "Antp", "InR", "Ilp2", "Hsp70Aa", "Hsp83", "GstD1", "Sod1",
+  "Drs", "DptA", "Mtk", "AttA", "CecA1", "EcR", "Socs36E", "Eip75B", "wg", "hh", "eve", "ftz", "dpp"].map(x => [x.toLowerCase(), x]));
+Object.assign(FLY_SYMBOLS, { rp49: "RpL32", ef1a: "eEF1alpha1", ef1alpha: "eEF1alpha1", ef1alpha48d: "eEF1alpha1" });
 export const SOURCES = {
   "MyGene.info": "https://mygene.info",
   HGNC: "https://www.genenames.org",
@@ -72,7 +82,7 @@ function speciesHint(raw) {
   const first = cleanName(raw).split(/\s+/)[0];
   if (YEAST_ORF.test(first)) return { species: "yeast", source: `${first.toUpperCase()}, which is written like a yeast systematic name` };
   if (AGI_LOCUS.test(first)) return { species: "arabidopsis", source: `${first.toUpperCase()}, which is written like an Arabidopsis locus` };
-  if (/^CG\d{3,5}$/.test(first)) return { species: "fly", source: `${first}, which is written like a FlyBase annotation ID` };
+  if (FLY_ANNOT.test(first)) return { species: "fly", source: `${first}, which is written like a FlyBase annotation ID` };
   if (/^[a-z][a-z0-9-]*\.[LS]$/i.test(first)) return { species: "xlaevis", source: `the .${first.slice(-1).toUpperCase()} suffix, which Xenbase gives X. laevis homeologs` };
   return null;
 }
@@ -114,6 +124,8 @@ function mirSymbol(name, species) {
   m = LET_RE.exec(name);
   if (m) {
     const [, letter = "", locus] = m;
+    // FlyBase calls the fly let-7 gene mir-let7 (let-7 is only an alias there); WormBase keeps let-7.
+    if (species === "fly") return { symbol: "mir-let7", extra: [], mature: true };
     if (dash) return { symbol: `let-7${letter.toLowerCase()}`, extra: [], mature: true };
     if (lower) { const base = `mirlet7${letter.toLowerCase()}`; return { symbol: locus ? `${base}-${locus}` : base, extra: locus ? [] : [`${base}-1`], mature: true }; }
     if (mouse) { const base = `Mirlet7${letter.toLowerCase()}`; return { symbol: locus ? `${base}-${locus}` : base, extra: locus ? [] : [`${base}-1`], mature: true }; }
@@ -125,12 +137,13 @@ function mirSymbol(name, species) {
 
 // Is this written the way the species' nomenclature database writes symbols? HGNC (human, and the vertebrates that
 // follow it), MGI/RGD (mouse, rat), ZFIN and Xenbase (lower case), WormBase (act-1), SGD (ACT1 or YFL039C) and
-// TAIR (ACT2 or AT3G18780). FlyBase symbols are case-sensitive in ways a pattern can't check. Returns { ok, reason }.
+// TAIR (ACT2 or AT3G18780) and FlyBase (Act5C, w, CG1234, mir-1). Returns { ok, reason }.
 export function checkSymbol(symbol, species = "human") {
   const s = String(symbol ?? "");
   if (!s) return { ok: false, reason: "No symbol given." };
   if (s.length > 30) return { ok: false, reason: "Too long for a gene symbol." };
   if (/\s/.test(s)) return { ok: false, reason: "Gene symbols have no spaces." };
+  if (species === "fly") { const f = checkFly(s); if (f) return f; }
   if (/[^A-Za-z0-9-.]/.test(s)) return { ok: false, reason: "Gene symbols use only letters, digits and hyphens (no Greek letters or brackets)." };
   if (/^-|-$|--/.test(s)) return { ok: false, reason: "A hyphen can't start or end a symbol." };
   if (HUMANLIKE.has(species)) {
@@ -167,12 +180,36 @@ export function checkSymbol(symbol, species = "human") {
     if (/^[a-z][a-z0-9-]*$/.test(s)) return { ok: false, reason: `Arabidopsis gene symbols are upper case: ${s.toUpperCase()}, not ${s} (lower case means a mutant).` };
     return { ok: true, reason: "" };
   }
+  if (species === "fly") {
+    const known = FLY_SYMBOLS[s.toLowerCase()];
+    if (known && known !== s && known.toLowerCase() === s.toLowerCase())
+      return { ok: false, reason: `FlyBase writes ${known}, not ${s}. Case matters in fly symbols: a lower-case first letter means the gene was named for a recessive mutant, upper case for a dominant one or for what the protein does.` };
+    return { ok: true, reason: "" };
+  }
   if (species === "mouse" || species === "rat") {
     if (/^[A-Z0-9]{2,}$/.test(s) && /[A-Z].*[A-Z]/.test(s) && !/^[A-Z]\d*$/.test(s))
       return { ok: false, reason: `${SPECIES_LABEL[species]} symbols start with a capital and continue in lower case (${cap(s)}), unlike human ones.` };
     return { ok: true, reason: "" };
   }
   return { ok: true, reason: "" };
+}
+
+// FlyBase forms that the general character check would get wrong or explain badly. Rules from the FlyBase nomenclature
+// page: annotation IDs are CG or CR plus four or five digits; miRNA genes are mir-N; some non-coding RNA classes use a colon
+// (lncRNA:CR45187, snoRNA:Me18S-A934), which PlateCheck can't store, so the CR number stands in for them.
+function checkFly(s) {
+  if (/^c[gr]\d+$/i.test(s)) {
+    if (!/^\d{4,5}$/.test(s.slice(2))) return { ok: false, reason: `FlyBase annotation IDs are CG or CR followed by four or five digits (CG4027, CR43027); ${s} has ${s.length - 2}.` };
+    return /^C[GR]/.test(s) ? null : { ok: false, reason: `FlyBase annotation IDs are upper case: ${s.toUpperCase()}, not ${s}.` };
+  }
+  if (s.includes(":")) {
+    const cr = /:(C[GR]\d{4,5})$/i.exec(s);
+    return { ok: false, reason: `FlyBase writes some non-coding RNA genes with a colon (lncRNA:CR45187). PlateCheck keeps symbols to letters, digits, hyphens and dots, so enter ${cr ? `its annotation ID, ${cr[1].toUpperCase()},` : "its CR annotation ID"} instead; the lookup finds the full symbol.` };
+  }
+  const m = /^mi[rR]-?(\d+)([a-zA-Z])?(-\d+)?$/i.exec(s);
+  if (m && !/^mir-\d+[a-z]?(-\d+)?$/.test(s)) return { ok: false, reason: `FlyBase miRNA genes are written mir-N, lower case with a hyphen: mir-${m[1]}${(m[2] || "").toLowerCase()}${m[3] || ""}, not ${s}.` };
+  if (/^let-?7$/i.test(s)) return { ok: false, reason: "The fly let-7 gene is mir-let7 in FlyBase." };
+  return null;
 }
 
 // Suggested symbol for a target name as written in the file. Doesn't touch the network.
@@ -184,6 +221,13 @@ export function suggestSymbol(raw, species = "human") {
     note: mir.mature ? `${name} is the mature miRNA; ${mir.symbol} is the gene it's made from.${mir.extra.length ? ` If that symbol doesn't exist, the lookup also tries ${mir.extra[0]}, because some miRNAs come from more than one gene.` : ""}` : "" };
   const bare = name.replace(PREFIX_RE, "");
   const first = bare.split(/\s+/)[0];
+  if (species === "fly") {
+    if (/^c[gr]\d{4,5}$/i.test(first)) return { symbol: first.toUpperCase(), extra: [], note: `${first.toUpperCase()} is a FlyBase annotation ID; the lookup finds the gene symbol that goes with it.` };
+    const cr = /^[A-Za-z0-9-]+:(C[GR]\d{4,5})$/i.exec(first);
+    if (cr) return { symbol: cr[1].toUpperCase(), extra: [], note: `PlateCheck can't store the colon in ${first}, so it uses the annotation ID ${cr[1].toUpperCase()}; the lookup finds the full FlyBase symbol.` };
+    const known = FLY_SYMBOLS[first.toLowerCase()];
+    if (known) return { symbol: known, extra: [], note: known === first ? "" : `FlyBase writes this gene ${known}.` };
+  }
   if (isLocusId(first)) return { symbol: first.toUpperCase(), extra: [], note: `${first.toUpperCase()} is a locus ID; the lookup finds the gene name that goes with it.` };
   const circ = /^circ(?:RNA)?[-_ ]?([A-Za-z][A-Za-z0-9-]+)$/i.exec(bare);
   if (circ && !/^hsa_circ_\d+$/i.test(name)) { const host = suggestSymbol(circ[1], species).symbol; return { symbol: host, extra: [], note: `circ${circ[1]} is a circular RNA; ${host} is its host gene, which is what the lookup describes.` }; }
@@ -272,7 +316,7 @@ const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
 // For fly, worm, yeast and Arabidopsis genes Ensembl uses the FlyBase, WormBase, SGD or TAIR ID as the gene ID.
 const FIELD_RE = { entrez: /^\d{1,12}$/, ensembl: /^(ENS[A-Z]*G\d{6,15}(\.\d+)?|FBgn\d{7}|WBGene\d{8}|Y[A-P][LR]\d{3}[WC](-[A-Z])?|AT[1-5CM]G\d{5})$/,
   hgncId: /^((HGNC|MGI|RGD):\d{1,10}|ZFIN:ZDB-GENE-\d{6}-\d{1,6}|FB:FBgn\d{7}|WB:WBGene\d{8}|SGD:S\d{9}|TAIR:AT[1-5CM]G\d{5}|Xenbase:XB-GENE-\d{1,10})$/,
-  taxid: /^\d{1,9}$/, locus: /^(Y[A-P][LR]\d{3}[WC](-[A-Z])?|AT[1-5CM]G\d{5})$/ };
+  taxid: /^\d{1,9}$/, locus: /^(Y[A-P][LR]\d{3}[WC](-[A-Z])?|AT[1-5CM]G\d{5}|C[GR]\d{4,5})$/ };
 // Sets a key safely even when a target is literally called "__proto__".
 export function putTarget(targets, name, rec) {
   Object.defineProperty(targets, name, { value: rec, enumerable: true, writable: true, configurable: true });
@@ -363,7 +407,7 @@ async function getJson(fetchFn, url, headers) {
 function fromMyGene(hit, species, now) {
   const ens = [hit.ensembl].flat().map(e => e?.gene).filter(e => typeof e === "string");
   const want = ENS_PREFIX[species] || "-";
-  const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "");
+  const id = nomenclatureId(hit), locus = String(first1(hit.locus_tag) ?? "").replace(/^Dmel_/, "");
   return { ...(FIELD_RE.locus.test(locus) ? { locus } : {}), symbol: String(hit.symbol || ""), geneName: String(hit.name || ""), description: BOILERPLATE.test(hit.summary || "") ? "" : firstSentence(hit.summary),
     entrez: hit.entrezgene != null ? String(hit.entrezgene) : "", ensembl: ens.find(e => e.startsWith(want + "00000")) || ens.find(e => e.startsWith(want + "0")) || ens[0] || "", hgncId: id,
     dbType: String(hit.type_of_gene || ""), type: typeFromDb(hit.type_of_gene, hit.symbol || ""), source: "MyGene.info", checkedAt: now };
@@ -395,9 +439,24 @@ export async function lookupGene(symbol, { species = "human", taxid = "", extra 
       // A locus with a gene name (YFL039C is ACT1) comes back like an alias, so the panel says which name it found.
       if (hit) return { status: String(hit.symbol || want).toUpperCase() === want ? "found" : "alias", ...fromMyGene(hit, species, now), asked: want, others: [] };
     }
+    // FlyBase annotation IDs (CG4027) are stored in MyGene.info as locus tags with a Dmel_ prefix. Some genes keep the ID as their symbol (CG10000).
+    if (species === "fly" && FLY_ANNOT.test(symbol)) {
+      const d = await mg(`locus_tag:Dmel_${symbol}`);
+      const hit = (d?.hits || []).find(x => String(first1(x.locus_tag) ?? "") === `Dmel_${symbol}`);
+      if (hit) return { status: hit.symbol === symbol ? "found" : "alias", ...fromMyGene(hit, species, now), asked: symbol, others: [] };
+    }
     for (const c of cands) {
       const d = await mg(`symbol:${c}`);
-      const hit = (d?.hits || []).find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
+      const hits = d?.hits || [];
+      // MyGene.info matches symbols without regard to case. FlyBase doesn't (dl is dorsal, Delta was Dl), so for a fly an exact
+      // match wins, and a match that differs only in case is returned with a warning and the genes that carry the name as an alias.
+      const exact = hits.find(x => String(x.symbol) === c);
+      const hit = exact || hits.find(x => String(x.symbol).toLowerCase() === c.toLowerCase()) || null;
+      if (hit && species === "fly" && !exact) {
+        const al = ((await mg(`alias:${c}`, 5))?.hits || []).map(x => String(x.symbol)).filter(x => x !== hit.symbol);
+        return { status: "found", ...fromMyGene(hit, species, now), asked: c,
+          lookupNote: `FlyBase has ${hit.symbol}${hit.name ? ` (${hit.name})` : ""}, which differs from ${c} only in case. Fly symbols are case-sensitive, so check this is the gene you mean.${al.length ? ` ${c} is also an old name or alias of ${al.join(", ")}.` : ""}` };
+      }
       if (hit) return { status: "found", ...fromMyGene(hit, species, now) };
     }
     // X. laevis: a symbol without .L or .S usually names both homeologs, so ask for both in one request and say which was used.

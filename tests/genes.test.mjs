@@ -337,6 +337,41 @@ test("lookup for other species: taxonomy ID in the request, the species' own IDs
   }
 });
 
+// ---------------------------------------------------------------- fruit fly (FlyBase conventions)
+test("fly symbols: annotation IDs, mir-N, colon forms and case slips", () => {
+  for (const s of ["Act5C", "w", "dpp", "CG1234", "CG10000", "CR43027", "mir-1", "mir-276a", "mir-let7", "Noc3", "N"]) assert.ok(G.checkSymbol(s, "fly").ok, `${s}: ${G.checkSymbol(s, "fly").reason}`);
+  const bad = [["cg1234", /upper case: CG1234/], ["CG123", /four or five digits/], ["CG123456", /four or five digits/], ["lncRNA:CR45187", /annotation ID, CR45187/],
+    ["miR-1", /mir-1, not miR-1/], ["MIR276A", /mir-276a/], ["mir1", /mir-1/], ["let-7", /mir-let7/], ["RPL32", /FlyBase writes RpL32/], ["act5c", /Act5C/], ["DPP", /dpp/]];
+  for (const [s, re] of bad) { const c = G.checkSymbol(s, "fly"); assert.ok(!c.ok, s); assert.match(c.reason, re, s); }
+  const sug = n => G.suggestSymbol(n, "fly");
+  assert.equal(sug("rp49").symbol, "RpL32");
+  assert.equal(sug("RPL32").symbol, "RpL32"); assert.match(sug("RPL32").note, /FlyBase writes this gene RpL32/);
+  assert.equal(sug("cg4027").symbol, "CG4027");
+  assert.equal(sug("lncRNA:CR45187").symbol, "CR45187");
+  assert.equal(G.analyzeTarget("dme-let-7-5p").symbol, "mir-let7");
+  assert.equal(G.analyzeTarget("CR43027").species, "fly");
+  assert.equal(G.analyzeTarget("CG4027").species, "fly");
+  assert.equal(G.cleanTargets({ a: { locus: "CG4027" } }).a.locus, "CG4027");
+});
+
+test("fly lookup: CG numbers as Dmel_ locus tags, exact case wins, case-only matches are flagged", async () => {
+  const ACT = { FLYBASE: "FBgn0000042", ensembl: { gene: "FBgn0000042" }, locus_tag: "Dmel_CG4027", name: "Actin 5C", symbol: "Act5C", type_of_gene: "protein-coding" };
+  const f = fakeFetch(url => json({ hits: new URL(url).searchParams.get("q") === "locus_tag:Dmel_CG4027" ? [ACT] : [] }));
+  const r = await G.lookupGene("CG4027", { species: "fly", fetch: f });
+  assert.equal(f.calls.length, 1);
+  assert.equal(r.status, "alias"); assert.equal(r.symbol, "Act5C"); assert.equal(r.asked, "CG4027"); assert.equal(r.locus, "CG4027");
+  // "Dl": MyGene.info answers with dorsal (dl); the lookup says so and lists the gene that has Dl as an alias.
+  const DL = { symbol: "dl", name: "dorsal", FLYBASE: "FBgn0260632" };
+  const g = fakeFetch(url => { const q = new URL(url).searchParams.get("q");
+    return json({ hits: q === "symbol:Dl" ? [DL] : q === "alias:Dl" ? [DL, { symbol: "Delta", name: "delta" }] : [] }); });
+  const d = await G.lookupGene("Dl", { species: "fly", fetch: g });
+  assert.equal(d.symbol, "dl"); assert.equal(d.asked, "Dl");
+  assert.match(d.lookupNote, /differs from Dl only in case/); assert.match(d.lookupNote, /alias of Delta/);
+  const e = fakeFetch(() => json({ hits: [{ symbol: "dl" }, { symbol: "Dl", name: "x" }] }));
+  const ex = await G.lookupGene("Dl", { species: "fly", fetch: e });
+  assert.equal(ex.symbol, "Dl"); assert.equal(ex.lookupNote, undefined); assert.equal(e.calls.length, 1);
+});
+
 // ---------------------------------------------------------------- Xenopus laevis
 test("Xenopus laevis: taxid 8355, xla- prefix, .L/.S suffix in guess and check", () => {
   assert.equal(G.TAXID.xlaevis, "8355");
