@@ -331,3 +331,69 @@ test("efficiency from the demo run's real standard curve, and the setting surviv
   const html = A.assayReportHtml({ ...exp, assaySetup: { type: "chip", params: { inputPercent: 1 }, eff: { GENE1: "curve" }, wells: {} } }, res.rows, x => String(x), res.stdCurves);
   assert.match(html, /E\^ΔCt/);
 });
+
+// ---------------------------------------------------------------- statistics across biological replicates
+function runCond(type, wells, params, cond, stats) {
+  const { rows, labels } = plate(wells);
+  return A.runAssay({ assaySetup: { type, params, wells: labels, cond, stats }, ruleset: { values: { sdThreshold: 0.3 } } }, rows);
+}
+const chipReps = (ips, inp = 26) => ips.flatMap(([s, ip]) => [[s, "ip", "R", ip], [s, "input", "R", inp]]);
+const WTKO = { "WT-1": "WT", "WT-2": "WT", "WT-3": "WT", "KO-1": "KO", "KO-2": "KO", "KO-3": "KO" };
+const W6 = [["WT-1", 24], ["WT-2", 23], ["WT-3", 24], ["KO-1", 26], ["KO-2", 25], ["KO-3", 26]];
+// t with 4 df in closed form: two-sided p = 2 × (1/2 − 3/4 u (1 − u²/3)), u = |t| / sqrt(t² + 4).
+const p4 = t => { const u = Math.abs(t) / Math.sqrt(t * t + 4); return 2 * (0.5 - 0.75 * u * (1 - u * u / 3)); };
+
+test("replicates: Welch t-test on log2 % input, by hand", () => {
+  // % input = 2^(26 − IP): WT 4, 8, 4 (log2 2, 3, 2); KO 1, 2, 1 (log2 0, 1, 0).
+  // Difference −2, SD 0.57735 in each, SE = sqrt(2 × (1/3) / 3) = 0.4714, t = −4.2426, df = 4, p = 0.0132356.
+  const out = runCond("chip", chipReps(W6), { inputPercent: 1 }, WTKO, { control: "WT" });
+  const c = out.replicates, x = c.comparisons[0];
+  close(x.p, p4(3 * Math.SQRT2), 1e-9); close(x.p, 0.0132356, 1e-6);
+  close(x.diff, -2); assert.equal(x.a, "WT"); assert.equal(x.b, "KO"); assert.equal(x.mark, "*");
+  assert.equal(c.scale, "log2");
+  const wt = c.regions[0].groups[0];
+  close(wt.mean, 16 / 3); close(wt.sd, Math.sqrt(16 / 3)); // arithmetic mean ± SD in the table: 5.333 ± 2.309
+  assert.match(x.effect, /×0\.250/);
+  const { rows, labels } = plate(chipReps(W6));
+  assert.match(A.assayReportHtml({ assaySetup: { type: "chip", params: { inputPercent: 1 }, wells: labels, cond: WTKO } }, rows, s => String(s)), /Comparing conditions[\s\S]*<svg/);
+  // No conditions: no comparison, and the calculation itself is unchanged.
+  const plain = run("chip", chipReps(W6), { inputPercent: 1 });
+  assert.equal(plain.replicates, null); close(find(plain, { set: "WT-2" }).pctInput, 8);
+});
+
+test("replicates: Student, Mann–Whitney, BH and Bonferroni across regions, logit for % methylation", () => {
+  // Student with equal n and equal SDs gives the same t and df as Welch here.
+  close(runCond("chip", chipReps(W6), { inputPercent: 1 }, WTKO, { test: "student" }).replicates.comparisons[0].p, p4(3 * Math.SQRT2), 1e-9);
+  // Mann–Whitney, exact, 3 vs 3, complete separation: p = 2/20 = 0.1.
+  const mw = runCond("chip", chipReps([["WT-1", 24], ["WT-2", 23], ["WT-3", 23.5], ["KO-1", 26], ["KO-2", 25], ["KO-3", 25.5]]), { inputPercent: 1 }, WTKO, { test: "mannwhitney" }).replicates;
+  close(mw.comparisons[0].p, 0.1); assert.ok(mw.warnings.some(x => /can't give p below 0\.1/.test(x.text)));
+  // Two regions with the same p: BH leaves it as it is, Bonferroni doubles it.
+  const two = [...chipReps(W6), ...chipReps(W6).map(r => [r[0], r[1], "S", r[3]])];
+  const bh = runCond("chip", two, { inputPercent: 1 }, WTKO, {}).replicates.comparisons;
+  const bf = runCond("chip", two, { inputPercent: 1 }, WTKO, { correction: "bonferroni" }).replicates.comparisons;
+  close(bh[0].pAdj, bh[0].p); close(bf[0].pAdj, 2 * bf[0].p);
+  // % methylation goes on the logit (M-value) scale by default: 25% → log2(25/75), 10% → log2(10/90).
+  const m = [["WT-1", 25, 24], ["WT-2", 25, 24], ["KO-1", 26, 24], ["KO-2", 24 + Math.log2(10), 24]].flatMap(([s, d, mk]) => [[s, "digested", "H19", d], [s, "mock", "H19", mk]]);
+  const mc = { "WT-1": "WT", "WT-2": "WT", "KO-1": "KO", "KO-2": "KO" };
+  const mm = runCond("msre", m, { enzyme: "sensitive" }, mc, { control: "WT" }).replicates;
+  assert.equal(mm.regions[0].scale, "logit");
+  close(mm.regions[0].groups[1].tvalues[0], Math.log2(25 / 75)); close(mm.regions[0].groups[1].tvalues[1], Math.log2(10 / 90), 1e-9);
+  assert.equal(runCond("msre", m, { enzyme: "sensitive" }, mc, { pctScale: "raw" }).replicates.regions[0].scale, "raw");
+  assert.equal(A.normalizeAssaySetup({ cond: { a: "WT" }, stats: { test: "x" } }).stats.test, "welch");
+  assert.deepEqual(A.normalizeAssaySetup({ cond: { a: "WT", b: 5 } }).cond, { a: "WT" });
+});
+
+test("replicates: three conditions with ANOVA + Dunnett and Tukey; CSV and SVG", async () => {
+  const S = await import("../web/stats.js"), RS = await import("../web/assay-stats.js");
+  const w = chipReps([...W6, ["DKO-1", 27], ["DKO-2", 28], ["DKO-3", 27]]);
+  const cond = { ...WTKO, "DKO-1": "DKO", "DKO-2": "DKO", "DKO-3": "DKO" };
+  const d = runCond("chip", w, { inputPercent: 1 }, cond, { test: "dunnett", control: "WT" }).replicates;
+  assert.deepEqual(d.conditions, ["WT", "DKO", "KO"]);
+  const L = [[2, 3, 2], [-1, -2, -1], [0, 1, 0]]; // log2 % input: WT, DKO, KO
+  close(d.comparisons.find(x => x.b === "KO").p, S.dunnett(L, 0).comparisons[1].p, 1e-12);
+  close(d.regions[0].anova.p, S.anova(L).p, 1e-12);
+  assert.equal(runCond("chip", w, { inputPercent: 1 }, cond, { test: "tukey" }).replicates.comparisons.length, 3);
+  assert.match(RS.comparisonCsv(d), /^region,metric,test/);
+  assert.match(RS.svgString(RS.replicateFigure(d)), /^<svg[\s\S]*<\/svg>$/);
+  assert.equal(RS.guessCondition("WT-2"), "WT"); assert.equal(RS.guessCondition("KO rep3"), "KO"); assert.equal(RS.guessCondition("Liver"), "");
+});

@@ -7,6 +7,7 @@
 // a second, separate layer kept in exp.assaySetup = { type, sourceSha, params, wells: { [rowId]: { role, set, fraction } } }.
 // "set" ties wells of one chromatin / DNA / lysate together (IP, input and IgG from the same chromatin share a set).
 import { ctNum, groupBy } from "./core.js";
+import { cleanConditions, cleanStats, compareConditions, replicateReportHtml } from "./assay-stats.js";
 
 // ---------------------------------------------------------------- references (checked against PubMed, Nov 2026)
 export const REFS = {
@@ -163,6 +164,10 @@ export function normalizeAssaySetup(x) {
     for (const [t, v] of Object.entries(x.eff).slice(0, 500)) if (t && t.length <= 200 && cleanEff(v) !== null) putKey(eff, t, cleanEff(v));
     if (Object.keys(eff).length) out.eff = eff;
   }
+  // Conditions per set and the settings for comparing them (statistics across biological replicates, assay-stats.js).
+  const cond = cleanConditions(x.cond);
+  if (Object.keys(cond).length) out.cond = cond;
+  if (isObj(x.stats)) out.stats = cleanStats(x.stats);
   out.type = assayById(x.type) ? x.type : "";
   out.sourceSha = str(x.sourceSha);
   if (isObj(x.params)) for (const [k, v] of Object.entries(x.params)) {
@@ -669,7 +674,8 @@ export function runAssay(exp, rows, extra = {}) {
   if (r.columns?.length) r.columns.push(["eff", "Efficiency used"]);
   const order = { high: 0, medium: 1, low: 2 };
   warnings.sort((a, b) => order[a.level] - order[b.level]);
-  return { assay, family, params, counts, labelled: lr.length, warnings, efficiencies: [...effs.values()], ...r };
+  const replicates = compareConditions(assay.family, r, setup, params);
+  return { assay, family, params, counts, labelled: lr.length, warnings, efficiencies: [...effs.values()], ...r, replicates };
 }
 
 // ---------------------------------------------------------------- report section (HTML string, no DOM)
@@ -691,6 +697,7 @@ export function assayReportHtml(exp, rows, esc, stdCurves) {
 ${ps.length ? `<p class="sub">${esc(ps.join(". "))}.</p>` : ""}
 <div class="ev">${family.formula.map(esc).join("\n")}</div>
 ${tbl}${summary}
+${replicateReportHtml(out.replicates, esc)}
 ${out.warnings.length ? `<p><b>Things to check</b></p><ul>${out.warnings.map(w => `<li><span class="sev ${w.level}">${esc(w.level[0].toUpperCase() + w.level.slice(1))}</span>${esc(w.text)}</li>`).join("")}</ul>` : "<p>Nothing to flag in the assay calculation.</p>"}
 <p class="sub small">Ct differences are turned into ratios as E^ΔCt, where E = 1 + efficiency for that primer pair. ${esc(out.efficiencies.length ? `Efficiency used: ${out.efficiencies.map(e => `${e.target} ${effLabel(e)}${e.source === "curve" ? ` [${e.note}]` : ""}`).join("; ")}.` : "")} Where no efficiency was set, 100% (E = 2) is assumed. Sources: ${family.refs.map(k => esc(REFS[k].cite) + (REFS[k].doi ? ` doi:${esc(REFS[k].doi)}` : ` PMID ${esc(REFS[k].pmid)}`)).join(" ")}</p>`;
 }

@@ -2,6 +2,7 @@
 // and see the result with a chart. The maths lives in assays.js; this file only builds the page.
 // app.js passes in its own helpers (h, change, plateGrid…) so this page looks and behaves like the Plate page.
 import * as A from "./assays.js";
+import * as RS from "./assay-stats.js";
 
 // Okabe–Ito colours: readable with the common kinds of colour blindness.
 const SERIES = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#8C7A2B", "#4D4D4D"];
@@ -220,5 +221,72 @@ export function assayView(ctx) {
         assay.family === "signal" && res.summary?.length > 0 && h("p", { class: "fine" }, "Blanks: " + res.summary.map(x => `${x.target} mean Ct ${A.fmtNum(x.blankMean)} (SD ${A.fmtNum(x.blankSd, 3)}, n = ${x.nBlank})`).join("; ") + ".")]
       : h("p", { class: "muted" }, "No results yet. Label the wells above."),
     h("p", { class: "fine" }, "Click a row to select its wells on the plate. The values come straight from the exported Ct values; nothing is removed or changed. The same table goes into the report.")));
+  if (res.rows.length) out.push(replicateCard(ctx, setup, res, save));
   return out;
+}
+
+// ---------------------------------------------------------------- comparing conditions across biological replicates
+function svgNode(n) {
+  if (typeof n === "string") return document.createTextNode(n);
+  const [tag, attrs, ...kids] = n, e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  for (const c of kids) e.append(svgNode(c));
+  return e;
+}
+function downloadPng(ctx, tree, name, dpi = 300) {
+  const w = Number(tree[1].width), hh = Number(tree[1].height), k = dpi / 96, img = document.createElement("img");
+  img.onload = () => {
+    const cv = document.createElement("canvas"); cv.width = Math.round(w * k); cv.height = Math.round(hh * k);
+    const g = cv.getContext("2d"); if (!g) return;
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+    cv.toBlob?.(async b => { if (b) ctx.download(name, new Uint8Array(await b.arrayBuffer()), "image/png"); }, "image/png");
+  };
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(RS.svgString(tree));
+}
+function replicateCard(ctx, setup, res, save) {
+  const { h, card } = ctx;
+  const skip = new Set([res.params.calibratorSet, res.params.backgroundSet].filter(Boolean));
+  const setNames = [...new Set(res.rows.map(r => r.set))].filter(s => s && !skip.has(s)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  const cond = setup.cond || {}, st = RS.cleanStats(setup.stats), c = res.replicates;
+  const known = [...new Set(Object.values(cond))].sort();
+  const put = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+  const setCond = (set, v) => { v = String(v).trim().slice(0, 80); if ((cond[set] || "") === v) return; save("assay.condition", `${set}: condition ${v || "cleared"}`, s => { const n = { ...(s.cond || {}) }; if (v) put(n, set, v); else delete n[set]; s.cond = n; }); };
+  const guesses = setNames.filter(s => !cond[s] && RS.guessCondition(s));
+  const setStat = (k, v, label) => save("assay.stats", `${label}: ${v}`, s => { s.stats = { ...RS.cleanStats(s.stats), [k]: v }; });
+  const sel = (label, key, opts, val) => h("label", { class: "field" }, h("span", null, label),
+    h("select", { "aria-label": label, onchange: ev => setStat(key, ev.target.value, label) }, opts.map(([v, l]) => h("option", { value: v, selected: v === val }, l))));
+  const dl = "assay-cond-list";
+  const parts = [h("h2", null, "Comparing conditions (biological replicates)"),
+    h("p", { class: "fine" }, "Each set is one chromatin, DNA or lysate, so one biological replicate. Say which condition each set belongs to (for example WT-1, WT-2 and WT-3 are WT). Each region is then compared between conditions, with each set counted once. Leave a set empty to keep it out."),
+    h("datalist", { id: dl }, known.map(k => h("option", { value: k }))),
+    h("div", { class: "row" }, h("button", { class: "btn", type: "button", disabled: !guesses.length, title: "Takes the replicate number off the set name: WT-1 and WT rep2 become WT.",
+      onclick: () => save("assay.condition", `Conditions filled in from set names for ${guesses.length} set(s)`, s => { const n = { ...(s.cond || {}) }; for (const g of guesses) put(n, g, RS.guessCondition(g)); s.cond = n; }) },
+    guesses.length ? `Fill in ${guesses.length} condition${guesses.length === 1 ? "" : "s"} from set names` : "Nothing to fill in from set names"),
+    Object.keys(cond).length > 0 && h("button", { class: "link", type: "button", onclick: () => save("assay.condition", "Cleared all conditions", s => { delete s.cond; }) }, "Clear conditions")),
+    h("div", { class: "rows" }, setNames.map(s => h("label", { class: "line" }, h("span", { class: "line-l mono" }, s),
+      h("span", { class: "line-c" }, h("input", { type: "text", list: dl, value: cond[s] || "", placeholder: "Condition, e.g. WT", "aria-label": `Condition for ${s}`, onchange: ev => setCond(s, ev.target.value) })))))];
+  if (c) {
+    parts.push(h("div", { class: "row wrap" },
+      c.metrics.length > 1 && sel("Compare", "metric", c.metrics.map(m => [m[0], m[1]]), c.metric),
+      sel("Test", "test", Object.entries(RS.TESTS).map(([k, v]) => [k, v.label]), st.test),
+      sel("Adjust p across regions", "correction", Object.entries(RS.CORRECTIONS), st.correction),
+      c.conditions.length > 1 && sel("Control condition", "control", c.conditions.map(x => [x, x]), c.control),
+      c.kind === "pct" && sel("Scale for percentages", "pctScale", Object.entries(RS.PCT_SCALES), st.pctScale)),
+    h("p", { class: "fine" }, `${RS.TESTS[st.test].help} The test runs on ${RS.scaleNote(c)}.`));
+    if (c.warnings.length) parts.push(h("ul", { class: "assay-warn", style: "list-style:none;padding:0;display:grid;gap:6px" }, c.warnings.map(w => h("li", { class: "warn" }, h("span", { class: "sev " + w.level, style: "margin-right:8px" }, w.level[0].toUpperCase() + w.level.slice(1)), w.text))));
+    if (c.comparisons.length) {
+      const tb = RS.comparisonTable(c), tree = RS.replicateFigure(c), base = `${ctx.st.exp.id || "assay"}-${c.metric}-by-condition`;
+      parts.push(h("div", { class: "tablewrap" }, h("table", { class: "tbl" }, h("thead", null, h("tr", null, tb.head.map(x => h("th", null, x)))),
+        h("tbody", null, tb.rows.map(r => h("tr", null, r.map(x => h("td", null, String(x)))))))),
+      c.regions.some(r => r.anova) && h("p", { class: "fine" }, c.regions.filter(r => r.anova).map(r => `${r.region}: ${r.anova.name} p ${RS.fmtP(r.anova.p)} (adjusted ${RS.fmtP(r.anova.pAdj)})`).join("; ")),
+      c.regions.some(r => r.note) && h("p", { class: "fine" }, c.regions.filter(r => r.note).map(r => `${r.region}: ${r.note}`).join(" ")),
+      tree && h("figure", { class: "ana-fig" }, h("div", { style: "overflow-x:auto" }, svgNode(tree))),
+      h("div", { class: "row" },
+        tree && h("button", { class: "btn", type: "button", onclick: () => ctx.download(`${base}.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + RS.svgString(tree), "image/svg+xml") }, "Download SVG"),
+        tree && h("button", { class: "btn", type: "button", onclick: () => downloadPng(ctx, tree, `${base}.png`) }, "Download PNG (300 dpi)"),
+        h("button", { class: "btn", type: "button", onclick: () => ctx.download(`${base}.csv`, RS.comparisonCsv(c), "text/csv") }, "Download CSV")),
+      h("p", { class: "fine" }, "Mean ± SD is arithmetic, in the units of the result. The same table and graph go into the report."));
+    }
+  }
+  return card(...parts);
 }
