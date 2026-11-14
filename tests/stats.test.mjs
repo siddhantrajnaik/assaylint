@@ -178,6 +178,74 @@ test("Kruskal–Wallis matches scipy.stats.kruskal; Dunn's test matches the form
   assert.equal(S.kruskal([[1, 1], [1, 1]]).p, null, "all values the same");
 });
 
+// ---------------------------------------------------------------- Wilcoxon, CIs, Welch ANOVA, Games–Howell, two-way ANOVA
+test("Wilcoxon signed-rank matches scipy.stats.wilcoxon with its defaults", () => {
+  const methods = new Set();
+  for (const c of REF.wilcoxon) {
+    const r = S.wilcoxon(c.a, c.b);
+    close(r.W, c.W, `W ${c.a} / ${c.b}`); close(r.p, c.p, `p ${c.a} / ${c.b} (${r.method})`);
+    track(`Wilcoxon (${r.method})`, r.p, c.p);
+    methods.add(r.method);
+  }
+  assert.deepEqual([...methods].sort(), ["exact", "exact (all sign flips)", "normal approximation"], "every branch is covered");
+  assert.equal(S.wilcoxon([1, 2], [1, 2]).p, null, "all differences zero");
+  assert.equal(S.wilcoxon([1], [0]).p, null);
+  assert.equal(S.wilcoxonMinP(5), 0.0625);
+});
+
+test("t quantiles and confidence intervals match SciPy", () => {
+  for (const c of REF.t_quantiles) { close(S.tQuantile(c.p, c.df), c.q, `t.ppf(${c.p}, ${c.df})`); track("t quantile", S.tQuantile(c.p, c.df), c.q); }
+  for (const c of REF.mean_ci) {
+    const r = S.meanCi(c.x);
+    close(r.low, c.low, `CI low ${c.x}`); close(r.high, c.high, `CI high ${c.x}`);
+    track("mean CI (ttest_1samp)", r.low, c.low); track("mean CI (ttest_1samp)", r.high, c.high);
+  }
+  for (const c of REF.welch_ci) {
+    const r = S.welchCi(c.a, c.b);
+    if (c.low === null) { assert.equal(r.low, null); continue; }
+    close(r.low, c.low, `Welch CI low ${c.a} / ${c.b}`); close(r.high, c.high, `Welch CI high ${c.a} / ${c.b}`);
+    track("Welch CI (ttest_ind)", r.low, c.low); track("Welch CI (ttest_ind)", r.high, c.high);
+  }
+  assert.equal(S.meanCi([3]).low, null);
+});
+
+test("Welch's ANOVA and Games–Howell match pingouin", () => {
+  for (const c of REF.welch_anova) {
+    const r = S.welchAnova(c.groups);
+    close(r.F, c.F, `Welch F ${JSON.stringify(c.groups)}`); close(r.df2, c.df2, "Welch df2"); close(r.p, c.p, "Welch ANOVA p");
+    track("Welch ANOVA", r.p, c.p);
+  }
+  for (const c of REF.games_howell) {
+    const r = S.gamesHowell(c.groups);
+    for (const want of c.pairs) {
+      const got = r.pairs.find(x => x.i === want.i && x.j === want.j);
+      close(got.df, want.df, "Games–Howell df");
+      closeAbs(got.p, want.p, 1e-8, `Games–Howell p ${JSON.stringify(c.groups)} [${want.i}, ${want.j}]`);
+      track("Games–Howell (absolute)", got.p, want.p, { abs: true });
+    }
+  }
+  assert.match(S.welchAnova([[1, 1, 1], [2, 3]]).reason, /no spread/);
+});
+
+test("two-way ANOVA matches statsmodels anova_lm(typ=2)", () => {
+  for (const c of REF.two_way) {
+    const r = S.twoWayAnova(c.y, c.a, c.b, { interaction: c.interaction });
+    assert.equal(r.residual.df, c.residual_df);
+    close(r.residual.ss, c.residual_ss, "residual SS");
+    for (const want of c.terms) {
+      const got = r.terms.find(x => x.term === want.term);
+      assert.equal(got.df, want.df, `${want.term} df`);
+      close(got.F, want.F, `${want.term} F`); close(got.p, want.p, `${want.term} p`);
+      track("two-way ANOVA (type II)", got.p, want.p);
+    }
+  }
+  const single = S.twoWayAnova([1, 2, 3, 5], ["c", "c", "t", "t"], ["d1", "d2", "d1", "d2"]);
+  assert.equal(single.interaction, false); assert.match(single.notes[0], /one value per combination/);
+  const missing = S.twoWayAnova([1, 2, 3, 4, 5, 6], ["c", "c", "t", "t", "u", "u"], ["d1", "d1", "d1", "d2", "d2", "d2"]);
+  assert.equal(missing.interaction, false); assert.match(missing.notes[0], /no values/);
+  assert.match(S.twoWayAnova([1, 2], ["c", "c"], ["d1", "d2"]).reason, /two levels/);
+});
+
 test("report of the worst disagreement per test", () => {
   for (const [k, v] of Object.entries(worst)) console.log(`# worst ${k}: ${v.toExponential(2)}`);
 });
