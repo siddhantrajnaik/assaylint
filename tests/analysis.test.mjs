@@ -241,7 +241,7 @@ test("saved analysis settings survive normalizeExperiment and a packet round tri
     excluded: ["A1", null], scale: "linear", refMaxShift: 0.8, test: "dunnett", junk: "<script>" };
   C.normalizeExperiment(exp);
   assert.deepEqual(exp.analysis, { on: true, refs: ["GAPDH"], control: "control", efficiency: true, error: "sem", correction: "bonferroni", skipOmitted: false,
-    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett" });
+    excluded: ["A1"], scale: "linear", refMaxShift: 0.8, test: "dunnett", twoWay: "" });
   const again = await C.verifyPacket(JSON.parse(R.packetJson(exp, res)));
   assert.deepEqual(again.analysis, exp.analysis);
   for (const junk of [null, 5, "x", [], { on: "yes", refs: "GAPDH", error: "var", correction: "holm", refMaxShift: -1, test: "anova; drop table" }]) {
@@ -501,6 +501,35 @@ test("study: a unit on two plates counts once, and the study gets its own HTML r
   assert.match(html, /<td>IL6<\/td><td>treated<\/td><td>3<\/td>/);
   const none = R.studyReportHtml({ title: "<x>" }, A.analyzeStudy([pa, pb], { settings: { on: true } }), {});
   assert.match(none, /&lt;x&gt;/); assert.match(none, /can't run yet/);
+});
+
+test("two-way ANOVA: group × second factor from the Factor2 column, and plate as a block in a study", () => {
+  const F2 = { c1: "d1", a1: "d1", b1: "d1", c2: "d1", a2: "d2", b2: "d2", c3: "d2", a3: "d2", b3: "" };
+  const { exp, res } = threeRun(["Factor2"], r => [F2[r[1]]]);
+  assert.equal(res.rows.find(r => r.sample === "a2").factor2, "d2", "the Factor2 column is read");
+  const a = A.analyzeRun(exp, res, { ...setFor("welch"), twoWay: "factor2" });
+  const units = ["c1", "c2", "c3", "a1", "a2", "a3", "b1", "b2"];
+  const ref = S.twoWayAnova(units.map(u => dctOf(u)), units.map(u => ({ c: "control", a: "drugA", b: "drugB" })[u[0]]), units.map(u => F2[u]));
+  const tw = a.twoWay[0];
+  assert.equal(tw.n, 8);
+  near(tw.group.p, ref.terms[0].p, 1e-12, "group p"); near(tw.second.p, ref.terms[1].p, 1e-12, "second factor p");
+  assert.ok(tw.interaction === null || Number.isFinite(tw.interaction.df));
+  assert.ok(a.warnings.some(w => /no second-factor label: b3/.test(w)), a.warnings.join("\n"));
+  near(a.summary.find(x => x.group === "drugA").p, A.analyzeRun(exp, res, setFor("welch")).summary.find(x => x.group === "drugA").p, 1e-15, "the main test is unchanged");
+  assert.match(a.method, /Two-way ANOVA/);
+  exp.analysis = C.cleanAnalysisSettings({ ...setFor("welch"), twoWay: "factor2" });
+  assert.match(R.reportHtml(exp, res), /Two-way ANOVA \(group × second factor, type II\)/);
+  assert.match(C.mapTemplateCsv(res.rows), /,factor2\n/);
+  assert.equal(A.analyzeRun(exp, res, { ...setFor("welch"), twoWay: "plate" }).twoWay.length, 0, "plate as block needs several plates");
+  // plate as a block in a study
+  const strip = rows => rows.filter(r => !(r[3] >= 30));
+  const pa = run(strip(plate({ c1: HAND.c1, c2: HAND.c2, t1: HAND.t1, t2: HAND.t2 })), { title: "P1" });
+  const pb = run(strip(plate({ c3: HAND.c3, t3: HAND.t3, c4: HAND.c1, t4: HAND.t2 }, { shift: { IL6: 0.7 } })), { title: "P2" });
+  const st = A.analyzeStudy([pa, pb], { settings: { on: true, refs: ["GAPDH"], control: "control", twoWay: "plate" }, mode: "none" });
+  const b = st.twoWay[0];
+  assert.equal(b.interaction, null, "a block has no interaction term");
+  const r2 = S.twoWayAnova(st.rows.map(r => r.dct), st.rows.map(r => r.group), st.rows.map(r => r.plates[0]), { interaction: false });
+  near(b.group.p, r2.terms[0].p, 1e-12, "block: group p"); near(b.second.p, r2.terms[1].p, 1e-12, "block: plate p");
 });
 
 test("paired tests also give the fold change from the within-pair differences", () => {

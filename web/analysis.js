@@ -39,7 +39,7 @@ export function choices(res) {
 export function plateRecords(res, settings, plate = "", calibrators = []) {
   const s = cleanAnalysisSettings(settings) || DEFAULT_SETTINGS, out = { plate, records: [], warnings: [] };
   const excluded = new Set(s.excluded.map(w => w.trim().toUpperCase()));
-  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map(), unitPairs = new Map();
+  const omitted = [], manual = [], noCt = [], ungrouped = new Set(), unitGroups = new Map(), unitPairs = new Map(), unitF2 = new Map();
   const by = new Map();
   for (const r of res?.rows || []) {
     if (r.role !== "sample" || !r.target || !r.bio_unit) continue;
@@ -52,6 +52,7 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
       unitGroups.get(r.bio_unit).add(r.group);
     }
     if (r.pair) { if (!unitPairs.has(r.bio_unit)) unitPairs.set(r.bio_unit, new Set()); unitPairs.get(r.bio_unit).add(r.pair); }
+    if (r.factor2 && !unitF2.has(r.bio_unit)) unitF2.set(r.bio_unit, r.factor2); // two-way ANOVA: first label seen
     const ct = ctNum(r.ct, r.dc);
     const k = `${r.bio_unit}\u0000${r.target}`;
     if (!by.has(k)) by.set(k, { plate, unit: r.bio_unit, group: r.group, target: r.target, tech: [], missing: [] });
@@ -66,6 +67,7 @@ export function plateRecords(res, settings, plate = "", calibrators = []) {
   for (const rec of by.values()) {
     rec.group = unitGroups.has(rec.unit) ? [...unitGroups.get(rec.unit)][0] : null;
     rec.pair = unitPairs.has(rec.unit) ? [...unitPairs.get(rec.unit)][0] : null;
+    rec.factor2 = unitF2.get(rec.unit) || null;
     if (rec.tech.length) out.records.push({ ...rec, ct: mean(rec.tech.map(t => t.ct)) });
   }
   const at = plate ? ` on ${plate}` : "";
@@ -265,6 +267,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
     const u = units.get(r.unit);
     u.plates.add(r.plate);
     u.pair ||= r.pair || null;
+    u.factor2 ||= r.factor2 || null;
     if (r.group) { u.groups.add(r.group); u.group ||= r.group; }
     (u.t[r.target] ||= { per: [], tech: [] }).per.push(r.ct);
     u.t[r.target].tech.push(...r.tech);
@@ -287,7 +290,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   const groups = control ? [control, ...groupsSeen.filter(g => g !== control)] : groupsSeen;
   const targets = allTargets.filter(t => !refs.includes(t));
   if (refs.length && !targets.length) needs.push("targets");
-  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], kruskal: [], pairwise: [], refStability: [], efficiency: {},
+  const base = { settings: s, refs, control, groups, targets, allTargets, plates, calibration, needs, warnings, rows: [], summary: [], anova: [], kruskal: [], pairwise: [], twoWay: [], refStability: [], efficiency: {},
     test: TESTS[s.test] };
   if (needs.length) return { ...base, ok: false };
 
@@ -318,7 +321,7 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   }
 
   // ΔCt per unit and target, then ΔΔCt against the control group's mean ΔCt.
-  const comps = [], pairNotes = { none: false, unmatched: [], duplicate: [] };
+  const comps = [], pairNotes = { none: false, unmatched: [], duplicate: [] }, twoWayLeft = new Set();
   for (const t of targets) {
     const data = [...units.values()].filter(u => u.group && u.ref !== null && u.t[t]).map(u => ({ u, dct: w(t) * u.t[t].ct - u.ref }));
     const ctrl = data.filter(d => d.u.group === control).map(d => d.dct);
@@ -354,7 +357,22 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
       const k = S.kruskal(byGroup.map(x => x.v));
       base.kruskal.push({ target: t, H: k.H, df: k.df, p: k.p, groups: byGroup.length, note: k.reason || "" });
     }
+    // Two-way ANOVA (type II sums of squares) of ΔCt on group and a second factor: the factor2 label (with the
+    // interaction) or the plate as a block (additive: each plate shifts every group by the same amount).
+    if (s.twoWay && !(s.twoWay === "plate" && plates.length < 2)) {
+      const second = d => (s.twoWay === "plate" ? (d.u.plates.size === 1 ? [...d.u.plates][0] : null) : d.u.factor2 || null);
+      const use = data.filter(d => second(d) !== null);
+      for (const d of data) if (second(d) === null) twoWayLeft.add(d.u.unit);
+      const r = S.twoWayAnova(use.map(d => d.dct), use.map(d => d.u.group), use.map(second), { interaction: s.twoWay === "factor2" });
+      const term = k => r.terms.find(x => x.term === k) || null;
+      base.twoWay.push({ target: t, n: use.length, group: term("a"), second: term("b"), interaction: term("ab"), residual: r.residual,
+        levels: r.levelsB, note: [r.reason, ...r.notes].filter(Boolean).join("; ") });
+    }
   }
+  if (s.twoWay === "plate" && plates.length < 2) warnings.push("Plate as a block only makes sense in a study of several plates, so no two-way ANOVA was worked out for this single plate.");
+  if (twoWayLeft.size) warnings.push(s.twoWay === "plate"
+    ? `Left out of the two-way ANOVA because they were measured on more than one plate, so they have no single plate to be blocked by: ${list([...twoWayLeft])}.`
+    : `Left out of the two-way ANOVA because they have no second-factor label: ${list([...twoWayLeft])}. Set it on the Plate step (More options, "Second factor") or give your file a Factor2 column.`);
   if (pairNotes.none) warnings.push(`The ${s.test === "wilcoxon" ? "Wilcoxon signed-rank test" : "paired t-test"} needs a pair label on each biological unit, so that each unit is matched with the control unit it belongs with (for example the same animal or the same donor). None of the units has one, so no p values were worked out. Add a Pair label on the Plate step (under More options) or a Pair column in your file, or choose another test.`);
   if (pairNotes.unmatched.length) warnings.push(`Left out of the paired test because no unit in the other group has the same pair label: ${list(uniq(pairNotes.unmatched))}.`);
   if (pairNotes.duplicate.length) warnings.push(`These pair labels are used by more than one unit in the same group, so their pairs can't be formed: ${list(uniq(pairNotes.duplicate))}. Each pair label should appear once per group.`);
@@ -369,6 +387,10 @@ export function compute(records, settings, { stdCurves = [], plates = [""], cali
   for (const om of [base.anova, base.kruskal]) {
     const abh = S.benjaminiHochberg(om.map(a => a.p)), abf = S.bonferroni(om.map(a => a.p));
     om.forEach((a, i) => { a.pBH = abh[i]; a.pBonferroni = abf[i]; });
+  }
+  for (const k of ["group", "second", "interaction"]) { // two-way ANOVA: each effect corrected across targets
+    const rows = base.twoWay.filter(x => x[k]), bh = S.benjaminiHochberg(rows.map(x => x[k].p)), bf = S.bonferroni(rows.map(x => x[k].p));
+    rows.forEach((x, i) => { x[k].pBH = bh[i]; x[k].pBonferroni = bf[i]; });
   }
 
   const small = base.summary.filter(r => r.n < MIN_N);
@@ -431,6 +453,7 @@ function methodText(a) {
     (e ? `, with amplification efficiencies from standard curves (Pfaffl 2001; each Ct multiplied by log2 of its efficiency factor)` : " (Livak & Schmittgen 2001, assuming 100% efficiency)") + "." + calText +
     ` Statistics on ΔCt with biological replicates as n: ${testMethod(a)}.` + correctionText(a) + ` Error bars: ${ERR[s.error]} of ΔΔCt.` +
     " 95% confidence intervals: for each group's mean ΔΔCt from the t distribution with n − 1 df, and for its difference from the control with Welch's standard error and df; both transformed back to fold change." +
+    (a.twoWay?.length ? (s.twoWay === "plate" ? " Two-way ANOVA of ΔCt on group with plate as a block (additive model, type II sums of squares)." : " Two-way ANOVA of ΔCt on group and the second factor with their interaction (type II sums of squares; the interaction is left out where a combination has no units).") : "") +
     (TESTS[s.test].paired ? " With the paired test, the fold change from the pairs (2^− the mean within-pair difference in ΔCt, with a paired t 95% CI) is given alongside the group-mean fold change." : "");
 }
 function testMethod(a) {
@@ -490,6 +513,9 @@ export function analysisResultsHtml(a, esc) {
 <table><thead><tr><th>Target</th><th>Group</th><th>n</th><th>Fold change</th><th>${a.settings.error === "ci" ? "95% CI (error bars)" : `± ${ERR[a.settings.error]}`}</th><th>95% CI of the group mean</th><th>95% CI vs control (Welch)</th><th>${esc(a.test.short)} p</th><th>p (BH)</th><th>p (Bonferroni)</th></tr></thead><tbody>${body}</tbody></table>
 ${a.pairwise.length ? `<p class="sub small">${esc(a.test.short)}, every pair of groups: ${a.pairwise.map(x => `${esc(x.target)} ${esc(x.a)} vs ${esc(x.b)} q = ${f(x.q)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.test.paired && a.summary.some(r => Number.isFinite(r.pairedFold)) ? `<p class="sub small">Fold change from the pairs (2^−mean of the within-pair ΔΔCt, only units that have a partner; 95% CI from the paired t): ${a.summary.filter(r => Number.isFinite(r.pairedFold)).map(r => `${esc(r.target)} ${esc(r.group)} ${f(r.pairedFold)} (${f(r.pairedFoldCiLow)}–${f(r.pairedFoldCiHigh)})`).join("; ")}. The table above shows the group-mean fold change.</p>` : ""}
+${a.twoWay?.length ? `<p class="sub small">Two-way ANOVA (${a.settings.twoWay === "plate" ? "group + plate as a block" : "group × second factor"}, type II): ${a.twoWay.map(x => `${esc(x.target)}: ` +
+  [["group", x.group], [a.settings.twoWay === "plate" ? "plate" : "second factor", x.second], ["interaction", x.interaction]].filter(([, v]) => v)
+    .map(([k, v]) => `${k} F(${v.df}, ${x.residual?.df}) = ${f(v.F)}, p = ${esc(fmtP(v.p))}`).join(", ") + (x.note ? ` (${esc(x.note)})` : "")).join("; ")}.</p>` : ""}
 ${a.kruskal.length ? `<p class="sub small">Kruskal–Wallis: ${a.kruskal.map(x => `${esc(x.target)} H(${x.df}) = ${f(x.H)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.anova.length ? `<p class="sub small">${a.anova[0].welch ? "Welch's one-way ANOVA" : "One-way ANOVA"}: ${a.anova.map(x => `${esc(x.target)} F(${x.df1}, ${fmtDf(x.df2)}) = ${f(x.F)}, p = ${esc(fmtP(x.p))}`).join("; ")}.</p>` : ""}
 ${a.warnings.length ? `<p><b>Notes on the analysis</b></p><ul>${a.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;

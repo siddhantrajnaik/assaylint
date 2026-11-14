@@ -260,6 +260,12 @@ function settingsPanel(ax, s, info, set) {
         Object.entries(A.TESTS).map(([v, t]) => h("option", { value: v, selected: v === s.test }, t.label))),
       h("small", null, A.TESTS[s.test].help),
       A.TESTS[s.test].rank && h("small", { class: "muted" }, " Rank tests only look at the order of the values. With 3 to 5 replicates per group they have little power: a real difference will often come out as not significant.")),
+    h("label", { class: "field" }, h("span", null, "Two-way ANOVA (optional)"),
+      h("select", { "aria-label": "Two-way ANOVA", onchange: e => set({ twoWay: e.target.value }, `Two-way ANOVA: ${e.target.value || "none"}`) },
+        [["", "None"], ["factor2", "Group × second factor (label set on the Plate step)"], ...(info.study ? [["plate", "Group + plate as a block"]] : [])]
+          .map(([v, l]) => h("option", { value: v, selected: v === s.twoWay }, l))),
+      h("small", null, s.twoWay === "plate" ? "Asks whether the groups differ once each plate's own shift is allowed for. Each plate is assumed to move every group by the same amount."
+        : "For a design with two things varied at once, for example treatment and time, or treatment and sex. It tells you whether each one matters and whether the effect of one depends on the other (the interaction). Give each biological unit a “Second factor” label on the Plate step, or a Factor2 column in your file.")),
     h("div", { class: "row wrap" },
       sel("Error bars", s.error, [["sd", "SD (spread of the replicates)"], ["sem", "SEM (precision of the mean)"], ["ci", "95% confidence interval of the mean"]], "error", "Error bars"),
       sel(s.test === "kruskal" ? "Correction for Dunn (within a gene, then across genes)" : A.TESTS[s.test].withinTarget ? "Correction across genes" : "p value shown on graphs", s.correction, [["bh", "Benjamini–Hochberg adjusted"], ["bonferroni", "Bonferroni adjusted"]], "correction", "Graph correction"),
@@ -311,6 +317,14 @@ function resultsBlock(ax, a, base) {
     a.anova.length > 0 && h("div", null, h("h3", null, a.anova[0].welch ? "Welch's one-way ANOVA (all groups, unequal variances allowed)" : "One-way ANOVA (all groups)"),
       tbl(["Target", "Groups", "F", "df", "p", "p (BH)", "p (Bonferroni)"], a.anova.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.F) ? fmt(x.F) : x.note || "—"),
         h("td", { class: "num" }, `${x.df1}, ${A.fmtDf(x.df2)}`), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
+    a.twoWay?.length > 0 && h("div", null, h("h3", null, a.settings.twoWay === "plate" ? "Two-way ANOVA: group, with plate as a block" : "Two-way ANOVA: group × second factor"),
+      h("p", { class: "fine" }, a.settings.twoWay === "plate"
+        ? "Group row: do the groups differ once each plate's shift is taken out? Plate row: do the plates differ? Type II sums of squares, so unequal numbers per plate are handled."
+        : "Group row: does the group matter, allowing for the second factor? Second factor row: the same the other way round. Interaction row: does the group effect depend on the second factor? A small interaction p means look at the combinations separately. Type II sums of squares, so unequal numbers are handled. p values are corrected across genes, separately for each row."),
+      tbl(["Target", "n", "Effect", "F (df)", "p", "p (BH)", "p (Bonferroni)"], a.twoWay.flatMap(x => [["Group", x.group], [a.settings.twoWay === "plate" ? "Plate" : "Second factor", x.second], ["Interaction", x.interaction]]
+        .filter(([, v]) => v).map(([k, v], i) => h("tr", { class: fin(v.p) && v.p < A.ALPHA ? "diff" : "" }, h("td", null, i ? "" : x.target), h("td", { class: "num" }, i ? "" : x.n), h("td", null, k),
+          h("td", { class: "num" }, fin(v.F) ? `${fmt(v.F)} (${v.df}, ${x.residual?.df})` : "—"), h("td", { class: "num" }, A.fmtP(v.p)), h("td", { class: "num" }, A.fmtP(v.pBH)), h("td", { class: "num" }, A.fmtP(v.pBonferroni))))
+        .concat(x.note || !x.group ? [h("tr", null, h("td", null, x.group ? "" : x.target), h("td", { colspan: 6, class: "fine" }, x.note || "Not enough data."))] : [])))),
     a.kruskal.length > 0 && h("div", null, h("h3", null, "Kruskal–Wallis (all groups)"),
       tbl(["Target", "Groups", "H", "df", "p", "p (BH)", "p (Bonferroni)"], a.kruskal.map(x => h("tr", null, h("td", null, x.target), h("td", { class: "num" }, x.groups), h("td", { class: "num" }, fin(x.H) ? fmt(x.H) : x.note || "—"),
         h("td", { class: "num" }, x.df), h("td", { class: "num" }, A.fmtP(x.p)), h("td", { class: "num" }, A.fmtP(x.pBH)), h("td", { class: "num" }, A.fmtP(x.pBonferroni)))))),
@@ -383,7 +397,7 @@ export function studyView(ax) {
   };
   const { runs, missing } = loadRuns(ax, sd.runs);
   const ch = runs.map(r => A.choices(r.res));
-  const info = { targets: [...new Set(ch.flatMap(c => c.targets))], groups: [...new Set(ch.flatMap(c => c.groups))], hasCurves: runs.some(r => r.res.stdCurves?.length), excluded: false };
+  const info = { targets: [...new Set(ch.flatMap(c => c.targets))], groups: [...new Set(ch.flatMap(c => c.groups))], hasCurves: runs.some(r => r.res.stdCurves?.length), excluded: false, study: true };
   const shared = A.sharedUnits(runs);
   const toggleRun = id => save({ runs: sd.runs.includes(id) ? sd.runs.filter(x => x !== id) : [...sd.runs, id] });
   const out = [head, card(h("h2", null, "Study"),

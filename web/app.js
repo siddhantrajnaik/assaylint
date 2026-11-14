@@ -522,7 +522,7 @@ const ROLE_HELP = { sample: "One of your samples.", ntc: "No-template control: n
   standard: "Part of a dilution series of known amounts, used for the standard curve.", empty: "A well you didn't use." };
 const ROLE_BUTTONS = [["sample", "Sample"], ["ntc", "NTC"], ["positive", "Positive control"], ["nrt", "No-RT"], ["standard", "Standard"], ["empty", "Not used"]];
 const GROUP_TONES = ["#6C8796", "#8DA68A", "#B79A62", "#9C8AA5", "#6F9C98", "#A3877C"];
-const MAP_FIELDS = [["sample", "Sample"], ["target", "Target"], ["group", "Group / condition"], ["role", "Role"], ["bio_unit", "Biological unit"], ["quantity", "Quantity (standards)"], ["pair", "Pair (for the paired t-test)"]];
+const MAP_FIELDS = [["sample", "Sample"], ["target", "Target"], ["group", "Group / condition"], ["role", "Role"], ["bio_unit", "Biological unit"], ["quantity", "Quantity (standards)"], ["pair", "Pair (for the paired t-test)"], ["factor2", "Second factor (for a two-way ANOVA)"]]; // factor2: analysis module, two-way ANOVA
 const currentRow = id => st.res.rows.find(r => r.id === id);
 function setCell(id, f, val) {
   const r = currentRow(id), old = r[f] ?? "";
